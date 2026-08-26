@@ -1,0 +1,13 @@
+[package]
+name = "qingbird-md"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dirs = "6.0.0"
+eframe = "0.29"
+pulldown-cmark = "0.13.4"
+rfd = "0.17.2"
+serde = "1.0.229"
+serde_json = "1.0.151"
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
