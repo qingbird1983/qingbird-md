@@ -184,6 +184,11 @@ struct MyApp {
     last_mode: Mode,
     sel: (usize, usize),
     recording_hotkey: Option<String>,
+    // Selection translation (划词): selected text, result, and an in-flight task.
+    sel_text: String,
+    sel_result: String,
+    sel_loading: bool,
+    sel_task: Option<std::sync::Arc<std::sync::Mutex<Option<String>>>>,
 }
 
 impl MyApp {
@@ -219,6 +224,10 @@ impl MyApp {
             last_mode,
             sel: (0, 0),
             recording_hotkey: None,
+            sel_text: String::new(),
+            sel_result: String::new(),
+            sel_loading: false,
+            sel_task: None,
         }
     }
 
@@ -331,6 +340,13 @@ impl MyApp {
 
                     ui.separator();
                     ui.horizontal(|ui| {
+                        let mut enabled = self.state.settings.selection_translate;
+                        if ui.checkbox(&mut enabled, "启用划词翻译（选中文字即弹出译文）").changed() {
+                            self.state.settings.selection_translate = enabled;
+                        }
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
                         if ui.button("取消").clicked() {
                             self.settings_open = false;
                         }
@@ -412,6 +428,15 @@ impl MyApp {
                 if let Some(range) = st.cursor.char_range() {
                     self.sel = (range.primary.index, range.secondary.index);
                 }
+            }
+            if self.state.settings.selection_translate {
+                let (s, e) = (self.sel.0.min(self.sel.1), self.sel.0.max(self.sel.1));
+                let selected = self.state.doc.content.get(s..e).unwrap_or("").to_string();
+                self.trigger_sel_translate(ctx, &selected);
+            } else {
+                self.sel_text.clear();
+                self.sel_task = None;
+                self.sel_loading = false;
             }
         }
     }
@@ -655,6 +680,70 @@ impl MyApp {
         }
     }
 
+    fn poll_sel_translate(&mut self) {
+        if let Some(task) = &self.sel_task {
+            let done = task.lock().unwrap().take();
+            if let Some(r) = done {
+                self.sel_result = r;
+                self.sel_loading = false;
+                self.sel_task = None;
+            }
+        }
+    }
+
+    fn trigger_sel_translate(&mut self, ctx: &egui::Context, text: &str) {
+        if text.is_empty() {
+            self.sel_text.clear();
+            self.sel_loading = false;
+            self.sel_task = None;
+            return;
+        }
+        if text == self.sel_text {
+            return;
+        }
+        self.sel_text = text.to_string();
+        self.sel_loading = true;
+        let provider = self.state.settings.provider.clone();
+        let creds = providers::Creds(self.state.settings.providers.get(&provider).cloned().unwrap_or_default());
+        let http = UreqClient;
+        let task = std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.sel_task = Some(task.clone());
+        let ctx2 = ctx.clone();
+        let txt = text.to_string();
+        std::thread::spawn(move || {
+            let r = providers::provider(&provider, &txt, &creds, &http);
+            *task.lock().unwrap() = Some(match r {
+                Ok(t) => t,
+                Err(e) => format!("翻译失败：{e}"),
+            });
+            ctx2.request_repaint();
+        });
+    }
+
+    fn render_sel_popup(&mut self, ctx: &egui::Context) {
+        if self.sel_text.is_empty() {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("划词翻译")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 44.0])
+            .show(ctx, |ui| {
+                ui.label(&self.sel_text);
+                ui.separator();
+                if self.sel_loading || self.sel_task.is_some() {
+                    ui.spinner();
+                } else {
+                    ui.label(&self.sel_result);
+                }
+            });
+        if !open {
+            self.sel_text.clear();
+        }
+    }
+
     fn poll_translate(&mut self, ctx: &egui::Context) {
         if self.state.txn_running.load(Ordering::SeqCst) {
             self.state.translating = true;
@@ -680,6 +769,7 @@ impl eframe::App for MyApp {
         apply_theme(ctx, self.state.theme);
         self.poll_translate(ctx);
         self.poll_pending();
+        self.poll_sel_translate();
 
         // Honor user-recorded reading-mode hotkeys (e.g. Alt+1).
         if let Some(combo) = hotkey_from_input(ctx) {
@@ -799,6 +889,7 @@ impl eframe::App for MyApp {
         }
 
         self.settings_window(ctx);
+        self.render_sel_popup(ctx);
 
         // ---- bottom bar ----
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
