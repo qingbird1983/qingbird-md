@@ -6,6 +6,7 @@ mod markdown;
 mod state;
 mod storage;
 mod translate;
+mod workspace;
 
 use std::sync::atomic::Ordering;
 
@@ -56,6 +57,31 @@ fn set_editor_cursor(ctx: &egui::Context, byte: usize) {
 fn edit_button(app: &mut MyApp, ctx: &egui::Context, ui: &mut egui::Ui, name: &str, label: &str) {
     if ui.button(label).clicked() {
         app.apply_editor_op(ctx, name);
+    }
+}
+
+/// Collect `(level, text)` for h1–h3 headings, in document order (recursing
+/// into quotes/lists), for the outline panel.
+fn outline_items(blocks: &[markdown::Block]) -> Vec<(u8, String)> {
+    let mut out = Vec::new();
+    walk_heading(blocks, &mut out);
+    out
+}
+
+fn walk_heading(blocks: &[markdown::Block], out: &mut Vec<(u8, String)>) {
+    for b in blocks {
+        match b {
+            markdown::Block::Heading { level, text } => {
+                out.push((*level, markdown::render::inline_plain_text(text)));
+            }
+            markdown::Block::Quote { blocks } => walk_heading(blocks, out),
+            markdown::Block::List { items, .. } => {
+                for it in items {
+                    walk_heading(&it.blocks, out);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -363,6 +389,82 @@ impl MyApp {
         }
     }
 
+    fn open_workspace(&mut self) {
+        if let Some(root) = fileopen::pick_folder() {
+            let tree = workspace::walk(&root);
+            self.state.ws_root = Some(root.clone());
+            self.state.ws_tree = tree;
+            self.state.nav_search.clear();
+            self.state.status = format!("工作区：{}", root.display());
+        }
+    }
+
+    fn open_tree_file(&mut self, path: &std::path::Path) {
+        let _ = self.state.open(path);
+    }
+
+    fn nav_contents(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.state.nav_search);
+            if ui.button("打开工作区").clicked() {
+                self.open_workspace();
+            }
+        });
+        ui.separator();
+        let q = self.state.nav_search.clone();
+        let nodes = if q.trim().is_empty() {
+            self.state.ws_tree.clone()
+        } else {
+            workspace::filter(&self.state.ws_tree, &q)
+        };
+        if nodes.is_empty() {
+            ui.label("未打开工作区");
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            self.tree_ui(ui, &nodes);
+        });
+    }
+
+    fn tree_ui(&mut self, ui: &mut egui::Ui, nodes: &[workspace::TreeNode]) {
+        for node in nodes {
+            if node.is_dir {
+                let salt = node.path.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| node.name.clone());
+                egui::CollapsingHeader::new(&node.name)
+                    .id_salt(salt)
+                    .show(ui, |ui| {
+                        self.tree_ui(ui, &node.children);
+                    });
+            } else {
+                let selected = self.state.doc.path.as_deref() == node.path.as_deref();
+                let name = node.name.clone();
+                if ui.selectable_label(selected, &name).clicked() {
+                    if let Some(p) = &node.path {
+                        let p = p.clone();
+                        self.open_tree_file(&p);
+                    }
+                }
+            }
+        }
+    }
+
+    fn outline_contents(&mut self, ui: &mut egui::Ui) {
+        let items = outline_items(&self.state.doc.blocks);
+        if items.is_empty() {
+            ui.label("（本文无标题）");
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (level, text) in items {
+                let indent = (level as f32 - 1.0) * 12.0;
+                ui.horizontal(|ui| {
+                    ui.add_space(indent);
+                    ui.label(text);
+                });
+            }
+        });
+    }
+
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if let Some(file) = dropped.first() {
@@ -542,6 +644,13 @@ impl eframe::App for MyApp {
                         ui.selectable_value(&mut self.state.view, View::Split, "分栏");
                     });
                 ui.separator();
+                if ui.button(if self.state.show_nav { "隐藏文档栏" } else { "文档栏" }).clicked() {
+                    self.state.show_nav = !self.state.show_nav;
+                }
+                if ui.button(if self.state.show_outline { "隐藏大纲" } else { "大纲" }).clicked() {
+                    self.state.show_outline = !self.state.show_outline;
+                }
+                ui.separator();
                 ui.label(egui::RichText::new(&self.state.doc.name).strong());
                 if self.state.is_dirty() {
                     ui.label(egui::RichText::new("●").color(egui::Color32::from_rgb(60, 120, 230)));
@@ -573,6 +682,18 @@ impl eframe::App for MyApp {
                 ui.label(format!("字符 {c} · 行 {l}"));
             });
         });
+
+        // ---- side panels: workspace tree (left) + outline (right) ----
+        if self.state.show_nav {
+            egui::SidePanel::left("nav").resizable(true).default_width(240.0).show(ctx, |ui| {
+                self.nav_contents(ctx, ui);
+            });
+        }
+        if self.state.show_outline {
+            egui::SidePanel::right("outline").resizable(true).default_width(200.0).show(ctx, |ui| {
+                self.outline_contents(ui);
+            });
+        }
 
         // ---- central area (view = preview | source | split) ----
         egui::CentralPanel::default().show(ctx, |ui| {

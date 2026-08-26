@@ -10,6 +10,11 @@ pub fn pick_markdown_file() -> Option<PathBuf> {
         .pick_file()
 }
 
+/// Show a native directory picker for a workspace folder.
+pub fn pick_folder() -> Option<PathBuf> {
+    rfd::FileDialog::new().pick_folder()
+}
+
 /// Show a native save dialog for a markdown file. Returns the chosen path,
 /// or `None` if the user cancels.
 pub fn pick_save_path(default_name: &str) -> Option<PathBuf> {

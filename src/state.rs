@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use crate::markdown::{self, Block};
 use crate::storage::Settings;
 use crate::translate::cache::Cache;
+use crate::workspace::TreeNode;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Theme {
@@ -125,6 +126,12 @@ pub struct AppState {
     pub cache: Cache,
     pub mode: Mode,
     pub view: View,
+    /// Workspace tree (folder root, recursive `.md` list) and search filter.
+    pub ws_root: Option<PathBuf>,
+    pub ws_tree: Vec<TreeNode>,
+    pub nav_search: String,
+    pub show_nav: bool,
+    pub show_outline: bool,
     /// Snapshot of content at last load/save, to detect unsaved changes.
     pub saved_content: String,
     /// Translation map for inline/block text units (index -> translated text).
@@ -149,6 +156,11 @@ impl AppState {
             cache,
             mode: Mode::Original,
             view: View::Preview,
+            ws_root: None,
+            ws_tree: Vec::new(),
+            nav_search: String::new(),
+            show_nav: true,
+            show_outline: true,
             saved_content: String::new(),
             translation: HashMap::new(),
             translating: false,
