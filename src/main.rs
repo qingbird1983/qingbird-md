@@ -128,9 +128,13 @@ struct MyApp {
 impl MyApp {
     fn new(cc: &eframe::CreationContext) -> Self {
         add_cjk_font(&cc.egui_ctx);
-        let theme = initial_theme(&cc.egui_ctx);
-        apply_theme(&cc.egui_ctx, theme);
         let mut state = AppState::new();
+        let theme = match state.settings.theme.as_str() {
+            "dark" => Theme::Dark,
+            "light" => Theme::Light,
+            _ => initial_theme(&cc.egui_ctx),
+        };
+        apply_theme(&cc.egui_ctx, theme);
         state.theme = theme;
         let form_provider = state.settings.provider.clone();
         let form_creds = state
@@ -609,6 +613,8 @@ impl eframe::App for MyApp {
                 }
                 if ui.button(if self.state.theme == Theme::Dark { "亮色" } else { "暗色" }).clicked() {
                     self.state.theme = if self.state.theme == Theme::Dark { Theme::Light } else { Theme::Dark };
+                    self.state.settings.theme = if self.state.theme == Theme::Dark { "dark".into() } else { "light".into() };
+                    storage::save_settings(&self.state.settings);
                 }
                 ui.separator();
                 egui::ComboBox::from_label("模式")

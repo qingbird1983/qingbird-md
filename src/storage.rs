@@ -10,6 +10,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_theme() -> String {
+    String::new()
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
     #[serde(default = "default_provider")]
@@ -28,6 +32,9 @@ pub struct Settings {
     pub outline: String,
     #[serde(default = "default_on")]
     pub nav: String,
+    /// "" = follow system on first run; otherwise "light"/"dark".
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 impl Default for Settings {
@@ -41,6 +48,7 @@ impl Default for Settings {
             selection_translate: true,
             outline: "on".to_string(),
             nav: "on".to_string(),
+            theme: String::new(),
         }
     }
 }
