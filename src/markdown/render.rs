@@ -287,6 +287,215 @@ fn resolve_src(src: &str, base_dir: Option<&Path>) -> Option<PathBuf> {
 
 use crate::translate::pipeline::needs_translation;
 
+/// Collect translatable inline text *runs* in document order, assigning a
+/// running index to every `Inline::Text` (so the renderer can substitute in
+/// the same order and keep bold/links/code wrappers intact). Non-translatable
+/// runs are still counted but not collected.
+pub fn collect_text_runs(blocks: &[Block]) -> Vec<(usize, String)> {
+    let mut counter = 0usize;
+    let mut out = Vec::new();
+    walk_run_collect(blocks, &mut counter, &mut out);
+    out
+}
+
+fn walk_run_collect(blocks: &[Block], counter: &mut usize, out: &mut Vec<(usize, String)>) {
+    for b in blocks {
+        match b {
+            Block::Heading { text, .. } | Block::Paragraph { text } => {
+                collect_runs_inline(text, counter, out);
+            }
+            Block::Quote { blocks } => walk_run_collect(blocks, counter, out),
+            Block::List { items, .. } => {
+                for it in items {
+                    walk_run_collect(&it.blocks, counter, out);
+                }
+            }
+            Block::Table { headers, rows } => {
+                for h in headers {
+                    collect_runs_inline(h, counter, out);
+                }
+                for row in rows {
+                    for cell in row {
+                        collect_runs_inline(cell, counter, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_runs_inline(inlines: &[Inline], counter: &mut usize, out: &mut Vec<(usize, String)>) {
+    for il in inlines {
+        match il {
+            Inline::Text(t) => {
+                let idx = *counter;
+                *counter += 1;
+                if !t.trim().is_empty() && needs_translation(t) {
+                    out.push((idx, t.clone()));
+                }
+            }
+            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) => collect_runs_inline(x, counter, out),
+            Inline::Link { text, .. } => collect_runs_inline(text, counter, out),
+            _ => {}
+        }
+    }
+}
+
+/// Render the document in translation mode, substituting each translatable
+/// inline text run (preserving `strong`/`emph`/`del`/`link`/`code` wrappers).
+pub fn render_substituted(
+    ui: &mut Ui,
+    blocks: &[Block],
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    counter: &mut usize,
+) {
+    for b in blocks {
+        render_sub_block(ui, b, env, trans, counter);
+    }
+}
+
+fn render_sub_block(
+    ui: &mut Ui,
+    block: &Block,
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    counter: &mut usize,
+) {
+    match block {
+        Block::Heading { level, text } => {
+            ui.add_space(4.0);
+            ui.label(inline_job_sub(ui, text, heading_size(*level), true, trans, counter));
+        }
+        Block::Paragraph { text } => {
+            ui.add_space(4.0);
+            ui.label(inline_job_sub(ui, text, 15.0, false, trans, counter));
+        }
+        Block::Quote { blocks } => {
+            ui.add_space(6.0);
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.set_width(ui.available_width() - 8.0);
+                render_substituted(ui, blocks, env, trans, counter);
+            });
+            ui.add_space(6.0);
+        }
+        Block::List { ordered, start, items } => {
+            let mut idx = *start;
+            ui.add_space(4.0);
+            for item in items {
+                ui.horizontal(|ui| {
+                    if *ordered {
+                        ui.label(RichText::new(format!("{idx}.")).strong());
+                        idx += 1;
+                    } else {
+                        let t = match item.task { Some(true) => "[x]", Some(false) => "[ ]", None => "•" };
+                        ui.label(RichText::new(t).strong());
+                    }
+                    ui.add_space(6.0);
+                    for b in &item.blocks {
+                        render_sub_block(ui, b, env, trans, counter);
+                    }
+                });
+            }
+            ui.add_space(4.0);
+        }
+        Block::Table { headers, rows } => {
+            ui.add_space(6.0);
+            egui::Grid::new("md_table_sub")
+                .striped(true)
+                .spacing([12.0, 5.0])
+                .show(ui, |ui| {
+                    for h in headers {
+                        ui.label(inline_job_sub(ui, h, 14.0, true, trans, counter));
+                    }
+                    ui.end_row();
+                    for row in rows {
+                        for cell in row {
+                            ui.label(inline_job_sub(ui, cell, 14.0, false, trans, counter));
+                        }
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(6.0);
+        }
+        other => render_block(ui, other, env),
+    }
+}
+
+fn inline_job_sub(
+    ui: &Ui,
+    text: &[Inline],
+    size: f32,
+    is_heading: bool,
+    trans: &HashMap<usize, String>,
+    counter: &mut usize,
+) -> LayoutJob {
+    let visuals = ui.visuals();
+    let base = TextFormat {
+        font_id: FontId::proportional(size),
+        color: if is_heading { visuals.strong_text_color() } else { visuals.text_color() },
+        ..Default::default()
+    };
+    let strong = TextFormat { color: visuals.strong_text_color(), ..base.clone() };
+    let code = TextFormat {
+        font_id: FontId::monospace(size - 1.0),
+        background: visuals.extreme_bg_color,
+        ..base.clone()
+    };
+    let link = TextFormat {
+        color: visuals.hyperlink_color,
+        underline: Stroke::new(1.0_f32, visuals.hyperlink_color),
+        ..base.clone()
+    };
+    let mut job = LayoutJob::default();
+    push_inline_sub(&mut job, text, &base, &strong, &code, &link, trans, counter);
+    job
+}
+
+fn push_inline_sub(
+    job: &mut LayoutJob,
+    inlines: &[Inline],
+    base: &TextFormat,
+    strong: &TextFormat,
+    code: &TextFormat,
+    link: &TextFormat,
+    trans: &HashMap<usize, String>,
+    counter: &mut usize,
+) {
+    for il in inlines {
+        match il {
+            Inline::Text(t) => {
+                let idx = *counter;
+                *counter += 1;
+                let text = trans.get(&idx).cloned().unwrap_or_else(|| t.clone());
+                job.append(&text, 0.0, base.clone());
+            }
+            Inline::Strong(x) => push_inline_sub(job, x, strong, strong, code, link, trans, counter),
+            Inline::Emph(x) => {
+                let mut f = base.clone();
+                f.italics = true;
+                push_inline_sub(job, x, &f, strong, code, link, trans, counter);
+            }
+            Inline::Del(x) => {
+                let mut f = base.clone();
+                f.strikethrough = Stroke::new(1.0_f32, f.color);
+                push_inline_sub(job, x, &f, strong, code, link, trans, counter);
+            }
+            Inline::Code(c) => job.append(c, 0.0, code.clone()),
+            Inline::Link { text, href: _ } => {
+                push_inline_sub(job, text, link, strong, code, link, trans, counter);
+            }
+            Inline::Image { alt, .. } => {
+                let mut f = code.clone();
+                f.italics = true;
+                job.append(&format!("[{alt}]"), 0.0, f);
+            }
+            Inline::LineBreak => job.append("\n", 0.0, base.clone()),
+        }
+    }
+}
+
 /// Concatenated plain text of an inline run.
 pub fn inline_plain_text(inlines: &[Inline]) -> String {
     let mut s = String::new();

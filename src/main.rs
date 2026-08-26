@@ -78,6 +78,7 @@ struct MyApp {
     form_provider: String,
     form_creds: std::collections::HashMap<String, String>,
     test_result: String,
+    last_mode: Mode,
 }
 
 impl MyApp {
@@ -94,12 +95,14 @@ impl MyApp {
             .get(&form_provider)
             .cloned()
             .unwrap_or_default();
+        let last_mode = state.mode;
         MyApp {
             state,
             settings_open: false,
             form_provider,
             form_creds,
             test_result: String::new(),
+            last_mode,
         }
     }
 
@@ -257,7 +260,11 @@ impl MyApp {
             }
         }
 
-        let units = markdown::render::collect_translatable(&self.state.doc.blocks);
+        let units = match self.state.mode {
+            Mode::Translation => markdown::render::collect_text_runs(&self.state.doc.blocks),
+            Mode::Bilingual => markdown::render::collect_translatable(&self.state.doc.blocks),
+            Mode::Original => Vec::new(),
+        };
         let texts: Vec<String> = units.iter().map(|(_, t)| t.clone()).collect();
         let indices: Vec<usize> = units.iter().map(|(i, _)| *i).collect();
         let max_len = meta.max_len;
@@ -269,6 +276,7 @@ impl MyApp {
         let mut local_cache = self.state.cache.clone();
         txn_running.store(true, Ordering::SeqCst);
         self.state.translating = true;
+        self.state.translation.clear();
         self.state.status = "翻译中…".to_string();
         let ctx = ctx.clone();
 
@@ -350,6 +358,13 @@ impl eframe::App for MyApp {
                             ui.selectable_value(&mut self.state.mode, m, m.label());
                         }
                     });
+                if self.state.mode != self.last_mode {
+                    self.last_mode = self.state.mode;
+                    self.state.translation.clear();
+                    if self.state.mode != Mode::Original && !self.state.doc.blocks.is_empty() {
+                        self.start_translate(ctx);
+                    }
+                }
                 if ui.button("翻译").clicked() {
                     if self.state.mode == Mode::Original {
                         self.state.mode = Mode::Translation;
@@ -395,14 +410,24 @@ impl eframe::App for MyApp {
                         Mode::Original => {
                             markdown::render::render_blocks(ui, &blocks, &mut env);
                         }
-                        Mode::Translation | Mode::Bilingual => {
+                        Mode::Translation => {
+                            let mut counter = 0usize;
+                            markdown::render::render_substituted(
+                                ui,
+                                &blocks,
+                                &mut env,
+                                &self.state.translation,
+                                &mut counter,
+                            );
+                        }
+                        Mode::Bilingual => {
                             let mut counter = 0usize;
                             markdown::render::render_translated(
                                 ui,
                                 &blocks,
                                 &mut env,
                                 &self.state.translation,
-                                mode == Mode::Bilingual,
+                                true,
                                 &mut counter,
                             );
                         }
