@@ -19,7 +19,7 @@ fn themes() -> &'static ThemeSet {
     THEMES.get_or_init(ThemeSet::load_defaults)
 }
 
-fn find_syntax(lang: &str) -> Option<syntect::parsing::SyntaxReference> {
+fn find_syntax(lang: &str) -> Option<&'static syntect::parsing::SyntaxReference> {
     let ss = syntaxes();
     ss.find_syntax_by_token(lang)
         .or_else(|| ss.find_syntax_by_extension(lang))
