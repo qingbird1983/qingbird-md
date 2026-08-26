@@ -142,6 +142,8 @@ pub struct AppState {
     pub txn_result: Arc<Mutex<Option<(HashMap<usize, String>, Cache)>>>,
     /// Cache of decoded image textures keyed by path (persists across frames).
     pub textures: HashMap<String, eframe::egui::TextureHandle>,
+    /// Held single-instance lock file (kept open for the process lifetime).
+    pub _lock: Option<std::fs::File>,
 }
 
 impl AppState {
@@ -167,6 +169,7 @@ impl AppState {
             txn_running: Arc::new(AtomicBool::new(false)),
             txn_result: Arc::new(Mutex::new(None)),
             textures: HashMap::new(),
+            _lock: None,
         }
     }
 

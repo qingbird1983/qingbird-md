@@ -3,6 +3,7 @@
 mod editor;
 mod fileopen;
 mod markdown;
+mod single_instance;
 mod state;
 mod storage;
 mod translate;
@@ -18,6 +19,15 @@ use translate::providers::{self, Creds};
 use translate::providers_meta;
 
 fn main() -> eframe::Result {
+    // Single instance: if another instance already runs, hand off the file
+    // argument and exit without opening a second window.
+    let lock = single_instance::acquire_lock();
+    if lock.is_none() {
+        if let Some(p) = fileopen::file_arg_from_args(std::env::args().skip(1)) {
+            single_instance::write_pending(&p);
+        }
+        return Ok(());
+    }
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 860.0])
@@ -25,8 +35,8 @@ fn main() -> eframe::Result {
             .with_title("青鸟 Markdown 阅读器"),
         ..Default::default()
     };
-    eframe::run_native("qingbird-md", opts, Box::new(|cc| {
-        Ok(Box::new(MyApp::new(cc)))
+    eframe::run_native("qingbird-md", opts, Box::new(move |cc| {
+        Ok(Box::new(MyApp::new(cc, lock)))
     }))
 }
 
@@ -177,9 +187,10 @@ struct MyApp {
 }
 
 impl MyApp {
-    fn new(cc: &eframe::CreationContext) -> Self {
+    fn new(cc: &eframe::CreationContext, lock: Option<std::fs::File>) -> Self {
         add_cjk_font(&cc.egui_ctx);
         let mut state = AppState::new();
+        state._lock = lock;
         let theme = match state.settings.theme.as_str() {
             "dark" => Theme::Dark,
             "light" => Theme::Light,
@@ -638,6 +649,12 @@ impl MyApp {
         let _ = h;
     }
 
+    fn poll_pending(&mut self) {
+        if let Some(path) = single_instance::take_pending() {
+            let _ = self.state.open(&path);
+        }
+    }
+
     fn poll_translate(&mut self, ctx: &egui::Context) {
         if self.state.txn_running.load(Ordering::SeqCst) {
             self.state.translating = true;
@@ -662,6 +679,7 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         apply_theme(ctx, self.state.theme);
         self.poll_translate(ctx);
+        self.poll_pending();
 
         // Honor user-recorded reading-mode hotkeys (e.g. Alt+1).
         if let Some(combo) = hotkey_from_input(ctx) {
