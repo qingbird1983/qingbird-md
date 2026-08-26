@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod editor;
 mod fileopen;
 mod markdown;
 mod state;
@@ -10,7 +11,7 @@ use std::sync::atomic::Ordering;
 
 use eframe::egui;
 use markdown::render::RenderEnv;
-use state::{AppState, Mode, Theme};
+use state::{AppState, Mode, Theme, View};
 use translate::http::UreqClient;
 use translate::providers::{self, Creds};
 use translate::providers_meta;
@@ -39,6 +40,22 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
     match theme {
         Theme::Light => ctx.set_visuals(egui::Visuals::light()),
         Theme::Dark => ctx.set_visuals(egui::Visuals::dark()),
+    }
+}
+
+/// Set the editor's cursor to a byte position (used after a toolbar op).
+fn set_editor_cursor(ctx: &egui::Context, byte: usize) {
+    use egui::text::{CCursor, CCursorRange};
+    let id = egui::Id::new("md_editor");
+    if let Some(mut st) = egui::text_edit::TextEditState::load(ctx, id) {
+        st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(byte))));
+        st.store(ctx, id);
+    }
+}
+
+fn edit_button(app: &mut MyApp, ctx: &egui::Context, ui: &mut egui::Ui, name: &str, label: &str) {
+    if ui.button(label).clicked() {
+        app.apply_editor_op(ctx, name);
     }
 }
 
@@ -79,6 +96,7 @@ struct MyApp {
     form_creds: std::collections::HashMap<String, String>,
     test_result: String,
     last_mode: Mode,
+    sel: (usize, usize),
 }
 
 impl MyApp {
@@ -103,6 +121,7 @@ impl MyApp {
             form_creds,
             test_result: String::new(),
             last_mode,
+            sel: (0, 0),
         }
     }
 
@@ -214,6 +233,128 @@ impl MyApp {
             Ok(out) => self.test_result = format!("成功：{out}"),
             Err(e) => self.test_result = format!("失败：{e}"),
         }
+    }
+
+    fn reparse(&mut self) {
+        self.state.doc.blocks = markdown::parse_blocks(&self.state.doc.content);
+    }
+
+    fn apply_editor_op(&mut self, ctx: &egui::Context, op: &str) {
+        let (new, sel) = editor::apply_op(&self.state.doc.content, self.sel, op);
+        self.state.doc.content = new;
+        self.sel = sel;
+        self.reparse();
+        set_editor_cursor(ctx, sel.1);
+    }
+
+    fn save_doc(&mut self) {
+        if let Some(path) = self.state.doc.path.clone() {
+            match std::fs::write(&path, &self.state.doc.content) {
+                Ok(_) => {
+                    self.state.saved_content = self.state.doc.content.clone();
+                    self.state.status = format!("已保存：{}", path.display());
+                }
+                Err(e) => self.state.status = format!("保存失败：{e}"),
+            }
+        } else if let Some(p) = fileopen::pick_save_path(&self.state.doc.name) {
+            if std::fs::write(&p, &self.state.doc.content).is_ok() {
+                self.state.doc.path = Some(p.clone());
+                self.state.doc.name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "untitled.md".to_string());
+                self.state.doc.base_dir = p.parent().map(|d| d.to_path_buf());
+                self.state.saved_content = self.state.doc.content.clone();
+                self.state.status = format!("已保存：{}", p.display());
+            }
+        }
+    }
+
+    fn editor_ui(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let id = egui::Id::new("md_editor");
+        let resp = ui.add_sized(
+            [ui.available_width(), ui.available_height()],
+            egui::TextEdit::multiline(&mut self.state.doc.content)
+                .id(id)
+                .code_editor()
+                .desired_rows(30),
+        );
+        if resp.changed() {
+            self.reparse();
+        }
+        if resp.has_focus() {
+            if let Some(st) = egui::text_edit::TextEditState::load(ctx, id) {
+                if let Some(range) = st.cursor.char_range() {
+                    self.sel = (range.primary.index, range.secondary.index);
+                }
+            }
+        }
+    }
+
+    fn editor_toolbar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        edit_button(self, ctx, ui, "bold", "粗体");
+        edit_button(self, ctx, ui, "italic", "斜体");
+        edit_button(self, ctx, ui, "strike", "删除线");
+        ui.separator();
+        edit_button(self, ctx, ui, "h1", "H1");
+        edit_button(self, ctx, ui, "h2", "H2");
+        edit_button(self, ctx, ui, "h3", "H3");
+        ui.separator();
+        edit_button(self, ctx, ui, "ul", "无序");
+        edit_button(self, ctx, ui, "ol", "有序");
+        edit_button(self, ctx, ui, "task", "任务");
+        edit_button(self, ctx, ui, "quote", "引用");
+        ui.separator();
+        edit_button(self, ctx, ui, "code", "行内代码");
+        edit_button(self, ctx, ui, "codeblock", "代码块");
+        ui.separator();
+        edit_button(self, ctx, ui, "link", "链接");
+        edit_button(self, ctx, ui, "image", "图片");
+        edit_button(self, ctx, ui, "table", "表格");
+        edit_button(self, ctx, ui, "hr", "分割线");
+    }
+
+    fn preview_ui(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_width(820.0_f32.min(ui.available_width()));
+                let blocks = self.state.doc.blocks.clone();
+                let base_dir = self.state.doc.base_dir.clone();
+                let mode = self.state.mode;
+                let mut env = RenderEnv {
+                    ctx,
+                    base_dir,
+                    textures: std::mem::take(&mut self.state.textures),
+                };
+                match mode {
+                    Mode::Original => {
+                        markdown::render::render_blocks(ui, &blocks, &mut env);
+                    }
+                    Mode::Translation => {
+                        let mut counter = 0usize;
+                        markdown::render::render_substituted(
+                            ui,
+                            &blocks,
+                            &mut env,
+                            &self.state.translation,
+                            &mut counter,
+                        );
+                    }
+                    Mode::Bilingual => {
+                        let mut counter = 0usize;
+                        markdown::render::render_translated(
+                            ui,
+                            &blocks,
+                            &mut env,
+                            &self.state.translation,
+                            true,
+                            &mut counter,
+                        );
+                    }
+                }
+                self.state.textures = env.textures;
+            });
+        });
     }
 
     fn open_dialog(&mut self) {
@@ -335,6 +476,23 @@ impl eframe::App for MyApp {
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
             self.open_dialog();
         }
+        if ctx.input(|i| i.modifiers.command) {
+            if ctx.input(|i| i.key_pressed(egui::Key::E)) {
+                self.state.view = if self.state.view == View::Source { View::Preview } else { View::Source };
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::S)) {
+                self.save_doc();
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Backslash)) {
+                self.state.view = View::Split;
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::B)) && self.state.view != View::Preview {
+                self.apply_editor_op(ctx, "bold");
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::I)) && self.state.view != View::Preview {
+                self.apply_editor_op(ctx, "italic");
+            }
+        }
         self.handle_dropped_files(ctx);
 
         // ---- top bar ----
@@ -372,10 +530,33 @@ impl eframe::App for MyApp {
                     self.start_translate(ctx);
                 }
                 ui.separator();
+                egui::ComboBox::from_label("视图")
+                    .selected_text(match self.state.view {
+                        View::Preview => "预览",
+                        View::Source => "源码",
+                        View::Split => "分栏",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.state.view, View::Preview, "预览");
+                        ui.selectable_value(&mut self.state.view, View::Source, "源码");
+                        ui.selectable_value(&mut self.state.view, View::Split, "分栏");
+                    });
+                ui.separator();
                 ui.label(egui::RichText::new(&self.state.doc.name).strong());
+                if self.state.is_dirty() {
+                    ui.label(egui::RichText::new("●").color(egui::Color32::from_rgb(60, 120, 230)));
+                }
             });
             ui.add_space(4.0);
         });
+
+        if self.state.view != View::Preview {
+            egui::TopBottomPanel::top("editbar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    self.editor_toolbar(ctx, ui);
+                });
+            });
+        }
 
         self.settings_window(ctx);
 
@@ -393,48 +574,18 @@ impl eframe::App for MyApp {
             });
         });
 
-        // ---- central preview ----
+        // ---- central area (view = preview | source | split) ----
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    ui.set_width(820.0_f32.min(ui.available_width()));
-                    let blocks = self.state.doc.blocks.clone();
-                    let base_dir = self.state.doc.base_dir.clone();
-                    let mode = self.state.mode;
-                    let mut env = RenderEnv {
-                        ctx,
-                        base_dir,
-                        textures: std::mem::take(&mut self.state.textures),
-                    };
-                    match mode {
-                        Mode::Original => {
-                            markdown::render::render_blocks(ui, &blocks, &mut env);
-                        }
-                        Mode::Translation => {
-                            let mut counter = 0usize;
-                            markdown::render::render_substituted(
-                                ui,
-                                &blocks,
-                                &mut env,
-                                &self.state.translation,
-                                &mut counter,
-                            );
-                        }
-                        Mode::Bilingual => {
-                            let mut counter = 0usize;
-                            markdown::render::render_translated(
-                                ui,
-                                &blocks,
-                                &mut env,
-                                &self.state.translation,
-                                true,
-                                &mut counter,
-                            );
-                        }
-                    }
-                    self.state.textures = env.textures;
-                });
-            });
+            match self.state.view {
+                View::Preview => self.preview_ui(ctx, ui),
+                View::Source => self.editor_ui(ctx, ui),
+                View::Split => {
+                    ui.columns(2, |cols| {
+                        self.editor_ui(ctx, &mut cols[0]);
+                        self.preview_ui(ctx, &mut cols[1]);
+                    });
+                }
+            }
         });
     }
 }

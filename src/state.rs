@@ -22,6 +22,13 @@ pub enum Mode {
     Bilingual,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum View {
+    Preview,
+    Source,
+    Split,
+}
+
 impl Mode {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -117,6 +124,9 @@ pub struct AppState {
     pub settings: Settings,
     pub cache: Cache,
     pub mode: Mode,
+    pub view: View,
+    /// Snapshot of content at last load/save, to detect unsaved changes.
+    pub saved_content: String,
     /// Translation map for inline/block text units (index -> translated text).
     pub translation: HashMap<usize, String>,
     pub translating: bool,
@@ -138,6 +148,8 @@ impl AppState {
             settings,
             cache,
             mode: Mode::Original,
+            view: View::Preview,
+            saved_content: String::new(),
             translation: HashMap::new(),
             translating: false,
             txn_running: Arc::new(AtomicBool::new(false)),
@@ -146,9 +158,14 @@ impl AppState {
         }
     }
 
+    pub fn is_dirty(&self) -> bool {
+        !self.doc.content.is_empty() && self.doc.content != self.saved_content
+    }
+
     pub fn open(&mut self, path: &Path) -> std::io::Result<()> {
         match Doc::from_path(path) {
             Some(d) => {
+                self.saved_content = d.content.clone();
                 self.doc = d;
                 self.translation.clear();
                 self.translating = false;
