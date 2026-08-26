@@ -1,0 +1,210 @@
+//! Minimal HTTP abstraction so providers can be tested offline with a mock.
+//! The real client wraps `ureq` (blocking, ring + webpki-roots).
+
+/// A finished HTTP response: status code + response body text.
+#[derive(Debug, Clone)]
+pub struct HttpResp {
+    pub status: u16,
+    pub body: String,
+}
+
+/// Small HTTP surface used by providers. Tests provide a `MockClient`.
+pub trait HttpClient {
+    fn get(&self, url: &str) -> Result<HttpResp, String>;
+    fn post_form(&self, url: &str, params: &[(String, String)]) -> Result<HttpResp, String>;
+    fn post_json(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResp, String>;
+
+    /// Like [`Self::post_json`] but with a per-request timeout. The default
+    /// implementation ignores the timeout (used by mocks).
+    fn post_json_timeout(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<HttpResp, String> {
+        let _ = timeout_ms;
+        self.post_json(url, body, headers)
+    }
+}
+
+pub struct UreqClient;
+
+impl HttpClient for UreqClient {
+    fn get(&self, url: &str) -> Result<HttpResp, String> {
+        map(ureq::get(url).call())
+    }
+
+    fn post_form(&self, url: &str, params: &[(String, String)]) -> Result<HttpResp, String> {
+        let body = form_encode(params);
+        map(
+            ureq::post(url)
+                .set("Content-Type", "application/x-www-form-urlencoded")
+                .send_string(&body),
+        )
+    }
+
+    fn post_json(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResp, String> {
+        self.post_json_timeout(url, body, headers, 30_000)
+    }
+
+    fn post_json_timeout(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<HttpResp, String> {
+        let mut req = ureq::post(url)
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_millis(timeout_ms));
+        for (k, v) in headers {
+            req = req.set(k, v);
+        }
+        map(req.send_string(body))
+    }
+}
+
+fn map(res: Result<ureq::Response, ureq::Error>) -> Result<HttpResp, String> {
+    match res {
+        Ok(r) => {
+            let status = r.status();
+            let body = r.into_string().map_err(|e| e.to_string())?;
+            Ok(HttpResp { status, body })
+        }
+        Err(ureq::Error::Status(code, r)) => {
+            let body = r.into_string().unwrap_or_default();
+            Ok(HttpResp { status: code, body })
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// application/x-www-form-urlencoded encoding (matches URLSearchParams).
+fn form_encode(params: &[(String, String)]) -> String {
+    let mut out = String::new();
+    for (i, (k, v)) in params.iter().enumerate() {
+        if i > 0 {
+            out.push('&');
+        }
+        out.push_str(&form_escape(k));
+        out.push('=');
+        out.push_str(&form_escape(v));
+    }
+    out
+}
+
+fn form_escape(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(*b as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Offline mock used by provider tests. Captures requests and returns canned
+/// responses by URL substring, mirroring the Electron `test/translators.test.js`.
+/// Each `MockClient` owns its own record store so tests don't interfere.
+#[cfg(test)]
+pub mod test_mock {
+    use super::{HttpClient, HttpResp};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug, Clone)]
+    pub struct Record {
+        pub url: String,
+        pub body: String,
+        pub headers: Vec<(String, String)>,
+    }
+
+    pub struct MockClient {
+        store: Arc<Mutex<Vec<Record>>>,
+    }
+
+    impl MockClient {
+        pub fn new() -> Self {
+            MockClient { store: Arc::new(Mutex::new(Vec::new())) }
+        }
+
+        pub fn take_records(&self) -> Vec<Record> {
+            std::mem::take(&mut *self.store.lock().unwrap())
+        }
+    }
+
+    impl Default for MockClient {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl MockClient {
+        fn record(&self, url: &str, body: &str, headers: &[(&str, &str)]) {
+            let h = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            self.store.lock().unwrap().push(Record {
+                url: url.to_string(),
+                body: body.to_string(),
+                headers: h,
+            });
+        }
+    }
+
+    pub fn resp_for(url: &str) -> HttpResp {
+        let body = if url.contains("youdao") {
+            r#"{"errorCode":"0","translation":["你好，世界"]}"#
+        } else if url.contains("baidu") {
+            r#"{"trans_result":[{"src":"hello","dst":"你好"}]}"#
+        } else if url.contains("tmt.tencentcloudapi.com") {
+            r#"{"Response":{"TargetText":"你好，世界"}}"#
+        } else if url.contains("chat/completions") {
+            r#"{"choices":[{"message":{"content":"你好，世界"}}]}"#
+        } else if url.contains("transmart") {
+            r#"{"auto_translation":"你好，世界"}"#
+        } else if url.contains("dictionary.iciba.com") {
+            r#"{"code":1,"data":[{"out":"你好"}]}"#
+        } else {
+            r#"{"responseData":{"translatedText":"你好"},"responseStatus":200}"#
+        };
+        HttpResp { status: 200, body: body.to_string() }
+    }
+
+    impl HttpClient for MockClient {
+        fn get(&self, url: &str) -> Result<HttpResp, String> {
+            self.record(url, "", &[]);
+            Ok(resp_for(url))
+        }
+        fn post_form(&self, url: &str, params: &[(String, String)]) -> Result<HttpResp, String> {
+            let body = crate::translate::http::form_encode_private(params);
+            self.record(url, &body, &[]);
+            Ok(resp_for(url))
+        }
+        fn post_json(
+            &self,
+            url: &str,
+            body: &str,
+            headers: &[(&str, &str)],
+        ) -> Result<HttpResp, String> {
+            self.record(url, body, headers);
+            Ok(resp_for(url))
+        }
+    }
+}
+
+// Expose the form encoder to the mock (tests-only helper).
+#[cfg(test)]
+pub(crate) fn form_encode_private(params: &[(String, String)]) -> String {
+    form_encode(params)
+}

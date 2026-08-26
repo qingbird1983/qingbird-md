@@ -3,6 +3,7 @@
 mod fileopen;
 mod markdown;
 mod state;
+mod translate;
 
 use eframe::egui;
 use state::{AppState, Theme};
