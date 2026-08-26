@@ -2,8 +2,42 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use crate::markdown::{self, Block};
+use crate::storage::Settings;
+use crate::translate::cache::Cache;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Mode {
+    Original,
+    Translation,
+    Bilingual,
+}
+
+impl Mode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Mode::Original => "original",
+            Mode::Translation => "translation",
+            Mode::Bilingual => "bilingual",
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            Mode::Original => "原文",
+            Mode::Translation => "译文",
+            Mode::Bilingual => "中英对照",
+        }
+    }
+}
 
 /// The currently open document.
 pub struct Doc {
@@ -76,26 +110,38 @@ impl Doc {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Theme {
-    Light,
-    Dark,
-}
-
 pub struct AppState {
     pub doc: Doc,
     pub theme: Theme,
     pub status: String,
+    pub settings: Settings,
+    pub cache: Cache,
+    pub mode: Mode,
+    /// Translation map for inline/block text units (index -> translated text).
+    pub translation: HashMap<usize, String>,
+    pub translating: bool,
+    /// Background-translation coordination.
+    pub txn_running: Arc<AtomicBool>,
+    pub txn_result: Arc<Mutex<Option<(HashMap<usize, String>, Cache)>>>,
     /// Cache of decoded image textures keyed by path (persists across frames).
     pub textures: HashMap<String, eframe::egui::TextureHandle>,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        let settings = crate::storage::load_settings();
+        let cache = Cache::load(&crate::storage::cache_path());
         AppState {
             doc: Doc::empty(),
             theme: Theme::Light,
             status: "就绪 · Ctrl+O 打开 · 拖入 .md 打开".to_string(),
+            settings,
+            cache,
+            mode: Mode::Original,
+            translation: HashMap::new(),
+            translating: false,
+            txn_running: Arc::new(AtomicBool::new(false)),
+            txn_result: Arc::new(Mutex::new(None)),
             textures: HashMap::new(),
         }
     }
@@ -104,6 +150,8 @@ impl AppState {
         match Doc::from_path(path) {
             Some(d) => {
                 self.doc = d;
+                self.translation.clear();
+                self.translating = false;
                 self.status = format!("已打开：{}", path.display());
                 Ok(())
             }

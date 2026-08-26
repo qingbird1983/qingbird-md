@@ -282,3 +282,274 @@ fn resolve_src(src: &str, base_dir: Option<&Path>) -> Option<PathBuf> {
     let base = base_dir?;
     Some(base.join(s))
 }
+
+// ---------- Translation-aware rendering ----------
+
+use crate::translate::pipeline::needs_translation;
+
+/// Concatenated plain text of an inline run.
+pub fn inline_plain_text(inlines: &[Inline]) -> String {
+    let mut s = String::new();
+    for il in inlines {
+        match il {
+            Inline::Text(t) => s.push_str(t),
+            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) => s.push_str(&inline_plain_text(x)),
+            Inline::Code(c) => s.push_str(c),
+            Inline::Link { text, .. } => s.push_str(&inline_plain_text(text)),
+            Inline::Image { alt, .. } => s.push_str(alt),
+            Inline::LineBreak => s.push(' '),
+        }
+    }
+    s
+}
+
+/// Collect translatable text units in document order. Each heading/paragraph,
+/// and each nested paragraph/list-item/table-cell that needs translation, is
+/// assigned a running index. The renderer traverses in the same order with the
+/// same `needs_translation` predicate, so indices align.
+pub fn collect_translatable(blocks: &[Block]) -> Vec<(usize, String)> {
+    let mut counter = 0usize;
+    let mut out = Vec::new();
+    walk_collect(blocks, &mut counter, &mut out, false);
+    out
+}
+
+fn walk_collect(
+    blocks: &[Block],
+    counter: &mut usize,
+    out: &mut Vec<(usize, String)>,
+    _nested: bool,
+) {
+    for b in blocks {
+        match b {
+            Block::Heading { text, .. } | Block::Paragraph { text } => {
+                let plain = inline_plain_text(text);
+                if needs_translation(&plain) {
+                    out.push((*counter, plain));
+                    *counter += 1;
+                }
+            }
+            Block::Quote { blocks } => walk_collect(blocks, counter, out, true),
+            Block::List { items, .. } => {
+                for it in items {
+                    walk_collect(&it.blocks, counter, out, true);
+                }
+            }
+            Block::Table { headers, rows } => {
+                for h in headers {
+                    let p = inline_plain_text(h);
+                    if needs_translation(&p) {
+                        out.push((*counter, p));
+                        *counter += 1;
+                    }
+                }
+                for row in rows {
+                    for cell in row {
+                        let p = inline_plain_text(cell);
+                        if needs_translation(&p) {
+                            out.push((*counter, p));
+                            *counter += 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Render the document in translation or bilingual mode.
+/// `trans` maps a translatable unit's index to its translation.
+/// In `bilingual` mode, original text is kept and a muted box with the
+/// translation is appended below each top-level heading/paragraph unit.
+pub fn render_translated(
+    ui: &mut Ui,
+    blocks: &[Block],
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    bilingual: bool,
+    counter: &mut usize,
+) {
+    for b in blocks {
+        render_translated_block(ui, b, env, trans, bilingual, counter, false);
+    }
+}
+
+fn render_translated_block(
+    ui: &mut Ui,
+    block: &Block,
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    bilingual: bool,
+    counter: &mut usize,
+    nested: bool,
+) {
+    match block {
+        Block::Heading { level, text } => {
+            let plain = inline_plain_text(text);
+            if needs_translation(&plain) {
+                let tr = trans.get(&*counter).cloned();
+                *counter += 1;
+                if let Some(t) = tr {
+                    let size = heading_size(*level);
+                    ui.add_space(4.0);
+                    ui.label(inline_job(ui, &[Inline::Text(t)], size, true));
+                    return;
+                }
+            }
+            render_block(ui, block, env);
+        }
+        Block::Paragraph { text } => {
+            let plain = inline_plain_text(text);
+            if needs_translation(&plain) {
+                let tr = trans.get(&*counter).cloned();
+                *counter += 1;
+                if let Some(t) = tr {
+                    if bilingual && !nested {
+                        render_block(ui, block, env);
+                        translation_box(ui, &t);
+                        return;
+                    }
+                    ui.add_space(4.0);
+                    ui.label(inline_job(ui, &[Inline::Text(t)], 15.0, false));
+                    return;
+                }
+            }
+            render_block(ui, block, env);
+        }
+        Block::Quote { blocks } => {
+            render_quote_translated(ui, blocks, env, trans, bilingual, counter);
+        }
+        Block::List { ordered, start, items } => {
+            render_list_translated(ui, *ordered, *start, items, env, trans, bilingual, counter);
+        }
+        Block::Table { headers, rows } => {
+            render_table_translated(ui, headers, rows, trans, counter);
+        }
+        other => render_block(ui, other, env),
+    }
+}
+
+fn heading_size(level: u8) -> f32 {
+    match level {
+        1 => 26.0,
+        2 => 22.0,
+        3 => 19.0,
+        4 => 17.0,
+        5 => 16.0,
+        _ => 15.0,
+    }
+}
+
+fn translation_box(ui: &mut Ui, text: &str) {
+    let visuals = ui.visuals();
+    let bg = if visuals.dark_mode {
+        Color32::from_rgb(38, 46, 62)
+    } else {
+        Color32::from_rgb(224, 236, 250)
+    };
+    let color = visuals.text_color();
+    egui::Frame::none()
+        .fill(bg)
+        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .show(ui, |ui| {
+            let f = TextFormat {
+                font_id: FontId::proportional(15.0),
+                color,
+                ..Default::default()
+            };
+            let mut job = LayoutJob::default();
+            job.append(text, 0.0, f);
+            ui.add(egui::Label::new(job));
+        });
+}
+
+fn render_quote_translated(
+    ui: &mut Ui,
+    blocks: &[Block],
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    bilingual: bool,
+    counter: &mut usize,
+) {
+    ui.add_space(6.0);
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width() - 8.0);
+        render_translated(ui, blocks, env, trans, bilingual, counter);
+    });
+    ui.add_space(6.0);
+}
+
+fn render_list_translated(
+    ui: &mut Ui,
+    ordered: bool,
+    start: u32,
+    items: &[crate::markdown::model::ListItem],
+    env: &mut RenderEnv,
+    trans: &HashMap<usize, String>,
+    bilingual: bool,
+    counter: &mut usize,
+) {
+    ui.add_space(4.0);
+    let mut idx = start;
+    for item in items {
+        ui.horizontal(|ui| {
+            if ordered {
+                ui.label(RichText::new(format!("{idx}.")).strong());
+                idx += 1;
+            } else {
+                let text = match item.task {
+                    Some(true) => "☑",
+                    Some(false) => "☐",
+                    None => "•",
+                };
+                ui.label(RichText::new(text).strong());
+            }
+            ui.add_space(6.0);
+            for b in &item.blocks {
+                render_translated_block(ui, b, env, trans, bilingual, counter, true);
+            }
+        });
+    }
+    ui.add_space(4.0);
+}
+
+fn render_table_translated(
+    ui: &mut Ui,
+    headers: &[Vec<Inline>],
+    rows: &[Vec<Vec<Inline>>],
+    trans: &HashMap<usize, String>,
+    counter: &mut usize,
+) {
+    ui.add_space(6.0);
+    egui::Grid::new("md_table_tr")
+        .striped(true)
+        .spacing([12.0, 5.0])
+        .show(ui, |ui| {
+            for h in headers {
+                let cell = trans_text(h, trans, counter);
+                ui.label(inline_job(ui, &[Inline::Text(cell)], 14.0, true));
+            }
+            ui.end_row();
+            for row in rows {
+                for cell in row {
+                    let c = trans_text(cell, trans, counter);
+                    ui.label(inline_job(ui, &[Inline::Text(c)], 14.0, false));
+                }
+                ui.end_row();
+            }
+        });
+    ui.add_space(6.0);
+}
+
+fn trans_text(inlines: &[Inline], trans: &HashMap<usize, String>, counter: &mut usize) -> String {
+    let plain = inline_plain_text(inlines);
+    if needs_translation(&plain) {
+        if let Some(t) = trans.get(&*counter).cloned() {
+            *counter += 1;
+            return t;
+        }
+        *counter += 1;
+    }
+    plain
+}

@@ -3,10 +3,17 @@
 mod fileopen;
 mod markdown;
 mod state;
+mod storage;
 mod translate;
 
+use std::sync::atomic::Ordering;
+
 use eframe::egui;
-use state::{AppState, Theme};
+use markdown::render::RenderEnv;
+use state::{AppState, Mode, Theme};
+use translate::http::UreqClient;
+use translate::providers::{self, Creds};
+use translate::providers_meta;
 
 fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
@@ -37,6 +44,10 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
 
 struct MyApp {
     state: AppState,
+    settings_open: bool,
+    form_provider: String,
+    form_creds: std::collections::HashMap<String, String>,
+    test_result: String,
 }
 
 impl MyApp {
@@ -45,7 +56,130 @@ impl MyApp {
         apply_theme(&cc.egui_ctx, theme);
         let mut state = AppState::new();
         state.theme = theme;
-        MyApp { state }
+        let form_provider = state.settings.provider.clone();
+        let form_creds = state
+            .settings
+            .providers
+            .get(&form_provider)
+            .cloned()
+            .unwrap_or_default();
+        MyApp {
+            state,
+            settings_open: false,
+            form_provider,
+            form_creds,
+            test_result: String::new(),
+        }
+    }
+
+    fn open_settings(&mut self) {
+        self.form_provider = self.state.settings.provider.clone();
+        self.form_creds = self
+            .state
+            .settings
+            .providers
+            .get(&self.form_provider)
+            .cloned()
+            .unwrap_or_default();
+        self.test_result.clear();
+        self.settings_open = true;
+    }
+
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let mut open = self.settings_open;
+        egui::Window::new("翻译设置")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                // Provider selection.
+                let mut provider = self.form_provider.clone();
+                egui::ComboBox::from_label("翻译源")
+                    .selected_text(providers_meta::get(&provider).map(|m| m.label).unwrap_or(&provider))
+                    .show_ui(ui, |ui| {
+                        for (key, meta) in providers_meta::REGISTRY {
+                            ui.selectable_value(&mut provider, key.to_string(), meta.label);
+                        }
+                    });
+                if provider != self.form_provider {
+                    self.form_provider = provider;
+                    self.form_creds = self
+                        .state
+                        .settings
+                        .providers
+                        .get(&self.form_provider)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.test_result.clear();
+                }
+                if let Some(meta) = providers_meta::get(&self.form_provider) {
+                    ui.label(meta.note);
+                    if meta.fields.is_empty() {
+                        ui.label("该翻译源无需密钥，可直接使用。");
+                    } else {
+                        for f in meta.fields {
+                            ui.horizontal(|ui| {
+                                ui.label(f.label);
+                                let key = f.key.to_string();
+                                let mut val = self.form_creds.entry(key.clone()).or_default().clone();
+                                let resp = if f.secret {
+                                    ui.add(egui::TextEdit::singleline(&mut val).password(true))
+                                } else {
+                                    ui.text_edit_singleline(&mut val).on_hover_text(f.placeholder)
+                                };
+                                let _ = resp;
+                                self.form_creds.insert(key, val);
+                            });
+                        }
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("🧪 测试连接").clicked() {
+                            self.test_translate(ui);
+                        }
+                        if ui.button("清除翻译缓存").clicked() {
+                            self.state.cache.clear();
+                            let _ = self.state.cache.save(&storage::cache_path());
+                            self.test_result = "翻译缓存已清除。".to_string();
+                        }
+                    });
+                    if !self.test_result.is_empty() {
+                        ui.label(&self.test_result);
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("取消").clicked() {
+                            self.settings_open = false;
+                        }
+                        if ui.button("保存").clicked() {
+                            self.state.settings.provider = self.form_provider.clone();
+                            self.state.settings.providers.insert(
+                                self.form_provider.clone(),
+                                self.form_creds.clone(),
+                            );
+                            storage::save_settings(&self.state.settings);
+                            self.settings_open = false;
+                        }
+                    });
+                }
+            });
+        self.settings_open = open;
+    }
+
+    fn test_translate(&mut self, _ui: &mut egui::Ui) {
+        let provider = self.form_provider.clone();
+        let creds = Creds(self.form_creds.clone());
+        let test_text = "Hello, this is a translation test.";
+        let http = UreqClient;
+        match providers::provider(&provider, test_text, &creds, &http) {
+            Ok(out) => self.test_result = format!("成功：{out}"),
+            Err(e) => self.test_result = format!("失败：{e}"),
+        }
     }
 
     fn open_dialog(&mut self) {
@@ -67,32 +201,129 @@ impl MyApp {
             }
         }
     }
+
+    fn start_translate(&mut self, ctx: &egui::Context) {
+        if self.state.txn_running.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.state.doc.blocks.is_empty() {
+            self.state.status = "没有可翻译的内容".to_string();
+            return;
+        }
+        let provider = self.state.settings.provider.clone();
+        let creds = providers::Creds(
+            self.state.settings.providers.get(&provider).cloned().unwrap_or_default(),
+        );
+        let Some(meta) = providers_meta::get(&provider) else {
+            self.state.status = format!("未知翻译源：{provider}");
+            return;
+        };
+        if meta.needs_key {
+            let missing = meta.fields.iter().find(|f| creds.get(f.key).map(|v| v.is_empty()).unwrap_or(true));
+            if let Some(f) = missing {
+                self.state.status = format!("请先在「设置」中填写「{}」的{}", meta.label, f.label);
+                return;
+            }
+        }
+
+        let units = markdown::render::collect_translatable(&self.state.doc.blocks);
+        let texts: Vec<String> = units.iter().map(|(_, t)| t.clone()).collect();
+        let indices: Vec<usize> = units.iter().map(|(i, _)| *i).collect();
+        let max_len = meta.max_len;
+        let max_conc = meta.max_concurrency;
+
+        // Transfer into the background thread.
+        let txn_running = self.state.txn_running.clone();
+        let txn_result = self.state.txn_result.clone();
+        let mut local_cache = self.state.cache.clone();
+        txn_running.store(true, Ordering::SeqCst);
+        self.state.translating = true;
+        self.state.status = "翻译中…".to_string();
+        let ctx = ctx.clone();
+
+        let h = std::thread::spawn(move || {
+            let http = UreqClient;
+            let results = translate::pipeline::translate_units(
+                &texts,
+                &provider,
+                &creds,
+                max_len,
+                max_conc,
+                &mut local_cache,
+                &http,
+                &|_done, _total| {
+                    ctx.request_repaint();
+                },
+            );
+            let mut translation: std::collections::HashMap<usize, String> = Default::default();
+            for (k, r) in indices.into_iter().zip(results.into_iter()) {
+                if let Ok(v) = r {
+                    translation.insert(k, v);
+                }
+            }
+            *txn_result.lock().unwrap() = Some((translation, local_cache));
+            txn_running.store(false, Ordering::SeqCst);
+            ctx.request_repaint();
+        });
+        let _ = h;
+    }
+
+    fn poll_translate(&mut self, ctx: &egui::Context) {
+        if self.state.txn_running.load(Ordering::SeqCst) {
+            self.state.translating = true;
+            self.state.status = "翻译中…".to_string();
+            ctx.request_repaint();
+            return;
+        }
+        if let Some((map, new_cache)) = self.state.txn_result.lock().unwrap().take() {
+            self.state.translation = map;
+            self.state.cache = new_cache;
+            self.state.translating = false;
+            let p = storage::cache_path();
+            let _ = self.state.cache.save(&p);
+            let provider = self.state.settings.provider.clone();
+            let label = providers_meta::get(&provider).map(|m| m.label).unwrap_or("");
+            self.state.status = format!("翻译完成（{label}）");
+        }
+    }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         apply_theme(ctx, self.state.theme);
+        self.poll_translate(ctx);
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
             self.open_dialog();
         }
         self.handle_dropped_files(ctx);
 
+        // ---- top bar ----
         egui::TopBottomPanel::top("topbar").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if ui.button("📂 打开").clicked() {
                     self.open_dialog();
                 }
-                if ui
-                    .button(if self.state.theme == Theme::Dark { "☀ 亮色" } else { "🌙 暗色" })
-                    .clicked()
-                {
-                    self.state.theme = if self.state.theme == Theme::Dark {
-                        Theme::Light
-                    } else {
-                        Theme::Dark
-                    };
+                if ui.button("⚙ 设置").clicked() {
+                    self.open_settings();
+                }
+                if ui.button(if self.state.theme == Theme::Dark { "☀" } else { "🌙" }).clicked() {
+                    self.state.theme = if self.state.theme == Theme::Dark { Theme::Light } else { Theme::Dark };
+                }
+                ui.separator();
+                egui::ComboBox::from_label("模式")
+                    .selected_text(self.state.mode.label())
+                    .show_ui(ui, |ui| {
+                        for m in [Mode::Original, Mode::Translation, Mode::Bilingual] {
+                            ui.selectable_value(&mut self.state.mode, m, m.label());
+                        }
+                    });
+                if ui.button("翻译").clicked() {
+                    if self.state.mode == Mode::Original {
+                        self.state.mode = Mode::Translation;
+                    }
+                    self.start_translate(ctx);
                 }
                 ui.separator();
                 ui.label(egui::RichText::new(&self.state.doc.name).strong());
@@ -100,9 +331,15 @@ impl eframe::App for MyApp {
             ui.add_space(4.0);
         });
 
+        self.settings_window(ctx);
+
+        // ---- bottom bar ----
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(&self.state.status);
+                if self.state.translating {
+                    ui.spinner();
+                }
                 ui.separator();
                 let c = self.state.doc.char_count();
                 let l = self.state.doc.line_count();
@@ -110,16 +347,35 @@ impl eframe::App for MyApp {
             });
         });
 
+        // ---- central preview ----
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.set_width(820.0_f32.min(ui.available_width()));
-                    let mut env = markdown::render::RenderEnv {
+                    let blocks = self.state.doc.blocks.clone();
+                    let base_dir = self.state.doc.base_dir.clone();
+                    let mode = self.state.mode;
+                    let mut env = RenderEnv {
                         ctx,
-                        base_dir: self.state.doc.base_dir.clone(),
+                        base_dir,
                         textures: std::mem::take(&mut self.state.textures),
                     };
-                    markdown::render::render_blocks(ui, &self.state.doc.blocks, &mut env);
+                    match mode {
+                        Mode::Original => {
+                            markdown::render::render_blocks(ui, &blocks, &mut env);
+                        }
+                        Mode::Translation | Mode::Bilingual => {
+                            let mut counter = 0usize;
+                            markdown::render::render_translated(
+                                ui,
+                                &blocks,
+                                &mut env,
+                                &self.state.translation,
+                                mode == Mode::Bilingual,
+                                &mut counter,
+                            );
+                        }
+                    }
                     self.state.textures = env.textures;
                 });
             });

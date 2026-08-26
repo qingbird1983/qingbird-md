@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct Cache {
     map: HashMap<String, String>,
     dirty: bool,
