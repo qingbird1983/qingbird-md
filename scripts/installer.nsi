@@ -1,4 +1,4 @@
-; qingbird-md — Windows NSIS installer
+﻿; qingbird-md — Windows NSIS installer
 ; Registers .md/.markdown file association, desktop + start-menu shortcuts,
 ; supports overwrite-upgrade while preserving the user-data dir (%APPDATA%).
 Unicode true
@@ -11,6 +11,7 @@ RequestExecutionLevel admin
 InstallDir "$PROGRAMFILES\青鸟Markdown阅读器"
 InstallDirRegKey HKLM "Software\qingbird-md" "InstallDir"
 SetCompressor lzma
+OutFile "..\release\qingbird-md-setup-${VERSION}.exe"
 
 Page directory
 Page instfiles

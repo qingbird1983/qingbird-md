@@ -38,7 +38,7 @@ powershell -File scripts\package.ps1
 # 产物：release\qingbird-md-setup-<版本>.exe
 ```
 
-> 说明：构建安装器需要 NSIS（`makensis`）。本机若未装，可复制 `release\qingbird-md.exe` 作为免安装绿色版，或安装 NSIS 后运行上面命令生成安装包。
+> 已产出：`release\qingbird-md-setup-0.1.0.exe`（本轮用 Electron 项目带的 NSIS 工具链构建成功）。它注册 `.md`/`.markdown` 文件关联、创建桌面/开始菜单快捷方式、支持覆盖升级并保留 `%APPDATA%` 用户数据。本机若没装 `makensis`，可直接复制 `release\qingbird-md.exe` 作为免安装绿色版。
 
 ## 项目结构
 
