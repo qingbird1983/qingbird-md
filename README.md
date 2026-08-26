@@ -28,14 +28,17 @@ cargo test
 
 ## 打包（Windows 安装器）
 
-1. `cargo build --release`（产物 `target\release\qingbird-md.exe`）
+1. `cargo build --release`（产物 `target\release\qingbird-md.exe`，已复制到 `release\qingbird-md.exe` 作为免安装绿色版）
 2. 用 NSIS 打包（脚本注册 `.md`/`.markdown` 文件关联 + 桌面/开始菜单快捷方式，升级保留用户数据目录）：
 
 ```bash
-# 若本机已装 NSIS(Makensis)：
+# 需先安装 NSIS(Makensis) 并在 PATH 里
 powershell -File scripts\package.ps1
-# 二进制也直接可用（免安装）：复制 target\release\qingbird-md.exe 即可
+# 或直接：makensis scripts\installer.nsi
+# 产物：release\qingbird-md-setup-<版本>.exe
 ```
+
+> 说明：构建安装器需要 NSIS（`makensis`）。本机若未装，可复制 `release\qingbird-md.exe` 作为免安装绿色版，或安装 NSIS 后运行上面命令生成安装包。
 
 ## 项目结构
 

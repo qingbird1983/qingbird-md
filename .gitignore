@@ -1,1 +1,5 @@
 /target
+/release
+/tools
+Cargo.lock.orig
+*.log
