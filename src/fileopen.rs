@@ -15,6 +15,24 @@ pub fn pick_folder() -> Option<PathBuf> {
     rfd::FileDialog::new().pick_folder()
 }
 
+/// Scan command-line arguments for an existing `.md`/`.markdown`/`.txt` file
+/// (used when Windows launches the app through a file association).
+pub fn file_arg_from_args(args: impl Iterator<Item = String>) -> Option<PathBuf> {
+    for a in args {
+        if a.starts_with('-') {
+            continue;
+        }
+        let p = PathBuf::from(&a);
+        if let Some(ext) = p.extension() {
+            let e = ext.to_string_lossy().to_lowercase();
+            if (e == "md" || e == "markdown" || e == "txt") && p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
 /// Show a native save dialog for a markdown file. Returns the chosen path,
 /// or `None` if the user cancels.
 pub fn pick_save_path(default_name: &str) -> Option<PathBuf> {

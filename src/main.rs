@@ -85,6 +85,56 @@ fn walk_heading(blocks: &[markdown::Block], out: &mut Vec<(u8, String)>) {
     }
 }
 
+/// Printable name for a key (used in hotkey strings like "Alt+1").
+fn key_name(key: egui::Key) -> Option<String> {
+    use egui::Key::*;
+    let s = match key {
+        A => "A", B => "B", C => "C", D => "D", E => "E", F => "F", G => "G", H => "H", I => "I",
+        J => "J", K => "K", L => "L", M => "M", N => "N", O => "O", P => "P", Q => "Q", R => "R",
+        S => "S", T => "T", U => "U", V => "V", W => "W", X => "X", Y => "Y", Z => "Z",
+        Num0 => "0", Num1 => "1", Num2 => "2", Num3 => "3", Num4 => "4", Num5 => "5", Num6 => "6",
+        Num7 => "7", Num8 => "8", Num9 => "9",
+        Space => "Space",
+        _ => return None,
+    };
+    Some(s.to_string())
+}
+
+/// Build a hotkey string like "Alt+1" / "Ctrl+Shift+T" from modifiers+key.
+fn hotkey_combo(mods: egui::Modifiers, key: egui::Key) -> Option<String> {
+    let name = key_name(key)?;
+    let mut parts: Vec<&str> = Vec::new();
+    if mods.ctrl {
+        parts.push("Ctrl");
+    }
+    if mods.alt {
+        parts.push("Alt");
+    }
+    if mods.shift {
+        parts.push("Shift");
+    }
+    if !mods.ctrl && mods.command {
+        parts.push("Meta");
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(&name);
+    Some(parts.join("+"))
+}
+
+/// The hotkey combo pressed this frame, if a fresh non-repeat key-down.
+fn hotkey_from_input(ctx: &egui::Context) -> Option<String> {
+    ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Key { key, pressed: true, modifiers, repeat: false, .. } => {
+                hotkey_combo(*modifiers, *key)
+            }
+            _ => None,
+        })
+    })
+}
+
 /// egui's bundled fonts carry no CJK glyphs, so Chinese renders as tofu. Load a
 /// system CJK font (Windows: YaHei / SimHei / DengXian / SimSun) and add it as
 /// the fallback for both families.
@@ -123,6 +173,7 @@ struct MyApp {
     test_result: String,
     last_mode: Mode,
     sel: (usize, usize),
+    recording_hotkey: Option<String>,
 }
 
 impl MyApp {
@@ -136,6 +187,10 @@ impl MyApp {
         };
         apply_theme(&cc.egui_ctx, theme);
         state.theme = theme;
+        // Open a file passed via file association (e.g. double-click a .md).
+        if let Some(p) = fileopen::file_arg_from_args(std::env::args().skip(1)) {
+            let _ = state.open(&p);
+        }
         let form_provider = state.settings.provider.clone();
         let form_creds = state
             .settings
@@ -152,6 +207,7 @@ impl MyApp {
             test_result: String::new(),
             last_mode,
             sel: (0, 0),
+            recording_hotkey: None,
         }
     }
 
@@ -178,6 +234,17 @@ impl MyApp {
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
+                if let Some(mode) = self.recording_hotkey.clone() {
+                    if let Some(combo) = hotkey_from_input(ctx) {
+                        self.state.settings.hotkeys.insert(mode.clone(), combo.clone());
+                        self.recording_hotkey = None;
+                        self.test_result = format!("已保存快捷键（{mode}）：{combo}");
+                    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.recording_hotkey = None;
+                        self.test_result = "已取消录制".to_string();
+                    }
+                    ctx.request_repaint();
+                }
                 // Provider selection.
                 let mut provider = self.form_provider.clone();
                 egui::ComboBox::from_label("翻译源")
@@ -232,6 +299,23 @@ impl MyApp {
                     });
                     if !self.test_result.is_empty() {
                         ui.label(&self.test_result);
+                    }
+
+                    ui.separator();
+                    ui.label("阅读模式快捷键（点击后按下组合键，须含 Ctrl/Alt/Shift）");
+                    for (mode, label) in [("original", "原文"), ("translation", "译文"), ("bilingual", "中英对照")] {
+                        let current = self.state.settings.hotkeys.get(mode).cloned().unwrap_or_else(|| "未设置".to_string());
+                        let text = if self.recording_hotkey.as_deref() == Some(mode) {
+                            "按下快捷键…".to_string()
+                        } else {
+                            current.clone()
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            if ui.button(text).clicked() {
+                                self.recording_hotkey = Some(mode.to_string());
+                            }
+                        });
                     }
 
                     ui.separator();
@@ -578,6 +662,29 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         apply_theme(ctx, self.state.theme);
         self.poll_translate(ctx);
+
+        // Honor user-recorded reading-mode hotkeys (e.g. Alt+1).
+        if let Some(combo) = hotkey_from_input(ctx) {
+            let hk = &self.state.settings.hotkeys;
+            let m = if hk.get("original").map(|s| s == &combo).unwrap_or(false) {
+                Some(Mode::Original)
+            } else if hk.get("translation").map(|s| s == &combo).unwrap_or(false) {
+                Some(Mode::Translation)
+            } else if hk.get("bilingual").map(|s| s == &combo).unwrap_or(false) {
+                Some(Mode::Bilingual)
+            } else {
+                None
+            };
+            if let Some(m) = m {
+                if self.state.mode != m {
+                    self.state.mode = m;
+                    self.state.translation.clear();
+                    if m != Mode::Original && !self.state.doc.blocks.is_empty() {
+                        self.start_translate(ctx);
+                    }
+                }
+            }
+        }
 
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
             self.open_dialog();
