@@ -42,6 +42,36 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
     }
 }
 
+/// egui's bundled fonts carry no CJK glyphs, so Chinese renders as tofu. Load a
+/// system CJK font (Windows: YaHei / SimHei / DengXian / SimSun) and add it as
+/// the fallback for both families.
+fn add_cjk_font(ctx: &egui::Context) {
+    let candidates = [
+        "C:/Windows/Fonts/Deng.ttf",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/MSYH.TTC",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyh.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+    ];
+    for path in candidates {
+        if let Ok(bytes) = std::fs::read(path) {
+            let mut fonts = egui::FontDefinitions::default();
+            let mut data = egui::FontData::from_owned(bytes);
+            data.index = 0;
+            fonts.font_data.insert("cjk".to_owned(), data);
+            if let Some(fam) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                fam.push("cjk".to_string());
+            }
+            if let Some(fam) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+                fam.push("cjk".to_string());
+            }
+            ctx.set_fonts(fonts);
+            return;
+        }
+    }
+}
+
 struct MyApp {
     state: AppState,
     settings_open: bool,
@@ -52,6 +82,7 @@ struct MyApp {
 
 impl MyApp {
     fn new(cc: &eframe::CreationContext) -> Self {
+        add_cjk_font(&cc.egui_ctx);
         let theme = initial_theme(&cc.egui_ctx);
         apply_theme(&cc.egui_ctx, theme);
         let mut state = AppState::new();
@@ -138,7 +169,7 @@ impl MyApp {
 
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("🧪 测试连接").clicked() {
+                        if ui.button("测试连接").clicked() {
                             self.test_translate(ui);
                         }
                         if ui.button("清除翻译缓存").clicked() {
@@ -302,13 +333,13 @@ impl eframe::App for MyApp {
         egui::TopBottomPanel::top("topbar").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("📂 打开").clicked() {
+                if ui.button("打开").clicked() {
                     self.open_dialog();
                 }
-                if ui.button("⚙ 设置").clicked() {
+                if ui.button("设置").clicked() {
                     self.open_settings();
                 }
-                if ui.button(if self.state.theme == Theme::Dark { "☀" } else { "🌙" }).clicked() {
+                if ui.button(if self.state.theme == Theme::Dark { "亮色" } else { "暗色" }).clicked() {
                     self.state.theme = if self.state.theme == Theme::Dark { Theme::Light } else { Theme::Dark };
                 }
                 ui.separator();

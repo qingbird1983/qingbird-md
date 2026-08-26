@@ -182,8 +182,8 @@ fn render_list(ui: &mut Ui, ordered: bool, start: u32, items: &[ListItem], env: 
                 idx += 1;
             } else {
                 let text = match item.task {
-                    Some(true) => "☑",
-                    Some(false) => "☐",
+                    Some(true) => "[x]",
+                    Some(false) => "[ ]",
                     None => "•",
                 };
                 ui.label(RichText::new(text).strong());
@@ -499,8 +499,8 @@ fn render_list_translated(
                 idx += 1;
             } else {
                 let text = match item.task {
-                    Some(true) => "☑",
-                    Some(false) => "☐",
+                    Some(true) => "[x]",
+                    Some(false) => "[ ]",
                     None => "•",
                 };
                 ui.label(RichText::new(text).strong());
