@@ -6,8 +6,7 @@ import { useUiStore } from "../stores/useUiStore";
 export default function ToastContainer() {
   const toasts = useUiStore((s) => s.toasts);
   const removeToast = useUiStore((s) => s.removeToast);
-  if (toasts.length === 0) return null;
-
+  // 恒渲染：aria-live 的 status region 需先于内容存在于 DOM，首条 toast 才会被屏幕阅读器播报
   return (
     <div className="toast-stack" role="status" aria-live="polite">
       {toasts.map((t) => (
