@@ -12,6 +12,9 @@ import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
+import { openFile } from "./components/commands";
+import { comboMatches } from "./lib/hotkeys";
+import { api } from "./lib/ipc";
 
 function App() {
   useEffect(() => {
@@ -40,16 +43,86 @@ function App() {
   );
 
   useEffect(() => {
-    // T28 命令面板全局快捷键 Ctrl+Shift+P：e.code 定位物理键免布局差异；
-    // preventDefault 拦下浏览器侧同名快捷键（devtools 走 F12 不受影响）。
+    // T29 快捷键收口：应用内全部组合键唯一入口（旧 egui main.rs 键位平移）。
+    // - 总闸：IME 组合期按键不是快捷键意图（T28 先例）；defaultPrevented =
+    //   编辑器/内层已处理（CM keymap 的 Mod+S/B/I 走 preventDefault），不重复
+    //   触发——防 CM 与本 handler 双发的唯一闸门。
+    // - Mod+Shift+P palette（T28 行为原样保留，Ctrl 或 Meta 皆可）。
+    // - Mod+S/E/B/I/\：S/B/I 编辑器聚焦时由 CM 先处理（defaultPrevented 拦下），
+    //   其余焦点（预览/侧栏/工具栏）由此处兜底；分支要求 !alt 防吞用户录制的
+    //   Ctrl+Alt+X 模式热键。
+    // - Alt+1/2/3 类：settings.hotkeys 用户录制动态值比对，先到先得；Meta 组合
+    //   在 parseCombo 已拒绝（Win 键不稳定，见 lib/hotkeys.ts 注释）。
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      const dd = useDocStore.getState();
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyP") {
         e.preventDefault();
         useUiStore.getState().openPalette();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        switch (e.code) {
+          case "KeyO":
+            e.preventDefault();
+            void openFile();
+            return;
+          case "KeyE":
+            e.preventDefault();
+            dd.switchView(dd.view === "source" ? "preview" : "source");
+            return;
+          case "KeyS":
+            e.preventDefault();
+            void dd.saveDoc(false);
+            return;
+          case "KeyB":
+            e.preventDefault();
+            void dd.applyFormat("bold");
+            return;
+          case "KeyI":
+            e.preventDefault();
+            void dd.applyFormat("italic");
+            return;
+          case "Backslash":
+            e.preventDefault();
+            dd.switchView("split");
+            return;
+        }
+      }
+      const hk = useSettingsStore.getState().settings?.hotkeys;
+      if (!hk) return;
+      for (const [mode, combo] of Object.entries(hk)) {
+        if (comboMatches(e, combo)) {
+          e.preventDefault();
+          if (mode === "original" || mode === "translation" || mode === "bilingual") {
+            dd.switchMode(mode);
+          }
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    // T29 全局热键（Rust 侧注册，程序未聚焦也可换模式）：回调 emit `hotkey-mode`
+    // （payload = 模式字符串）→ switchMode。StrictMode 双跑安全：listen promise
+    // 晚到且已卸载时由 alive 闩立刻解绑。
+    let un: (() => void) | undefined;
+    let alive = true;
+    void api.listenHotkeyMode((m) => {
+      if (m === "original" || m === "translation" || m === "bilingual") {
+        useDocStore.getState().switchMode(m);
+      }
+    }).then((f) => {
+      if (alive) un = f;
+      else f();
+    });
+    return () => {
+      alive = false;
+      un?.();
+    };
   }, []);
 
   const showNav = useUiStore((s) => s.showNav);

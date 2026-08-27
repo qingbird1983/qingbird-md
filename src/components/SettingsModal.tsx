@@ -137,6 +137,12 @@ export default function SettingsModal() {
       provider: formProvider,
       providers: { ...draft.providers, [formProvider]: formCreds },
     };
+    // T29 Meta 决议：录制器可录出 "Meta+X"（T26 行为保留），但解析/注册层显式
+    // 拒绝（Win 键组合系统占用多、行为不稳定，见 lib/hotkeys.ts 与
+    // src-tauri/src/hotkeys.rs registrable 注释）——保存时提示用户换组合。
+    if (Object.values(next.hotkeys).some((c) => c.split("+").some((p) => p === "Meta"))) {
+      useUiStore.getState().addToast("error", "含 Meta(Win) 键的快捷键不受支持，请改用 Ctrl/Alt/Shift 组合");
+    }
     setSaving(true);
     // store.save：失败内部回滚 + toast（草稿保持打开），成功后后端广播
     // settings-updated 回到 store（监听端收敛 theme + 同步 toast）

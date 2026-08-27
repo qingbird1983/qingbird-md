@@ -27,4 +27,5 @@ sha2 = "0.11"
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
 ureq = "2"

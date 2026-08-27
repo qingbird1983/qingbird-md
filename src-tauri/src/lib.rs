@@ -5,6 +5,7 @@
 mod dto;
 mod editor;
 mod fileopen;
+mod hotkeys;
 mod markdown;
 mod single_instance;
 mod storage;
@@ -135,6 +136,9 @@ fn load_settings() -> storage::Settings {
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: storage::Settings) -> Result<(), String> {
     storage::save_settings(&settings)?;
+    // T29：设置落盘后同步全局热键（unregister_all + 按新值重注册）。
+    // 同步命令跑在主线程，满足 RegisterHotKey 的线程约束。
+    hotkeys::sync(&app, &settings);
     app.emit("settings-updated", &settings)
         .map_err(|e| e.to_string())
 }
@@ -580,6 +584,7 @@ pub fn run() {
     let initial = Mutex::new(file_arg);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .on_page_load(move |wv, ev| {
             if !matches!(ev.event(), tauri::webview::PageLoadEvent::Finished) {
                 return;
@@ -631,6 +636,8 @@ pub fn run() {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             });
+            // Task 29: 启动时按已持久化设置注册全局热键（未聚焦也能换阅读模式）
+            hotkeys::sync(app.handle(), &storage::load_settings());
             Ok(())
         })
         .run(tauri::generate_context!())

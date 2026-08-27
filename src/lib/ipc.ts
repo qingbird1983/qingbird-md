@@ -62,6 +62,8 @@ export const api = {
     listen<DonePayload>("translation-done", (e) => cb(e.payload)),
   listenSettingsUpdated: (cb: (s: Settings) => void) =>
     listen<Settings>("settings-updated", (e) => cb(e.payload)),
+  // T29 全局热键回调（Rust hotkeys.rs emit）；payload 为模式字符串，由调用方校验
+  listenHotkeyMode: (cb: (m: string) => void) => listen<string>("hotkey-mode", (e) => cb(e.payload)),
 };
 
 // ---- 偏移换算：CodeMirror 位置 ↔ Rust UTF-8 字节 ----
