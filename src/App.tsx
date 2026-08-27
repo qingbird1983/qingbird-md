@@ -5,6 +5,7 @@ import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
+import Sidebar from "./components/Sidebar";
 
 function App() {
   useEffect(() => {
@@ -26,7 +27,11 @@ function App() {
     <div id="app-shell">
       <TopBar />
       {/* T18 Sidebar 挂入点；ui.showNav 折叠 */}
-      {showNav && <nav className="sidebar" style={{ width: sidebarWidth }} />}
+      {showNav && (
+        <nav className="sidebar" style={{ width: sidebarWidth }}>
+          <Sidebar />
+        </nav>
+      )}
       {/* T21 编辑器 / T23 TranslationBar 的宿主容器（flex 纵向） */}
       <main className="main-area">
         <div className="editor-slot" />

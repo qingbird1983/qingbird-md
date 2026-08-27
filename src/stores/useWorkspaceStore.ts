@@ -29,6 +29,8 @@ function joinUnderRoot(root: string, name: string) {
 
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
   let rawTree: TreeNodeDTO[] = []; // 缓存自 root 打开/刷新时刻
+  // applySearch 乱序护栏：连续输入时丢弃过期 IPC 响应（T15 review 遗留，随 T18 侧栏接线补齐）
+  let searchGen = 0;
 
   const setTree = (t: TreeNodeDTO[]) => {
     rawTree = t;
@@ -38,15 +40,17 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 
   async function applySearch(): Promise<void> {
     const q = get().search;
+    const gen = ++searchGen;
     if (!q.trim()) {
-      set({ tree: rawTree });
+      set({ tree: rawTree }); // 同步分支，无 await，天然有序
       return;
     }
     try {
       const filtered = await api.filterWorkspace(rawTree, q);
-      set({ tree: filtered });
+      if (gen === searchGen) set({ tree: filtered });
     } catch (e) {
-      useUiStore.getState().addToast("error", `过滤失败：${errText(e)}`);
+      if (gen === searchGen)
+        useUiStore.getState().addToast("error", `过滤失败：${errText(e)}`);
     }
   }
 
