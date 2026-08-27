@@ -85,15 +85,24 @@ export interface ProgressPayload {
 }
 
 /**
- * lib.rs TranslationDoneEvt：{gen, ok, translations?, error?}。
+ * lib.rs TranslationDoneEvt：{gen, ok, translations?, error?,
+ * html_original?, html_translation?, html_bilingual?, outline?}。
  * None 字段经 skip_serializing_if 整体缺席——用可选属性匹配。
  * translations 为按下标升序的 [原文索引, 译文] 对数组。
+ * Task 8 扩展：完成路径附带 html 形态 + 原文结构 outline（OutlineItem[]）。
+ * 译文形态只出与批次索引空间匹配的一种：translation 批次出 html_translation
+ * （run 空间替换渲染），bilingual 批次出 html_bilingual（块空间 tr-box 渲染），
+ * 另一种缺席；html_original 与 outline 恒在（ok=true 时）。
  */
 export interface DonePayload {
   gen: number;
   ok: boolean;
   translations?: Array<[number, string]>;
   error?: string;
+  html_original?: string;
+  html_translation?: string;
+  html_bilingual?: string;
+  outline?: OutlineItem[];
 }
 
 export type Mode = "original" | "translation" | "bilingual";

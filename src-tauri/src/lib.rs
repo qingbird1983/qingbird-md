@@ -268,9 +268,14 @@ struct TranslationProgressEvt {
 }
 
 /// Wire contract for the `translation-done` event:
-/// `{gen, ok, translations?: [[usize, String]], error?: String}`.
+/// `{gen, ok, translations?: [[usize, String]], error?,
+///   html_original?, html_translation?, html_bilingual?, outline?}`.
 /// `translations` 是按下标升序的 pair 数组（HashMap 无序，保证前端确定性渲染）；
 /// None 字段在 JSON 中整体缺席。
+///
+/// Task 8 扩展：完成路径随事件附带三种渲染形态 + 原文结构 outline，前端切
+/// 模式零延迟。译文形态只出与批次索引空间匹配的一种（见
+/// [`html_payload_parts`]），另一种缺席——错配空间会把译文放错位置。
 #[derive(Clone, serde::Serialize)]
 struct TranslationDoneEvt {
     r#gen: u64,
@@ -279,6 +284,14 @@ struct TranslationDoneEvt {
     translations: Option<Vec<(usize, String)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    html_original: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    html_translation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    html_bilingual: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outline: Option<Vec<markdown::html::OutlineItem>>,
 }
 
 /// Pure core of the done-payload assembly (unit-testable without threads):
@@ -301,6 +314,28 @@ fn done_payload_parts(
     }
     pairs.sort_by_key(|p| p.0);
     (err.is_none(), pairs, err)
+}
+
+/// 完成路径的 html/outline 组装（纯函数，worker 收尾调用）：
+/// - 原文形态恒出：空 map = 纯原文渲染，outline 为原文结构（只此一份）。
+/// - 译文形态按批次索引空间二选一：translation 批次的 map 是
+///   `units::collect_text_runs` 空间 → substituted 形式（trans 非空即替换）；
+///   bilingual 批次的 map 是 `units::collect_translatable` 空间 → bilingual
+///   形式。另一形式缺席：两个收集器的索引空间互不兼容，错配会把译文放在
+///   错误位置，宁缺勿错（前端可自行回退渲染）。
+/// - render_html 内部自行 parse_blocks：brief 裁定先对齐行为，不重构共享解析。
+fn html_payload_parts(
+    content: &str,
+    trans: &HashMap<usize, String>,
+    bilingual_batch: bool,
+) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
+    let orig = markdown::html::render_html(content, &HashMap::new(), false);
+    let (html_translation, html_bilingual) = if bilingual_batch {
+        (None, Some(markdown::html::render_html(content, trans, true).html))
+    } else {
+        (Some(markdown::html::render_html(content, trans, false).html), None)
+    };
+    (orig.html, html_translation, html_bilingual, orig.outline)
 }
 
 /// State pieces cloned out of [`AppTxn`] once at start so the worker thread
@@ -383,7 +418,8 @@ fn translate_document(
         running: Arc::clone(&state.running),
     };
     let (indices, texts): (Vec<usize>, Vec<String>) = units.into_iter().unzip();
-    spawn_translation(app, r#gen, texts, indices, provider, creds, meta, st, snapshot);
+    let bilingual = mode == "bilingual";
+    spawn_translation(app, r#gen, texts, indices, provider, creds, meta, st, snapshot, content, bilingual);
     Ok(r#gen)
 }
 
@@ -400,6 +436,8 @@ fn spawn_translation(
     meta: &'static translate::providers_meta::ProviderMeta,
     st: WorkerState,
     mut work_cache: Cache,
+    content: String,
+    bilingual: bool,
 ) {
     std::thread::spawn(move || {
         let http0 = translate::http::UreqClient;
@@ -444,9 +482,34 @@ fn spawn_translation(
 
         let (ok, pairs, err) = done_payload_parts(&indices, &results);
         let payload = if ok {
-            TranslationDoneEvt { r#gen, ok: true, translations: Some(pairs), error: None }
+            // 完成（含缓存全命中零网络）：组装三形态 + outline 随事件一并发出。
+            // pairs 已按 index 升序，collect 回 HashMap 供 render_html 查表。
+            let map: HashMap<usize, String> = pairs.iter().cloned().collect();
+            let (html_original, html_translation, html_bilingual, outline) =
+                html_payload_parts(&content, &map, bilingual);
+            TranslationDoneEvt {
+                r#gen,
+                ok: true,
+                translations: Some(pairs),
+                error: None,
+                html_original: Some(html_original),
+                html_translation,
+                html_bilingual,
+                outline: Some(outline),
+            }
         } else {
-            TranslationDoneEvt { r#gen, ok: false, translations: None, error: err }
+            // 取消/失败：维持现状（translations 缺席），html/outline 同样缺席，
+            // 不阻塞 done 事件本身。
+            TranslationDoneEvt {
+                r#gen,
+                ok: false,
+                translations: None,
+                error: err,
+                html_original: None,
+                html_translation: None,
+                html_bilingual: None,
+                outline: None,
+            }
         };
         let _ = app.emit("translation-done", payload);
         st.running.store(false, Ordering::SeqCst);
@@ -728,27 +791,91 @@ mod tests {
     #[test]
     fn translation_done_evt_wire_shape() {
         // Wire contract（Task 14 绑定字段名）：{gen, ok, translations?: [[i, text]], error?}
+        // Task 8 扩展：完成路径附带 html 形态 + outline；缺席字段在 JSON 无键。
+        // 索引空间现实（task-8ext-report）：translation 批次 map 是
+        // collect_text_runs 空间 → 只出 html_translation；bilingual 批次反之
+        // → 只出 html_bilingual。原文形态 + outline 恒在。
         let e = TranslationDoneEvt {
             r#gen: 7,
             ok: true,
             translations: Some(vec![(0, "甲".into()), (1, "乙".into())]),
             error: None,
+            html_original: Some(r#"<h1 id="h-1">T</h1>"#.into()),
+            html_translation: Some("<p>译</p>".into()),
+            html_bilingual: None,
+            outline: Some(vec![markdown::html::OutlineItem {
+                level: 1,
+                text: "T".into(),
+                id: "h-1".into(),
+            }]),
         };
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["gen"], 7);
         assert_eq!(v["ok"], true);
         assert_eq!(v["translations"], serde_json::json!([[0, "甲"], [1, "乙"]]));
         assert!(v.get("error").is_none());
+        assert_eq!(v["html_original"], r#"<h1 id="h-1">T</h1>"#);
+        assert_eq!(v["html_translation"], "<p>译</p>");
+        assert!(v.get("html_bilingual").is_none());
+        assert_eq!(
+            v["outline"],
+            serde_json::json!([{ "level": 1, "text": "T", "id": "h-1" }])
+        );
 
         let e2 = TranslationDoneEvt {
             r#gen: 7,
             ok: false,
             translations: None,
             error: Some("已取消".into()),
+            html_original: None,
+            html_translation: None,
+            html_bilingual: None,
+            outline: None,
         };
         let v2 = serde_json::to_value(&e2).unwrap();
         assert_eq!(v2["error"], "已取消");
         assert!(v2.get("translations").is_none());
+        assert!(v2.get("html_original").is_none());
+        assert!(v2.get("html_bilingual").is_none());
+        assert!(v2.get("outline").is_none());
+    }
+
+    #[test]
+    fn html_payload_parts_follow_batch_index_space() {
+        // run 空间事实（units::collect_runs_inline）：每个 Inline::Text 计一 run，
+        // 空格含在 run 内——"Hello " 是完整 run，只有 **/链接 等才切分。
+        // "# Ti\n\nHello **world** more" → run0=Ti, run1="Hello ", run2=world,
+        // run3=" more"（与 html.rs substituted_keeps_bold_wrapper 测试同构）。
+        // translation 批次：substituted 形式可出、bilingual 形式缺席（错配空间
+        // 会把 tr-box 放错位）。
+        let mut m = HashMap::new();
+        m.insert(0usize, "标题".into());
+        m.insert(1usize, "你好".into());
+        m.insert(2usize, "世界".into());
+        m.insert(3usize, "更多".into());
+        let (html_original, tr, bi, outline) =
+            html_payload_parts("# Ti\n\nHello **world** more", &m, false);
+        assert!(html_original.contains(r#"<h1 id="h-1">Ti</h1>"#));
+        assert!(html_original.contains("<p>Hello <strong>world</strong> more</p>"));
+        let tr = tr.expect("translation batch must carry substituted form");
+        assert!(tr.contains(r#"<h1 id="h-1">标题</h1>"#));
+        assert!(tr.contains("<p>你好<strong>世界</strong>更多</p>"));
+        assert!(bi.is_none());
+        assert_eq!(outline.len(), 1);
+        assert_eq!(outline[0].text, "Ti");
+        assert_eq!(outline[0].id, "h-1");
+
+        // bilingual 批次：map 是 translatable 块空间（块0=标题、块1=段落），
+        // bilingual 形式可出、substituted 缺席；原文形式不受批次模式影响。
+        let mut b = HashMap::new();
+        b.insert(0usize, "中文标题".into());
+        b.insert(1usize, "中文正文".into());
+        let (orig2, tr2, bi2, _) = html_payload_parts("# Ti\n\nHello **world** more", &b, true);
+        assert!(tr2.is_none());
+        let bi2 = bi2.expect("bilingual batch must carry bilingual form");
+        assert!(bi2.contains(r#"<div class="tr-box">中文标题</div>"#));
+        assert!(bi2.contains(r#"<div class="tr-box">中文正文</div>"#));
+        assert!(orig2.contains("<p>Hello <strong>world</strong> more</p>"));
     }
 
     #[test]
