@@ -22,6 +22,9 @@ const RATIO_MAX = 0.8;
 
 function SplitBody() {
   const ratio = useUiStore((s) => s.splitRatio);
+  // key = doc.path：换文档时重挂 EditorView，清空 CM undo 历史，
+  // 杜绝跨文档 Ctrl+Z 把 A 的内容回写进 B（数据覆盖事故）
+  const docKey = useDocStore((s) => s.doc?.path ?? "empty");
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -58,7 +61,7 @@ function SplitBody() {
   return (
     <>
       <div className="split-half" style={{ flex: `0 0 ${ratio * 100}%` }}>
-        <EditorView />
+        <EditorView key={docKey} />
       </div>
       <div
         className="resizer"
@@ -75,6 +78,7 @@ function SplitBody() {
 
 export default function MainArea() {
   const view = useDocStore((s) => s.view);
+  const docKey = useDocStore((s) => s.doc?.path ?? "empty");
   return (
     <>
       {/* 预览模式不显示工具栏（延续旧版） */}
@@ -82,7 +86,7 @@ export default function MainArea() {
       {/* T23：整篇翻译进度条（仅翻译进行中占位） */}
       <TranslationBar />
       <div className="main-body">
-        {view === "source" && <EditorView />}
+        {view === "source" && <EditorView key={docKey} />}
         {view === "preview" && <PreviewView />}
         {view === "split" && <SplitBody />}
       </div>

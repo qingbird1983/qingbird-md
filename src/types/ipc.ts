@@ -72,8 +72,8 @@ export interface Settings {
   last_file: string | null;
   hotkeys: Record<string, string>;
   selection_translate: boolean;
-  outline: "on" | string;
-  nav: "on" | string;
+  outline: string;
+  nav: string;
   theme: string;
 }
 

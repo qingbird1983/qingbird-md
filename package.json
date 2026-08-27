@@ -18,7 +18,6 @@
     "@codemirror/view": "^6",
     "@tauri-apps/api": "^2",
     "@tauri-apps/cli": "^2",
-    "@tauri-apps/plugin-dialog": "^2",
     "codemirror": "^6",
     "codemirror-lang-math": "^0.1",
     "lucide-react": "^0.469",

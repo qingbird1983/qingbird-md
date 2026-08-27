@@ -29,8 +29,13 @@ export default function StatusBar() {
         : "待机";
 
   const pathLabel = doc ? `${doc.path ?? doc.name}${isDirty ? " ●" : ""}` : "未打开文档";
+  // 实时统计：char_count/line_count 是 open_file 时的 DTO 快照，编辑后即过期。
+  // 字符按 code point 展开（"字符"语义），行数按 \n 切分。
+  const stats = doc
+    ? `字符 ${[...doc.content].length} · 行 ${doc.content.split("\n").length}`
+    : null;
   const rest = [
-    doc ? `字符 ${doc.char_count} · 行 ${doc.line_count}` : null,
+    stats,
     MODE_LABEL[mode] ?? mode,
     provider ?? "—",
     transLabel,

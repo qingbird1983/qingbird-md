@@ -33,7 +33,6 @@ interface DocState {
   /** 工具栏撤销/重做（CodeMirror 命令）；编辑器未挂载时 no-op。 */
   dispatchUndo(): void;
   dispatchRedo(): void;
-  setContent(c: string): void;
   setCursorSel(s: [number, number]): void;
   applyFormat(op: string): Promise<void>;
   saveDoc(as: boolean): Promise<void>;
@@ -98,12 +97,6 @@ export const useDocStore = create<DocState>()((set, get) => ({
     void api.listenDocumentChanged((p) =>
       useDocStore.getState().openDoc(p),
     );
-  },
-
-  setContent: (c) => {
-    const d = get().doc;
-    if (!d || d.content === c) return;
-    set({ doc: { ...d, content: c }, isDirty: c !== get().savedContent });
   },
 
   setCursorSel: (s) => set({ cursorSel: s }),
