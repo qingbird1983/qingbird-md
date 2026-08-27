@@ -3,4 +3,4 @@ pub mod model;
 pub mod syntax;
 pub mod units;
 
-pub use model::{parse_blocks, Block};
+pub use model::parse_blocks;

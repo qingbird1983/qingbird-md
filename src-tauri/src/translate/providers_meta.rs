@@ -15,7 +15,6 @@ pub struct ProviderMeta {
     pub needs_key: bool,
     pub max_len: usize,
     pub max_concurrency: usize,
-    pub chunk_concurrency: usize,
     pub fields: &'static [FieldDef],
     pub note: &'static str,
 }
@@ -27,7 +26,6 @@ const MYMEMORY: ProviderMeta = ProviderMeta {
     needs_key: false,
     max_len: 500,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: NO_FIELDS,
     note: "无需密钥，每天约 500 次请求，适合先试用；长文/质量一般。",
 };
@@ -42,7 +40,6 @@ const YOUDAO: ProviderMeta = ProviderMeta {
     needs_key: true,
     max_len: 5000,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: YOUDAO_FIELDS,
     note: "需有道智云「文本翻译」服务，单条上限约 5000 字符。",
 };
@@ -58,7 +55,6 @@ const TENCENT: ProviderMeta = ProviderMeta {
     needs_key: true,
     max_len: 6000,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: TENCENT_FIELDS,
     note: "腾讯云机器翻译 TMT，单条上限 6000 字符。",
 };
@@ -73,7 +69,6 @@ const BAIDU: ProviderMeta = ProviderMeta {
     needs_key: true,
     max_len: 6000,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: BAIDU_FIELDS,
     note: "百度通用翻译 API，单条上限 6000 字符。",
 };
@@ -104,7 +99,6 @@ const LLM: ProviderMeta = ProviderMeta {
     needs_key: false,
     max_len: 3000,
     max_concurrency: 3,
-    chunk_concurrency: 2,
     fields: LLM_FIELDS,
     note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。更换模型后建议清除翻译缓存。",
 };
@@ -114,7 +108,6 @@ const TRANSMART: ProviderMeta = ProviderMeta {
     needs_key: false,
     max_len: 2000,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: NO_FIELDS,
     note: "腾讯交互翻译浏览器端点，零密钥（仅需硬编码 client_key），国内裸连稳定；长文档首选。",
 };
@@ -124,7 +117,6 @@ const ICIBA: ProviderMeta = ProviderMeta {
     needs_key: false,
     max_len: 1000,
     max_concurrency: 12,
-    chunk_concurrency: 4,
     fields: NO_FIELDS,
     note: "金山词霸批量翻译，零密钥（MD5 签名），国内可用；作自动备用源。",
 };
@@ -134,7 +126,6 @@ const AUTO: ProviderMeta = ProviderMeta {
     needs_key: false,
     max_len: 1000,
     max_concurrency: 3,
-    chunk_concurrency: 2,
     fields: NO_FIELDS,
     note: "默认推荐：自动按序尝试腾讯Transmart、金山iCiba，全部失败再用MyMemory兜底，无需任何配置。",
 };

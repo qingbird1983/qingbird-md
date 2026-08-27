@@ -70,7 +70,6 @@ function handleDone(d: DonePayload) {
           contentKey: st.runContent!,
           mode: d.html_translation ? "translation" : "bilingual",
           html: (d.html_translation ?? d.html_bilingual)!,
-          outline: d.outline ?? [],
         },
       });
     }

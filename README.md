@@ -36,7 +36,7 @@ npm run build            # tsc 严格编译 + vite 构建
 npx tauri build
 ```
 
-产物为 NSIS 安装器（`src-tauri/target/release/bundle/nsis/`）。`scripts/installer.nsi` 与 `scripts/package.ps1` 是旧 eframe 版遗留脚本，未随本次迁移更新。
+产物为 NSIS 安装器（`src-tauri/target/release/bundle/nsis/`）。`scripts/package.ps1` 是旧 eframe 版遗留脚本，未随本次迁移更新。
 
 ## 性能
 

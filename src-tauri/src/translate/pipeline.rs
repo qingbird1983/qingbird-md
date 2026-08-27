@@ -74,6 +74,9 @@ fn sentence_boundaries(window: &str) -> Vec<usize> {
 
 /// Group unit indices into batches, merging adjacent short units up to
 /// `merge_cap` (≈0.8·max_len); oversized units become single-element batches.
+/// Test-only mirror of the batching loop inlined in [`translate_units`]
+/// (production interleaves cache-hit filtering, so it cannot call this).
+#[cfg(test)]
 pub fn batch_units(texts: &[String], max_len: usize) -> Vec<Vec<usize>> {
     let merge_cap = ((max_len as f32) * 0.8) as usize;
     let mut batches: Vec<Vec<usize>> = Vec::new();

@@ -55,6 +55,9 @@ impl Default for AppTxn {
 impl AppTxn {
     fn new(lock: Option<File>) -> Self {
         let s = Self::default();
+        // 启动时接续上次落盘的翻译记忆（save 在 worker 收尾/clear_cache 时写回）。
+        // Default 保持空缓存，测试不依赖真机磁盘状态。
+        *s.cache.lock().expect("cache mutex poisoned") = Cache::load(&storage::cache_path());
         *s.lock_file.lock().expect("lock_file mutex poisoned") = lock;
         s
     }
@@ -493,7 +496,6 @@ fn spawn_translation(
                 }
             }
             let _ = shared.save(&storage::cache_path());
-            shared.mark_saved();
         }
 
         let (ok, pairs, err) = done_payload_parts(&indices, &results);

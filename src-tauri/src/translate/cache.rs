@@ -1,6 +1,7 @@
 //! Translation memory cache: in-memory HashMap + JSON disk persistence.
 //! Key = `provider\x00text`, value = translation. Borrows the Electron logic
-//! (20k cap, drop 25% oldest when over, debounced save done by the UI layer).
+//! (20k cap, drop 25% when over; loaded at startup, saved by the worker
+//! finish path / clear_cache).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -8,14 +9,13 @@ use std::path::Path;
 #[derive(Clone)]
 pub struct Cache {
     map: HashMap<String, String>,
-    dirty: bool,
 }
 
 const MAX: usize = 20_000;
 
 impl Cache {
     pub fn new() -> Self {
-        Cache { map: HashMap::new(), dirty: false }
+        Cache { map: HashMap::new() }
     }
 
     pub fn key(provider: &str, text: &str) -> String {
@@ -28,7 +28,6 @@ impl Cache {
 
     /// Insert a result. Returns `true` if the key was newly added (cache miss).
     pub fn set(&mut self, key: String, value: String) -> bool {
-        self.dirty = true;
         if self.map.contains_key(&key) {
             self.map.insert(key, value);
             return false;
@@ -50,23 +49,17 @@ impl Cache {
 
     pub fn clear(&mut self) {
         self.map.clear();
-        self.dirty = true;
     }
 
+    /// Test-only size probes (production reads the map only through get/set).
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
-    }
-
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    pub fn mark_saved(&mut self) {
-        self.dirty = false;
     }
 
     pub fn to_json(&self) -> String {

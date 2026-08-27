@@ -50,36 +50,23 @@ pub fn highlight_spans(code: &str, lang: Option<&str>) -> Option<Vec<(Color, Str
     Some(spans)
 }
 
-/// Produce an ANSI-colorized string (used by offline tests only).
-pub fn highlight(code: &str, lang: Option<&str>) -> String {
-    let Some(spans) = highlight_spans(code, lang) else {
-        return code.to_string();
-    };
-    let mut out = String::new();
-    for (c, s) in spans {
-        out.push_str(&format!("\x1b[38;2;{};{};{}m{}", c.r, c.g, c.b, s));
-    }
-    out.push_str("\x1b[0m");
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn highlights_known_language() {
-        let out = highlight("fn main() {}", Some("rust"));
-        assert!(out.contains('\x1b'), "expected ANSI color codes");
+        let spans = highlight_spans("fn main() {}", Some("rust")).expect("rust must highlight");
+        assert!(!spans.is_empty());
     }
 
     #[test]
     fn no_lang_falls_back_to_plain() {
-        assert_eq!(highlight("plain text", None), "plain text");
+        assert!(highlight_spans("plain text", None).is_none());
     }
 
     #[test]
     fn unknown_lang_falls_back_to_plain() {
-        assert_eq!(highlight("text", Some("not-a-real-lang-xyz")), "text");
+        assert!(highlight_spans("text", Some("not-a-real-lang-xyz")).is_none());
     }
 }

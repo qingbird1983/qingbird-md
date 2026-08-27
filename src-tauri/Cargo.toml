@@ -15,7 +15,6 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-base64 = "0.23"
 dirs = "6.0"
 fs2 = "0.4"
 hmac = "0.13"

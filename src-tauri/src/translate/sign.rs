@@ -1,4 +1,4 @@
-//! Hash/HMAC/base64 helpers used by the translation providers.
+//! Hash/HMAC helpers used by the translation providers.
 //! Ported from the Electron `src/translators/sign.js`.
 
 use hmac::{Hmac, KeyInit, Mac};
@@ -22,11 +22,6 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("hmac key length");
     mac.update(data);
     mac.finalize().into_bytes().to_vec()
-}
-
-pub fn base64_encode(data: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(data)
 }
 
 fn hex(bytes: &[u8]) -> String {
