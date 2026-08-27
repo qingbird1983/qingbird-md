@@ -152,14 +152,14 @@ impl<'t> Ctx<'t> {
                 );
             }
             Block::Table { headers, rows } => {
-                out.push_str("<table><thead>");
+                out.push_str("<table><thead><tr>");
                 for h in headers {
-                    out.push_str("<tr><th>");
+                    out.push_str("<th>");
                     self.push_inlines(out, h);
                     self.maybe_tr_box(out, &inline_plain_text(h));
-                    out.push_str("</th></tr>");
+                    out.push_str("</th>");
                 }
-                out.push_str("</thead><tbody>");
+                out.push_str("</tr></thead><tbody>");
                 for row in rows {
                     out.push_str("<tr>");
                     for cell in row {
@@ -362,6 +362,18 @@ mod tests {
         m.insert(2usize, "更多".into());
         let r = render_html("Hello **world** more", &m, false);
         assert!(r.html.contains(r#"<p>你好<strong>世界</strong>更多</p>"#));
+    }
+
+    #[test]
+    fn multicol_table_single_thead_row() {
+        let r = render_html("| a | b |\n| --- | --- |\n| 1 | 2 |", &HashMap::new(), false);
+        // Exactly one <tr> in thead, holding BOTH th cells.
+        assert!(r.html.contains("<thead><tr><th>a</th><th>b</th></tr></thead>"));
+        let thead = r.html.split("</thead>").next().unwrap();
+        assert_eq!(thead.matches("<tr>").count(), 1, "header must be one row");
+        assert_eq!(thead.matches("<th>").count(), 2);
+        // Body keeps its single normal row.
+        assert!(r.html.contains("<tbody><tr><td>1</td><td>2</td></tr></tbody>"));
     }
 
     #[test]
