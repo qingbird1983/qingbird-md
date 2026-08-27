@@ -7,3 +7,5 @@ Cargo.lock.orig
 /.worktrees
 /.superpowers
 /src-tauri/gen
+node_modules/
+dist/
