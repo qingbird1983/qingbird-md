@@ -202,7 +202,10 @@ fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
         return None;
     }
     if let Some(p) = s.strip_prefix("file://") {
-        return Some(PathBuf::from(p));
+        // 三斜杠 file:///C:/x.png 剥 `file://` 后余 `/C:/x.png`，前导斜杠在
+        // Windows 上不是有效本地路径——剥净；双斜杠 file://C:/x.png 原样无影响
+        // （旧 Electron 平移行为保持）。
+        return Some(PathBuf::from(p.trim_start_matches('/')));
     }
     if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("data:") {
         return None;
@@ -605,6 +608,20 @@ mod tests {
         // 平移自旧逻辑的边界：空 src 与纯空白拒绝
         assert_eq!(resolve("", Some("D:/w")), None);
         assert_eq!(resolve("   ", Some("D:/w")), None);
+    }
+
+    #[test]
+    fn resolve_triple_slash_file_url_is_normalized_to_drive_path() {
+        // file:///C:/x.png 三斜杠形式：剥净前导斜杠（否则 /C:/x.png 不是有效本地路径）
+        assert_eq!(
+            resolve("file:///C:/x.png", None).unwrap().to_string_lossy(),
+            "C:/x.png"
+        );
+        // 四斜杠同样剥净到净路径
+        assert_eq!(
+            resolve("file:////C:/x.png", None).unwrap().to_string_lossy(),
+            "C:/x.png"
+        );
     }
 
     #[test]

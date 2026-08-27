@@ -77,10 +77,27 @@ pub fn cache_path() -> PathBuf {
 }
 
 pub fn load_settings() -> Settings {
-    let p = settings_path();
-    if let Ok(s) = std::fs::read_to_string(&p) {
-        if let Ok(v) = serde_json::from_str::<Settings>(&s) {
-            return v;
+    load_settings_from(&settings_path())
+}
+
+/// [`load_settings`] 的可注入路径版本（测试与复用入口；对应 save_settings_to）。
+pub fn load_settings_from(path: &std::path::Path) -> Settings {
+    if let Ok(s) = std::fs::read_to_string(path) {
+        match serde_json::from_str::<Settings>(&s) {
+            Ok(v) => return v,
+            Err(_) => {
+                // 加固（审查遗留）：解析失败的坏文件重命名为 <name>.bak-<timestamp>
+                // 再回退默认值——坏内容仍在磁盘上，绝不静默丢弃用户数据。
+                // rename 失败（权限/占用）不阻塞默认值回退。
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                if let Some(name) = path.file_name() {
+                    let bak = path.with_file_name(format!("{}.bak-{ts}", name.to_string_lossy()));
+                    let _ = std::fs::rename(path, bak);
+                }
+            }
         }
     }
     Settings::default()
@@ -103,6 +120,39 @@ pub fn save_settings(s: &Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrupt_settings_file_is_backed_up_and_defaults_loaded() {
+        let unique = format!(
+            "{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let dir = std::env::temp_dir().join(format!("qingbird-corrupt-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("qingbird-settings.json");
+        std::fs::write(&p, "{corrupt json").unwrap();
+
+        // 加固契约：解析失败 → 坏文件保留为 <name>.bak-<timestamp>，load 返回默认值，
+        // 绝不静默丢弃用户数据。
+        let s = load_settings_from(&p);
+        assert_eq!(s.provider, "auto");
+        assert!(s.workspace.is_none());
+
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names.len(), 1, "exactly one file should remain, got {names:?}");
+        assert!(
+            names[0].starts_with("qingbird-settings.json.bak-"),
+            "backup must be <name>.bak-<timestamp>, got {names:?}"
+        );
+    }
 
     #[test]
     fn settings_defaults() {

@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 const MAX_DEPTH: usize = 10;
 const MAX_FILES: usize = 3000;
 
-const SKIP: &[&str] = &["node_modules", ".git", "dist", "build", ".vscode", ".workbuddy", ".idea"];
+// "target" is a divergence from the frozen kernel source: on Windows the Rust
+// workspace target/ tree floods the walk and trips MAX_FILES truncation.
+const SKIP: &[&str] =
+    &["node_modules", ".git", "dist", "build", ".vscode", ".workbuddy", ".idea", "target"];
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -112,6 +115,25 @@ mod tests {
         assert!(is_md("b.markdown"));
         assert!(is_md("c.txt"));
         assert!(!is_md("d.png"));
+    }
+
+    #[test]
+    fn walk_skips_target_dir() {
+        // Windows Rust 工作区树会被 target 淹没触发 MAX_FILES 截断，
+        // 故 target 必须像 node_modules 一样被跳过、绝不出现于结果树。
+        let dir = std::env::temp_dir().join(format!("qingbird-ws-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::create_dir_all(dir.join("target").join("debug")).unwrap();
+        std::fs::write(dir.join("docs").join("a.md"), "x").unwrap();
+        std::fs::write(dir.join("target").join("debug").join("evil.md"), "x").unwrap();
+
+        let tree = walk(&dir);
+        assert_eq!(tree.len(), 1, "only docs should be listed, got {tree:?}");
+        assert_eq!(tree[0].name, "docs");
+        assert_eq!(tree[0].children[0].name, "a.md");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
