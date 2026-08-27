@@ -20,6 +20,7 @@ interface UiState {
   showOutline: boolean;
   sidebarWidth: number;
   outlineWidth: number;
+  splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
@@ -34,6 +35,7 @@ interface UiState {
   closeSettings(): void;
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
+  setSplitRatio(r: number): void;
 }
 
 let toastSeq = 0;
@@ -43,6 +45,7 @@ export const useUiStore = create<UiState>()((set) => ({
   showOutline: true,
   sidebarWidth: 240,
   outlineWidth: 200,
+  splitRatio: 0.5,
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
@@ -65,4 +68,5 @@ export const useUiStore = create<UiState>()((set) => ({
 
   setSidebarWidth: (w) => set({ sidebarWidth: w }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),
+  setSplitRatio: (r) => set({ splitRatio: r }),
 }));

@@ -203,12 +203,68 @@ button.menu-btn:disabled,
   grid-column: 2;
 }
 
-.editor-slot {
-  flex: 1;
-  min-height: 0;
+/* T22：工具栏（source/split 模式显示，preview 不显示） */
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-bottom: 1px solid #ddd;
+  background: #f5f5f5;
 }
 
-/* T21：CodeMirror 宿主——撑满 editor-slot；暗色由 oneDark 接管配色 */
+.editor-toolbar .tb-gap {
+  flex: 1;
+}
+
+/* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
+.main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
+.main-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-body > .resizer {
+  flex: 0 0 4px;
+}
+
+.split-half {
+  overflow: hidden;
+}
+
+/* split 中缝：默认淡色细条，悬停提示可拖拽 */
+.resizer {
+  cursor: col-resize;
+  background: #ddd;
+}
+
+.resizer:hover {
+  background: #bbb;
+}
+
+/* T22：预览首次真正挂载（T20 组件当时无宿主）——容器滚动由壳层负责 */
+.preview-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: 13px;
+}
+
+/* T21：CodeMirror 宿主——撑满主区；暗色由 oneDark 接管配色 */
 .editor-cm {
   height: 100%;
   overflow: hidden;
@@ -311,6 +367,19 @@ body {
   .topbar {
     border-bottom-color: #333;
     background: #252526;
+  }
+
+  .editor-toolbar {
+    border-bottom-color: #333;
+    background: #252526;
+  }
+
+  .resizer {
+    background: #333;
+  }
+
+  .resizer:hover {
+    background: #555;
   }
 
   .menu-btn:hover,

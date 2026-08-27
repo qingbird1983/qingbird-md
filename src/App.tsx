@@ -5,6 +5,7 @@ import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
+import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
 
@@ -48,9 +49,9 @@ function App() {
           <Sidebar />
         </nav>
       )}
-      {/* T21 编辑器 / T23 TranslationBar 的宿主容器（flex 纵向） */}
+      {/* T22 MainArea：source/preview/split 路由 + 格式工具栏；T23 TranslationBar 宿主 */}
       <main className="main-area">
-        <div className="editor-slot" />
+        <MainArea />
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠 */}
       {showOutline && (

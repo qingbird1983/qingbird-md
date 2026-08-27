@@ -22,7 +22,6 @@ import { LanguageDescription } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { minimalSetup } from "codemirror";
 import { math } from "codemirror-lang-math";
 import { useDocStore } from "../stores/useDocStore";
@@ -52,11 +51,9 @@ export default function EditorView() {
       state: EditorState.create({
         doc: useDocStore.getState().doc?.content ?? "",
         extensions: [
-          minimalSetup,
+          minimalSetup, // 已含 default/history keymap 与 undo history
           markdown({ codeLanguages: [mathLang, ...languages] }),
           keymap.of([
-            ...historyKeymap,
-            ...defaultKeymap,
             { key: "Mod-s", preventDefault: true, run: () => { void useDocStore.getState().saveDoc(false); return true; } },
             { key: "Mod-b", preventDefault: true, run: () => { void useDocStore.getState().applyFormat("bold"); return true; } },
             { key: "Mod-i", preventDefault: true, run: () => { void useDocStore.getState().applyFormat("italic"); return true; } },
@@ -88,6 +85,9 @@ export default function EditorView() {
       }),
     });
 
+    // 工具栏撤销/重做桥接（Task 22）：实例句柄挂到 docStore，卸载时清空
+    useDocStore.getState().cmRef.current = view;
+
     // store → editor：外部内容变更（openDoc/applyFormat）全量替换 + 光标回填 +
     // 居中滚动；选区钳制到新文档长度（Rust clamp_sel 同款语义）。
     const unsubDoc = useDocStore.subscribe((s) => {
@@ -117,6 +117,7 @@ export default function EditorView() {
     mq.addEventListener("change", applyTheme);
 
     return () => {
+      useDocStore.getState().cmRef.current = null;
       mq.removeEventListener("change", applyTheme);
       unsubTheme();
       unsubDoc();

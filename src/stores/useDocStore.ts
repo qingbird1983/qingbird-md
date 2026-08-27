@@ -2,6 +2,8 @@
 // htmlCache 为单槽 { contentKey, result }——只服务当前内容，保证 ensureParsed 幂等；
 // parseResult 与之原子联动，供 OutlinePanel / Preview 单一来源消费（plan Task 19 修正接口）。
 import { create } from "zustand";
+import { undo, redo } from "@codemirror/commands";
+import type { EditorView } from "@codemirror/view";
 import type { DocDTO, Mode, ParseResult, ViewKind } from "../types/ipc";
 import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
@@ -19,10 +21,15 @@ interface DocState {
   parseResult: ParseResult | null;
   // 单槽缓存：key = 产出 result 时的完整 content；与 parseResult 永远同一次 set 内联动更新
   htmlCache: { contentKey: string; result: ParseResult } | null;
+  /** CM 实例句柄（非响应式）：EditorView 挂载/卸载时写入/清空，供工具栏撤销/重做桥接（Task 22）。 */
+  cmRef: { current: EditorView | null };
 
   openDoc(path: string): Promise<void>;
   /** 启动期 document-changed 监听注册处：首开文件参数与第二实例 handoff 都经该事件流入。只挂一次。 */
   openDocFromArgs(): void;
+  /** 工具栏撤销/重做（CodeMirror 命令）；编辑器未挂载时 no-op。 */
+  dispatchUndo(): void;
+  dispatchRedo(): void;
   setContent(c: string): void;
   setCursorSel(s: [number, number]): void;
   applyFormat(op: string): Promise<void>;
@@ -52,6 +59,16 @@ export const useDocStore = create<DocState>()((set, get) => ({
   translations: new Map(),
   parseResult: null,
   htmlCache: null,
+  cmRef: { current: null },
+
+  dispatchUndo: () => {
+    const v = get().cmRef.current;
+    if (v) undo(v);
+  },
+  dispatchRedo: () => {
+    const v = get().cmRef.current;
+    if (v) redo(v);
+  },
 
   openDoc: async (path) => {
     try {

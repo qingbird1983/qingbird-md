@@ -15,7 +15,7 @@ import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
-import "../styles/markdown.css";
+// 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
 /** img src 只在 DOM 层改写：resolve 失败/null（http/data 等）保持原样由浏览器加载。 */
 async function rewriteImages(scope: HTMLElement, baseDir: string | null) {
