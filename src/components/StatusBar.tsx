@@ -28,8 +28,8 @@ export default function StatusBar() {
         ? "翻译失败"
         : "待机";
 
-  const segments = [
-    doc ? `${doc.path ?? doc.name}${isDirty ? " ●" : ""}` : "未打开文档",
+  const pathLabel = doc ? `${doc.path ?? doc.name}${isDirty ? " ●" : ""}` : "未打开文档";
+  const rest = [
     doc ? `字符 ${doc.char_count} · 行 ${doc.line_count}` : null,
     MODE_LABEL[mode] ?? mode,
     provider ?? "—",
@@ -38,5 +38,11 @@ export default function StatusBar() {
     .filter(Boolean)
     .join(" · ");
 
-  return <footer className="status-bar">{segments}</footer>;
+  return (
+    <footer className="status-bar">
+      {/* T16 review 修补：路径独立成文本节点才能出省略号（.status-path 收缩规则） */}
+      <span className="status-path">{pathLabel}</span>
+      {rest ? <span className="status-rest">· {rest}</span> : null}
+    </footer>
+  );
 }

@@ -1,0 +1,90 @@
+/* T30 主题变量贯通：亮暗两套调色板 + CJK 字体栈。
+   真源在 useSettingsStore：theme(light|dark|auto) 经 isDarkTheme 解析后由
+   syncDomTheme 写入 body[data-theme="dark|light"]，auto 档由 matchMedia watch
+   随系统实时切换。CSS 侧恒以 var() 取色，组件样式零硬编码色。 */
+
+:root {
+  /* 字体：brief 指定栈——拉丁走 Segoe UI，中文命中雅黑（Tauri WebView 系统字体），
+     苹方/Noto 为跨平台兜底；无须打包字体文件（省 15MB）。 */
+  --font-ui: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+  /* 代码/编辑器等宽：Consolas 之后落雅黑，保证 CJK 注释不豆腐 */
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, "Microsoft YaHei", monospace;
+
+  /* ---- 亮色基准（与 T15-T28 既有字面色逐一对齐，零视觉漂移）---- */
+  --bg: #fafafa;
+  --fg: #222;
+  --accent: #2f6fed;
+  --on-accent: #fff;
+  --accent-strong: #2558c4; /* primary 按钮 hover；暗色沿用亮值（既有行为） */
+  --border: #ddd;           /* 面板分隔线/中缝 */
+  --border-strong: #ccc;    /* 浮层/输入框描边 */
+  --panel-bg: #f5f5f5;      /* topbar/状态条/工具栏底 */
+  --surface: #fff;          /* 浮层/弹窗/toast 底 */
+  --field-bg: #fff;         /* 输入框底 */
+  --btn-hover-bg: #e8e8e8;  /* 菜单按钮 hover */
+  --item-hover-bg: #eee;    /* 菜单项/树行/大纲行 hover */
+  --tree-selected-bg: #d5e4f7;
+  --palette-selected-bg: #e8f0fe;
+  --caret-fg: #777;
+  --muted-fg: #999;         /* 空态/禁用文字；暗色沿用亮值（既有行为） */
+  --note-fg: #667;
+  --test-fg: #555;          /* 连接测试输出 */
+  --status-fg: #555;
+  --sep-bg: #e0e0e0;        /* 菜单/弹窗内分隔线 */
+  --btn-border: #c8d4e8;    /* 普通按钮描边/进度环底 */
+  --btn-bg: #fff;           /* 普通按钮底（暗色独立于 surface，为蓝调 #2a3448） */
+  --tr-box-bg: #eef4fc;     /* 翻译进度条底 */
+  --tr-track-bg: #d8e2f0;
+  --success: #2e7d32;
+  --danger: #c62828;
+  --backdrop: rgba(0, 0, 0, 0.35);
+  --backdrop-weak: rgba(0, 0, 0, 0.25);
+  --shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  --shadow-strong: 0 6px 16px rgba(0, 0, 0, 0.2);
+  --resizer-hover: #bbb;
+}
+
+body[data-theme="dark"] {
+  --bg: #1e1e1e;
+  --fg: #ddd;
+  --accent: #58a6ff;
+  --border: #333;
+  --border-strong: #454545;
+  --panel-bg: #252526;
+  --surface: #2d2d2d;
+  --field-bg: #1e1e1e;
+  --btn-hover-bg: #3a3d41;
+  --item-hover-bg: #3a3d41;
+  --tree-selected-bg: #094771;
+  --palette-selected-bg: #094771;
+  --caret-fg: #aaa;
+  --note-fg: #99a7bd;
+  --test-fg: #99a7bd;
+  --status-fg: #aaa;
+  --sep-bg: #444;
+  --btn-border: #3a4a66;
+  --btn-bg: #2a3448;
+  --tr-box-bg: #1f2a3d;
+  --tr-track-bg: #2d3a52;
+  --success: #66bb6a;
+  --danger: #ef5350;
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --backdrop-weak: rgba(0, 0, 0, 0.4);
+  --resizer-hover: #555;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* @font-face 留空：仅当决定打包字体文件（如 Noto Sans SC woff2，约 15MB）时
+   启用——系统字体栈已命中雅黑/苹方，当前无此需要。
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("./fonts/NotoSansSC-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+*/

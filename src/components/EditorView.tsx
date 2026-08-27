@@ -25,7 +25,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { minimalSetup } from "codemirror";
 import { math } from "codemirror-lang-math";
 import { useDocStore } from "../stores/useDocStore";
-import { useSettingsStore } from "../stores/useSettingsStore";
+import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 
 // ```math 围栏代码块高亮（codemirror-lang-math 0.1.8，无 @replit scope）
 const mathLang = LanguageDescription.of({
@@ -36,11 +36,6 @@ const mathLang = LanguageDescription.of({
 // 主题经 compartment 运行时重配（亮/暗切换不重建 View）；
 // language 恒为 markdown（应用生命周期内不变），无需第二个 compartment。
 const themeComp = new Compartment();
-
-function darkNow(): boolean {
-  const t = useSettingsStore.getState().theme;
-  return t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-}
 
 export default function EditorView() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -59,7 +54,7 @@ export default function EditorView() {
             { key: "Mod-i", preventDefault: true, run: () => { void useDocStore.getState().applyFormat("italic"); return true; } },
           ]),
           CmEditorView.lineWrapping, // markdown 源码软换行，与预览排版一致
-          themeComp.of(darkNow() ? oneDark : []),
+          themeComp.of(isDarkTheme() ? oneDark : []),
           CmEditorView.updateListener.of((u) => {
             if (!u.docChanged && !u.selectionSet) return;
             const { from, to } = u.state.selection.main;
@@ -105,9 +100,9 @@ export default function EditorView() {
     });
 
     // 主题 compartment：settings.theme 或系统明暗变化时重配
-    let lastDark = darkNow();
+    let lastDark = isDarkTheme();
     const applyTheme = () => {
-      const dark = darkNow();
+      const dark = isDarkTheme();
       if (dark === lastDark) return;
       lastDark = dark;
       view.dispatch({ effects: themeComp.reconfigure(dark ? oneDark : []) });

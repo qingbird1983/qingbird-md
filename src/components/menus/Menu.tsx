@@ -44,15 +44,17 @@ interface ItemProps {
   onSelect: () => void;
 }
 
-/** 单个菜单项；active 时显示 ✓ 前缀（视图/模式类开关用）。 */
+/** 单个菜单项；active 时显示 ✓ 前缀（视图/模式类开关用）。
+ * T17 review a11y 修补：带 aria-checked 的条目须用 role="menuitemcheckbox"，
+ * 纯动作项（active 未传）保持 role="menuitem" 且不输出 aria-checked。 */
 export function MenuItem({ label, active, disabled, onSelect }: ItemProps) {
   return (
     <li role="presentation">
       <button
         type="button"
-        role="menuitem"
+        role={active === undefined ? "menuitem" : "menuitemcheckbox"}
         className="menu-item"
-        aria-checked={active}
+        aria-checked={active === undefined ? undefined : active}
         disabled={disabled}
         onClick={onSelect}
       >

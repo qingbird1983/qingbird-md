@@ -5,7 +5,7 @@
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
-import { useSettingsStore } from "../stores/useSettingsStore";
+import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { errText, useUiStore } from "../stores/useUiStore";
 
 export interface Command {
@@ -93,13 +93,9 @@ export const COMMANDS: Command[] = [
   {
     label: "切换明暗主题",
     keywords: ["theme dark light"],
-    // 判暗口径与 EditorView.darkNow 一致：auto 时跟随系统取反
+    // 判暗口径统一走 useSettingsStore.isDarkTheme（auto 跟随系统）
     run: () => {
-      const s = useSettingsStore.getState();
-      const dark =
-        s.theme === "dark" ||
-        (s.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-      s.setTheme(dark ? "light" : "dark");
+      useSettingsStore.getState().setTheme(isDarkTheme() ? "light" : "dark");
     },
   },
   {

@@ -21,8 +21,8 @@ body,
   align-items: center;
   gap: 2px;
   padding: 0 6px;
-  border-bottom: 1px solid #ddd;
-  background: #f5f5f5;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
 }
 
 /* TopBar 下拉菜单组（button + absolute ul 轻实现） */
@@ -47,7 +47,7 @@ body,
 
 .menu-btn:hover,
 .menu-btn[aria-expanded="true"] {
-  background: #e8e8e8;
+  background: var(--btn-hover-bg);
 }
 
 .menu-pop {
@@ -59,10 +59,10 @@ body,
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .menu-item {
@@ -75,7 +75,7 @@ body,
 }
 
 .menu-item:hover:not(:disabled) {
-  background: #eee;
+  background: var(--item-hover-bg);
 }
 
 /* 当前视图/模式项以 ✓ 标记（不挤占未选项的水平对齐） */
@@ -86,14 +86,14 @@ body,
 }
 
 .menu-item:disabled {
-  color: #999;
+  color: var(--muted-fg);
   cursor: default;
 }
 
 .menu-sep {
   height: 1px;
   margin: 4px 8px;
-  background: #e0e0e0;
+  background: var(--sep-bg);
 }
 
 .sidebar {
@@ -111,8 +111,8 @@ body,
   align-items: center;
   gap: 2px;
   padding: 4px 6px;
-  border-bottom: 1px solid #ddd;
-  background: #f5f5f5;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
 }
 
 .ws-filter {
@@ -121,9 +121,9 @@ body,
   padding: 3px 6px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--field-bg);
   color: inherit;
 }
 
@@ -167,17 +167,17 @@ button.menu-btn:disabled,
 }
 
 .tree-row:hover:not(:disabled) {
-  background: #eee;
+  background: var(--item-hover-bg);
 }
 
 .tree-row[aria-selected="true"] {
-  background: #d5e4f7;
+  background: var(--tree-selected-bg);
 }
 
 .tree-caret {
   width: 10px;
   flex-shrink: 0;
-  color: #777;
+  color: var(--caret-fg);
   font-size: 11px;
 }
 
@@ -191,7 +191,7 @@ button.menu-btn:disabled,
   gap: 8px;
   justify-content: center;
   padding: 16px 8px;
-  color: #999;
+  color: var(--muted-fg);
   font-size: 13px;
 }
 
@@ -209,8 +209,8 @@ button.menu-btn:disabled,
   align-items: center;
   gap: 2px;
   padding: 3px 6px;
-  border-bottom: 1px solid #ddd;
-  background: #f5f5f5;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
 }
 
 .editor-toolbar .tb-gap {
@@ -231,8 +231,8 @@ button.menu-btn:disabled,
   align-items: center;
   gap: 8px;
   padding: 3px 10px;
-  border-bottom: 1px solid #ddd;
-  background: #eef4fc;
+  border-bottom: 1px solid var(--border);
+  background: var(--tr-box-bg);
   font-size: 12px;
 }
 
@@ -241,14 +241,14 @@ button.menu-btn:disabled,
   height: 6px;
   min-width: 60px;
   border-radius: 3px;
-  background: #d8e2f0;
+  background: var(--tr-track-bg);
   overflow: hidden;
 }
 
 .translation-bar .tb-fill {
   height: 100%;
   border-radius: 3px;
-  background: #2f6fed;
+  background: var(--accent);
   transition: width 0.2s ease;
 }
 
@@ -259,15 +259,15 @@ button.menu-btn:disabled,
 }
 
 .translation-bar .tb-count {
-  color: #667;
+  color: var(--note-fg);
   font-variant-numeric: tabular-nums;
 }
 
 .translation-bar .tb-stop {
   padding: 1px 10px;
-  border: 1px solid #c8d4e8;
+  border: 1px solid var(--btn-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--btn-bg);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -275,8 +275,8 @@ button.menu-btn:disabled,
 }
 
 .translation-bar .tb-stop:hover {
-  border-color: #2f6fed;
-  color: #2f6fed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* T24：划词翻译浮窗——旧版 egui CENTER_TOP [0, 44] 锚点的 web 等价：
@@ -291,10 +291,10 @@ button.menu-btn:disabled,
   max-height: 50vh;
   overflow-y: auto;
   padding: 8px 10px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   font-size: 13px;
 }
 
@@ -313,20 +313,20 @@ button.menu-btn:disabled,
 .sel-pop-clear {
   background: none;
   border: none;
-  color: #667;
+  color: var(--note-fg);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .sel-pop-clear:hover {
-  color: #2f6fed;
+  color: var(--accent);
 }
 
 .sel-pop-src {
   max-height: 8em;
   overflow-y: auto;
-  color: #667;
+  color: var(--note-fg);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -334,7 +334,7 @@ button.menu-btn:disabled,
 .sel-pop-sep {
   height: 1px;
   margin: 6px 0;
-  background: #e0e0e0;
+  background: var(--sep-bg);
 }
 
 .sel-pop-res {
@@ -346,8 +346,8 @@ button.menu-btn:disabled,
   width: 16px;
   height: 16px;
   margin: 4px 0;
-  border: 2px solid #c8d4e8;
-  border-top-color: #2f6fed;
+  border: 2px solid var(--btn-border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: sel-pop-rot 0.8s linear infinite;
 }
@@ -366,7 +366,7 @@ button.menu-btn:disabled,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--backdrop);
 }
 
 .modal {
@@ -377,10 +377,10 @@ button.menu-btn:disabled,
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   padding: 12px 16px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
   font-size: 13px;
 }
 
@@ -408,9 +408,9 @@ button.menu-btn:disabled,
   padding: 3px 6px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--field-bg);
   color: inherit;
 }
 
@@ -423,21 +423,21 @@ button.menu-btn:disabled,
 
 .modal-note {
   margin: 6px 0;
-  color: #667;
+  color: var(--note-fg);
   line-height: 1.5;
 }
 
 .modal-sep {
   height: 1px;
   margin: 8px 0;
-  background: #e0e0e0;
+  background: var(--sep-bg);
 }
 
 .modal-btn {
   padding: 3px 12px;
-  border: 1px solid #c8d4e8;
+  border: 1px solid var(--btn-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--btn-bg);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -445,8 +445,8 @@ button.menu-btn:disabled,
 }
 
 .modal-btn:hover:not(:disabled) {
-  border-color: #2f6fed;
-  color: #2f6fed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .modal-btn:disabled {
@@ -455,20 +455,20 @@ button.menu-btn:disabled,
 }
 
 .modal-btn-primary {
-  border-color: #2f6fed;
-  background: #2f6fed;
-  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .modal-btn-primary:hover:not(:disabled) {
-  border-color: #2558c4;
-  background: #2558c4;
-  color: #fff;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--on-accent);
 }
 
 .modal-test {
   margin: 6px 0;
-  color: #555;
+  color: var(--test-fg);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -485,7 +485,7 @@ button.menu-btn:disabled,
   position: fixed;
   inset: 0;
   z-index: 1250;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--backdrop-weak);
 }
 
 .palette {
@@ -498,10 +498,10 @@ button.menu-btn:disabled,
   width: min(480px, calc(100vw - 32px));
   max-height: min(400px, calc(100vh - 120px));
   overflow: hidden;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
   font-size: 13px;
 }
 
@@ -510,15 +510,15 @@ button.menu-btn:disabled,
   padding: 6px 8px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--field-bg);
   color: inherit;
 }
 
 .palette-input:focus {
   outline: none;
-  border-color: #2f6fed;
+  border-color: var(--accent);
 }
 
 .palette-list {
@@ -544,12 +544,12 @@ button.menu-btn:disabled,
 
 /* 选中态即悬停态（onMouseMove 同步 sel），与 tree-row 选中色同源 */
 .palette-item[aria-selected="true"] {
-  background: #e8f0fe;
+  background: var(--palette-selected-bg);
 }
 
 .palette-empty {
   padding: 10px;
-  color: #999;
+  color: var(--muted-fg);
   text-align: center;
 }
 
@@ -568,11 +568,11 @@ button.menu-btn:disabled,
 .toast {
   max-width: min(360px, calc(100vw - 24px));
   padding: 8px 12px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-strong);
   border-left-width: 4px;
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   font-size: 13px;
   word-break: break-word;
   cursor: pointer;
@@ -580,15 +580,15 @@ button.menu-btn:disabled,
 }
 
 .toast-success {
-  border-left-color: #2e7d32;
+  border-left-color: var(--success);
 }
 
 .toast-info {
-  border-left-color: #2f6fed;
+  border-left-color: var(--accent);
 }
 
 .toast-error {
-  border-left-color: #c62828;
+  border-left-color: var(--danger);
 }
 
 @keyframes toast-in {
@@ -620,11 +620,11 @@ button.menu-btn:disabled,
 /* split 中缝：默认淡色细条，悬停提示可拖拽 */
 .resizer {
   cursor: col-resize;
-  background: #ddd;
+  background: var(--border);
 }
 
 .resizer:hover {
-  background: #bbb;
+  background: var(--resizer-hover);
 }
 
 /* T22：预览首次真正挂载（T20 组件当时无宿主）——容器滚动由壳层负责 */
@@ -638,7 +638,7 @@ button.menu-btn:disabled,
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #999;
+  color: var(--muted-fg);
   font-size: 13px;
 }
 
@@ -658,7 +658,7 @@ button.menu-btn:disabled,
 }
 
 .editor-cm .cm-scroller {
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Microsoft YaHei", monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
 }
 
@@ -674,7 +674,7 @@ button.menu-btn:disabled,
   align-items: center;
   justify-content: center;
   padding: 16px 8px;
-  color: #999;
+  color: var(--muted-fg);
   font-size: 13px;
 }
 
@@ -704,7 +704,7 @@ button.menu-btn:disabled,
 }
 
 .outline-item:hover {
-  background: #eee;
+  background: var(--item-hover-bg);
 }
 
 .status-bar {
@@ -717,199 +717,20 @@ button.menu-btn:disabled,
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--status-fg);
 }
 
-body {
-  color: #222;
-  background: #fafafa;
+.status-bar > span {
+  flex-shrink: 0;
 }
 
-.status-bar {
-  border-top: 1px solid #ddd;
-  background: #f5f5f5;
-  color: #555;
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    color: #ddd;
-    background: #1e1e1e;
-  }
-
-  .status-bar {
-    border-top-color: #333;
-    background: #252526;
-    color: #aaa;
-  }
-
-  .topbar {
-    border-bottom-color: #333;
-    background: #252526;
-  }
-
-  .editor-toolbar {
-    border-bottom-color: #333;
-    background: #252526;
-  }
-
-  .translation-bar {
-    border-bottom-color: #333;
-    background: #1f2a3d;
-  }
-
-  .translation-bar .tb-track {
-    background: #2d3a52;
-  }
-
-  .translation-bar .tb-stop {
-    border-color: #3a4a66;
-    background: #2a3448;
-  }
-
-  .translation-bar .tb-count {
-    color: #99a7bd;
-  }
-
-  .sel-pop {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .sel-pop-clear {
-    color: #99a7bd;
-  }
-
-  .sel-pop-clear:hover {
-    color: #58a6ff;
-  }
-
-  .sel-pop-src {
-    color: #99a7bd;
-  }
-
-  .sel-pop-sep {
-    background: #444;
-  }
-
-  .sel-pop-spin {
-    border-color: #3a4a66;
-    border-top-color: #58a6ff;
-  }
-
-  .modal-backdrop {
-    background: rgba(0, 0, 0, 0.5);
-  }
-
-  .toast {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .toast-success {
-    border-left-color: #66bb6a;
-  }
-
-  .toast-info {
-    border-left-color: #58a6ff;
-  }
-
-  .toast-error {
-    border-left-color: #ef5350;
-  }
-
-  .modal {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .modal-row > select,
-  .modal-row > input {
-    border-color: #454545;
-    background: #1e1e1e;
-  }
-
-  .modal-note,
-  .modal-test {
-    color: #99a7bd;
-  }
-
-  .modal-sep {
-    background: #444;
-  }
-
-  .modal-btn {
-    border-color: #3a4a66;
-    background: #2a3448;
-  }
-
-  .modal-btn:hover:not(:disabled) {
-    border-color: #58a6ff;
-    color: #58a6ff;
-  }
-
-  .palette-backdrop {
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  .palette {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .palette-input {
-    border-color: #454545;
-    background: #1e1e1e;
-  }
-
-  .palette-item[aria-selected="true"] {
-    background: #094771;
-  }
-
-  .resizer {
-    background: #333;
-  }
-
-  .resizer:hover {
-    background: #555;
-  }
-
-  .menu-btn:hover,
-  .menu-btn[aria-expanded="true"] {
-    background: #3a3d41;
-  }
-
-  .menu-pop {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .menu-item:hover:not(:disabled) {
-    background: #3a3d41;
-  }
-
-  .menu-sep {
-    background: #444;
-  }
-
-  .ws-tools {
-    border-bottom-color: #333;
-    background: #252526;
-  }
-
-  .ws-filter {
-    border-color: #454545;
-    background: #2d2d2d;
-  }
-
-  .tree-row:hover:not(:disabled) {
-    background: #3a3d41;
-  }
-
-  .tree-row[aria-selected="true"] {
-    background: #094771;
-  }
-
-  .tree-caret {
-    color: #aaa;
-  }
+/* T16 review 修补：路径段是真实文本节点，长路径自身收缩出省略号，
+   其余段（字符行数/模式/provider/翻译状态）保持完整不缩。 */
+.status-bar > .status-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

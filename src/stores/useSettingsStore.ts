@@ -88,3 +88,25 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   credsFor: (provider) => get().settings?.providers[provider] ?? {},
 }));
+
+// T30 主题 → DOM 贯通：body[data-theme] 恒为解析后的 dark|light。
+// 显式档由 store 订阅写入；auto 档由 matchMedia watch 随系统实时切换。
+// CSS 侧只需 body[data-theme="dark"] 一套覆盖（styles/theme.css）。
+const sysDark = matchMedia("(prefers-color-scheme: dark)");
+
+/** 解析后的暗色判定（EditorView/commands 统一口径）：dark 直取，auto 跟随系统。 */
+export function isDarkTheme(): boolean {
+  const t = useSettingsStore.getState().theme;
+  return t === "dark" || (t !== "light" && sysDark.matches);
+}
+
+let lastDomTheme: string | null = null;
+function syncDomTheme() {
+  const resolved = isDarkTheme() ? "dark" : "light";
+  if (resolved === lastDomTheme) return;
+  lastDomTheme = resolved;
+  document.body.dataset.theme = resolved;
+}
+useSettingsStore.subscribe(syncDomTheme);
+sysDark.addEventListener("change", syncDomTheme);
+syncDomTheme(); // subscribe 只推变更，启动须手动同步一次（防暗色系统白闪）

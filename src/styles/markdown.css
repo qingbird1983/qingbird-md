@@ -14,6 +14,11 @@
   --md-th-bg: #f6f8fa;
   --md-quote-fg: #59636e;
   --md-task-bg: #fff;
+  --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
+  --md-ok-border: #2ea043;  /* 复制成功态：恒在深色 pre 底上，不随主题 */
+  --md-ok-fg: #7ee787;
+  --md-copy-border: rgba(255, 255, 255, 0.18); /* 复制按钮浮在恒暗 pre 底上，不随主题 */
+  --md-copy-bg: rgba(255, 255, 255, 0.07);
   --md-pre-bg: #2b303b; /* base16-ocean.dark 原生背景 */
   --md-pre-fg: #c0c5ce;
   --md-pre-muted: #65737e;
@@ -22,7 +27,7 @@
   --md-tr-fg: #0a3069;
 
   padding: 16px 24px 40px;
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui); /* T30：全局 CJK 字体栈（styles/theme.css） */
   font-size: 15px;
   line-height: 1.6;
   color: var(--md-fg);
@@ -33,23 +38,24 @@
 .markdown-body > :first-child { margin-top: 0 !important; }
 .markdown-body > :last-child { margin-bottom: 0 !important; }
 
-@media (prefers-color-scheme: dark) {
-  .markdown-body {
-    --md-fg: #ddd;
-    --md-muted: #999;
-    --md-border: #444;
-    --md-link: #58a6ff;
-    --md-code-bg: #33383d;
-    --md-stripe: #26292c;
-    --md-th-bg: #2b2f33;
-    --md-quote-fg: #8b949e;
-    --md-task-bg: #1e1e1e;
-    --md-pre-fg: #c0c5ce;
-    --md-pre-muted: #65737e;
-    --md-tr-bg: #12263a;
-    --md-tr-border: #274a68;
-    --md-tr-fg: #79b8ff;
-  }
+/* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
+   light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
+   覆盖路径，不再依赖 prefers-color-scheme。 */
+body[data-theme="dark"] .markdown-body {
+  --md-fg: #ddd;
+  --md-muted: #999;
+  --md-border: #444;
+  --md-link: #58a6ff;
+  --md-code-bg: #33383d;
+  --md-stripe: #26292c;
+  --md-th-bg: #2b2f33;
+  --md-quote-fg: #8b949e;
+  --md-task-bg: #1e1e1e;
+  --md-pre-fg: #c0c5ce;
+  --md-pre-muted: #65737e;
+  --md-tr-bg: #12263a;
+  --md-tr-border: #274a68;
+  --md-tr-fg: #79b8ff;
 }
 
 .markdown-body h1,
@@ -143,7 +149,7 @@
   font-size: 11px;
   line-height: 13px;
   text-align: center;
-  color: #fff;
+  color: var(--md-check-fg);
   border-color: var(--md-link);
   background: var(--md-link);
 }
@@ -165,7 +171,7 @@
 
 .markdown-body code {
   padding: 0.2em 0.4em;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 85%;
   background: var(--md-code-bg);
   border-radius: 4px;
@@ -219,9 +225,9 @@
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--md-copy-border);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--md-copy-bg);
   color: var(--md-pre-fg);
   opacity: 0.75;
 }
@@ -232,8 +238,8 @@
 
 .markdown-body .copy-btn.ok {
   opacity: 1;
-  border-color: #2ea043;
-  color: #7ee787;
+  border-color: var(--md-ok-border);
+  color: var(--md-ok-fg);
 }
 
 /* ---- 表格：斑马纹 ---- */
