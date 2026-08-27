@@ -4,3 +4,78 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* AppShell 网格骨架（brief 规范）：行 = TopBar auto / 中部 1fr / StatusBar auto，
+   列 = sidebar auto(可折叠) / main 1fr / outline auto(可折叠) */
+#app-shell {
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: auto 1fr auto;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  height: 42px;
+}
+
+.sidebar {
+  overflow-y: auto;
+  grid-row: 2;
+  grid-column: 1;
+}
+
+.main-area {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  grid-row: 2;
+  grid-column: 2;
+}
+
+.editor-slot {
+  flex: 1;
+  min-height: 0;
+}
+
+.outline-panel {
+  overflow-y: auto;
+  grid-row: 2;
+  grid-column: 3;
+}
+
+.status-bar {
+  grid-column: 1 / -1;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+body {
+  color: #222;
+  background: #fafafa;
+}
+
+.status-bar {
+  border-top: 1px solid #ddd;
+  background: #f5f5f5;
+  color: #555;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #ddd;
+    background: #1e1e1e;
+  }
+
+  .status-bar {
+    border-top-color: #333;
+    background: #252526;
+    color: #aaa;
+  }
+}
