@@ -9,6 +9,7 @@ import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
 import SelectionPopup from "./components/SelectionPopup";
+import SettingsModal from "./components/SettingsModal";
 
 function App() {
   useEffect(() => {
@@ -40,6 +41,7 @@ function App() {
   const showOutline = useUiStore((s) => s.showOutline);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const outlineWidth = useUiStore((s) => s.outlineWidth);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
 
   return (
     <div id="app-shell">
@@ -63,6 +65,8 @@ function App() {
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
       <SelectionPopup />
+      {/* T26 设置弹窗：ui.settingsOpen 门控，条件挂载保证每次打开都是新草稿 */}
+      {settingsOpen && <SettingsModal />}
     </div>
   );
 }

@@ -144,6 +144,18 @@ fn get_user_data_dir() -> String {
     storage::user_data_dir().to_string_lossy().into_owned()
 }
 
+/// 清空翻译缓存并立即落盘（Task 26 设置弹窗「清除翻译缓存」）。
+/// 两次短暂锁：clear 与 save 各自持锁，绝不跨任何长操作持有。
+#[tauri::command]
+fn clear_cache(st: tauri::State<AppTxn>) {
+    st.cache.lock().expect("cache mutex poisoned").clear();
+    let _ = st
+        .cache
+        .lock()
+        .expect("cache mutex poisoned")
+        .save(&storage::cache_path());
+}
+
 // ---- 工作区 ----
 
 /// Walk a workspace folder into the frontend file tree (`.md`/`.markdown`
@@ -605,6 +617,8 @@ pub fn run() {
             pick_file,
             pick_folder,
             pick_save_path,
+            // Task 26: 设置弹窗
+            clear_cache,
             // Task 10-11 追加于此
         ])
         .setup(|app| {

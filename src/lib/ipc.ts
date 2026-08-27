@@ -23,6 +23,7 @@ export const api = {
   // ---- 设置 ----
   loadSettings: () => invoke<Settings>("load_settings"),
   saveSettings: (s: Settings) => invoke<void>("save_settings", { settings: s }),
+  clearCache: () => invoke<void>("clear_cache"),
   userDataDir: () => invoke<string>("get_user_data_dir"),
 
   // ---- 对话框（Rust 参数 default_name 按 Tauri v2 默认 camelCase 匹配）----
