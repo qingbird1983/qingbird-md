@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
 import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
+import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 
 function App() {
@@ -38,11 +39,25 @@ function App() {
     [],
   );
 
+  useEffect(() => {
+    // T28 命令面板全局快捷键 Ctrl+Shift+P：e.code 定位物理键免布局差异；
+    // preventDefault 拦下浏览器侧同名快捷键（devtools 走 F12 不受影响）。
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyP") {
+        e.preventDefault();
+        useUiStore.getState().openPalette();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const showNav = useUiStore((s) => s.showNav);
   const showOutline = useUiStore((s) => s.showOutline);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const outlineWidth = useUiStore((s) => s.outlineWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
 
   return (
     <div id="app-shell">
@@ -68,6 +83,8 @@ function App() {
       <SelectionPopup />
       {/* T26 设置弹窗：ui.settingsOpen 门控，条件挂载保证每次打开都是新草稿 */}
       {settingsOpen && <SettingsModal />}
+      {/* T28 命令面板：ui.commandPaletteOpen 门控，条件挂载保证每次打开都是全新查询 */}
+      {paletteOpen && <CommandPalette />}
       {/* T27 toast 容器：fixed 定位，随应用生命周期挂载 */}
       <ToastContainer />
     </div>
