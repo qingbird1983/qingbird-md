@@ -25,15 +25,16 @@ interface TranslationState {
   translateDocument(): Promise<void>;
   /** switchMode 联动入口：gen 尚未产出 / 无译文缓存 / 模式与上次运行不同 ⇒ 重新起跑。 */
   startIfFresh(): void;
-  listenProgress(): Promise<void>;
-  listenDone(): Promise<void>;
+  listenProgress(): void;
+  listenDone(): void;
   stop(): void;
   translateSelection(text: string): void;
   clearSelection(): void;
 }
 
-let progressUnlisten: (() => void) | null = null;
-let doneUnlisten: (() => void) | null = null;
+// 同步哨兵防 StrictMode 双跑重复注册；句柄无处清理（应用级单例监听）
+let progressRegistered = false;
+let doneRegistered = false;
 let selTimer: ReturnType<typeof setTimeout> | undefined;
 
 function handleProgress(p: ProgressPayload) {
@@ -92,14 +93,16 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     if (fresh && st.status !== "running") void get().translateDocument();
   },
 
-  listenProgress: async () => {
-    if (progressUnlisten) return;
-    progressUnlisten = await api.listenProgress(handleProgress);
+  listenProgress: () => {
+    if (progressRegistered) return;
+    progressRegistered = true;
+    void api.listenProgress(handleProgress);
   },
 
-  listenDone: async () => {
-    if (doneUnlisten) return;
-    doneUnlisten = await api.listenDone(handleDone);
+  listenDone: () => {
+    if (doneRegistered) return;
+    doneRegistered = true;
+    void api.listenDone(handleDone);
   },
 
   stop: () => {

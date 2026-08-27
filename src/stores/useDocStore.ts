@@ -22,7 +22,7 @@ interface DocState {
 
   openDoc(path: string): Promise<void>;
   /** 启动期 document-changed 监听注册处：首开文件参数与第二实例 handoff 都经该事件流入。只挂一次。 */
-  openDocFromArgs(): Promise<void>;
+  openDocFromArgs(): void;
   setContent(c: string): void;
   setCursorSel(s: [number, number]): void;
   applyFormat(op: string): Promise<void>;
@@ -39,7 +39,8 @@ function pathParts(p: string) {
 }
 
 // 应用生命周期持有；“只挂一次”闩
-let docChangedUnlisten: (() => void) | null = null;
+// 同步哨兵防 StrictMode 双跑重复注册；句柄无处清理（应用级单例监听）
+let docChangedRegistered = false;
 
 export const useDocStore = create<DocState>()((set, get) => ({
   doc: null,
@@ -69,9 +70,10 @@ export const useDocStore = create<DocState>()((set, get) => ({
     }
   },
 
-  openDocFromArgs: async () => {
-    if (docChangedUnlisten) return;
-    docChangedUnlisten = await api.listenDocumentChanged((p) =>
+  openDocFromArgs: () => {
+    if (docChangedRegistered) return;
+    docChangedRegistered = true;
+    void api.listenDocumentChanged((p) =>
       useDocStore.getState().openDoc(p),
     );
   },
