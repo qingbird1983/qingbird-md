@@ -8,7 +8,7 @@
 // 推 uiStore.splitRatio（存 store ⇒ 跨视图切换保持，默认 0.5）。拖动期间
 // body.userSelect=none 防拖拽选中两侧文本、body.cursor=col-resize 防指针
 // 离开 4px 条时光标闪变，mouseup 一并恢复。
-import { type MouseEvent as ReactMouseEvent } from "react";
+import { type PointerEvent as ReactPointerEvent } from "react";
 import { useDocStore } from "../stores/useDocStore";
 import { useUiStore } from "../stores/useUiStore";
 import EditorView from "./EditorView";
@@ -22,7 +22,7 @@ const RATIO_MAX = 0.8;
 function SplitBody() {
   const ratio = useUiStore((s) => s.splitRatio);
 
-  const startDrag = (e: ReactMouseEvent<HTMLDivElement>) => {
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     // resizer 恒为 .main-body 直接子元素，取父容器宽度做比例分母
     const body = e.currentTarget.parentElement;
@@ -31,6 +31,8 @@ function SplitBody() {
     const startRatio = useUiStore.getState().splitRatio;
     const width = body.clientWidth;
     if (width <= 0) return;
+    // 指针捕获：松手在窗口外/拖拽中失焦时 mouseup 也必达本元素，杜绝监听器滞留
+    e.currentTarget.setPointerCapture(e.pointerId);
     let raf = 0;
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
@@ -45,9 +47,11 @@ function SplitBody() {
       document.body.style.cursor = "";
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointercancel", up);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   return (
@@ -59,7 +63,7 @@ function SplitBody() {
         className="resizer"
         role="separator"
         aria-orientation="vertical"
-        onMouseDown={startDrag}
+        onPointerDown={startDrag}
       />
       <div className="split-half">
         <PreviewView />
