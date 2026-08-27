@@ -3,3 +3,6 @@
 /tools
 Cargo.lock.orig
 *.log
+
+/.worktrees
+/.superpowers
