@@ -280,3 +280,12 @@
 .markdown-body h6 + .tr-box {
   margin-bottom: 0; /* 后随 p 自带下边距，避免双倍 */
 }
+
+/* html.rs 把 tr-box 也塞进 th/td 与 li（cells/list-item 内始终为末位）：
+   单元格 padding 已提供间距，16px 下边距只会撑高每一行；li 的末位盒子
+   下边距会塌陷出 li，把项间距从 0.25em 撑到 16px，节奏失衡。 */
+.markdown-body th .tr-box,
+.markdown-body td .tr-box,
+.markdown-body li > .tr-box:last-child {
+  margin-bottom: 0;
+}
