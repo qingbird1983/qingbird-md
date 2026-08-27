@@ -1,8 +1,8 @@
-# qingbird-md (Rust)
+# qingbird-md (Rust + Tauri 2)
 
-带中英翻译的 Markdown 编辑阅读器 — **纯 Rust** 桌面应用（eframe/egui）。
+带中英翻译的 Markdown 编辑阅读器桌面应用 — **Rust 核心 + React/TypeScript 前端 + Tauri 2 IPC**。
 
-这是把原 Electron 版 `qingbird-md` 用 Rust 重写的全新项目，功能保持一致。无 webview、无 JavaScript。
+这是把原 Electron 版 `qingbird-md` 迁移到 Tauri 2 的项目（中间经历 eframe/egui 纯 Rust 版，本轮迁回 webview 方案），功能与旧版保持一致：Rust 核心承载全部业务逻辑（Markdown 解析与 HTML 渲染、7 种翻译源签名/分批/并发流水线与缓存、设置持久化、工作区遍历、单实例与全局热键），React 前端（CodeMirror 6 编辑器 + zustand 状态）负责交互，两者经 Tauri 2 的 20 个 invoke 命令与 4 个事件通信，线格式契约由 `src/types/ipc.ts` 与 Rust DTO 逐字段对齐并测试锁定。
 
 ## 功能
 
@@ -17,44 +17,72 @@
 ## 运行
 
 ```bash
-cargo run
+npm i
+npx tauri dev
 ```
+
+（首次运行会自动执行 `npm run dev` 起 vite（localhost:5173），Rust 侧编译时间较长属正常。）
 
 ## 测试
 
 ```bash
-cargo test
+cargo test --workspace   # Rust 核心单测（src-tauri）
+npm run build            # tsc 严格编译 + vite 构建
 ```
 
 ## 打包（Windows 安装器）
 
-1. `cargo build --release`（产物 `target\release\qingbird-md.exe`，已复制到 `release\qingbird-md.exe` 作为免安装绿色版）
-2. 用 NSIS 打包（脚本注册 `.md`/`.markdown` 文件关联 + 桌面/开始菜单快捷方式，升级保留用户数据目录）：
-
 ```bash
-# 需先安装 NSIS(Makensis) 并在 PATH 里
-powershell -File scripts\package.ps1
-# 或直接：makensis scripts\installer.nsi
-# 产物：release\qingbird-md-setup-<版本>.exe
+npx tauri build
 ```
 
-> 已产出：`release\qingbird-md-setup-0.1.0.exe`（本轮用 Electron 项目带的 NSIS 工具链构建成功）。它注册 `.md`/`.markdown` 文件关联、创建桌面/开始菜单快捷方式、支持覆盖升级并保留 `%APPDATA%` 用户数据。本机若没装 `makensis`，可直接复制 `release\qingbird-md.exe` 作为免安装绿色版。
+产物为 NSIS 安装器（`src-tauri/target/release/bundle/nsis/`）。`scripts/installer.nsi` 与 `scripts/package.ps1` 是旧 eframe 版遗留脚本，未随本次迁移更新。
+
+## 性能
+
+冷启动目标：与旧 eframe exe 相近（webview 冷启动一般 ~600ms 内达标）。实测数据待人工回填，记录表见 [docs/regression-checklist.md](docs/regression-checklist.md) §0。
 
 ## 项目结构
 
 ```
-src/
-├── main.rs            # eframe 入口 + 应用外壳（顶栏/侧栏/状态栏）
-├── state.rs           # 运行时状态（文档、设置、缓存、翻译、主题、视图、工作区）
-├── storage.rs         # 设置持久化（appdata\qingbird-md\*.json）
-├── editor.rs          # Markdown 编辑操作（纯逻辑，可测试）
-├── fileopen.rs        # 原生打开/保存/选目录对话框
-├── workspace.rs       # 工作区 .md 树遍历 + 搜索过滤
-├── markdown/          # 文档模型 + pulldown-cmark 解析 + egui 渲染器 + syntect 高亮
-└── translate/         # 签名、7 翻译源、缓存、分批/分块/并发流水线
-scripts/installer.nsi  # Windows NSIS 安装器
+src-tauri/src/            # Rust 核心
+├── lib.rs                # Tauri setup + IPC 命令/事件接线
+├── markdown/             # pulldown-cmark 解析 + HTML 渲染 + syntect 高亮
+├── translate/            # 签名、7 翻译源、缓存、分批/分块/并发流水线
+├── editor.rs             # Markdown 编辑操作（纯逻辑，可测试）
+├── workspace.rs          # 工作区 .md 树遍历 + 搜索过滤
+├── storage.rs            # 设置/缓存持久化（.bak 防损坏）
+├── fileopen.rs           # 原生对话框参数冻结
+├── single_instance.rs    # 单实例锁 + 第二实例文件参数 handoff
+└── hotkeys.rs            # 全局热键注册（tauri-plugin-global-shortcut）
+src/                      # React 前端
+├── components/           # CodeMirror 6 编辑器、预览、工具栏、菜单、模态、命令面板
+├── stores/               # zustand 状态（doc/translation/settings/ui/workspace）
+├── lib/                  # ipc.ts 类型化调用层、api.ts、hotkeys.ts
+└── types/ipc.ts          # Rust↔TS 线格式契约
+docs/regression-checklist.md  # 人工回归手测清单
+docs/superpowers/             # 设计 spec 与实施计划
 ```
+
+## 设计与计划文档
+
+- 设计 spec：[docs/superpowers/specs/2025-06-16-tauri-v2-design.md](docs/superpowers/specs/2025-06-16-tauri-v2-design.md)
+- 实施计划：[docs/superpowers/plans/2026-08-27-tauri-v2-gui-migration.md](docs/superpowers/plans/2026-08-27-tauri-v2-gui-migration.md)
+- 回归手测清单：[docs/regression-checklist.md](docs/regression-checklist.md)
 
 ## 数据目录
 
-设置与翻译缓存写于 `%APPDATA%\qingbird-md\`（`qingbird-settings.json`、`qingbird-cache.json`）。密钥不出本进程。
+设置与翻译缓存写于 `%APPDATA%\qingbird-md\`（`qingbird-settings.json`、`qingbird-cache.json`，损坏时自动留 `.bak`）。密钥不出本进程。
+
+## 已知限制
+
+以下为迁移后如实记录的遗留项（来源见各任务报告）：
+
+1. **事件无重放**：冷启动后前端监听挂载前（约数百 ms）到达的 `document-changed`、全局热键、单实例首开事件会丢失，再触发一次即可。单实例首开若实测证实丢失，将改拉取式（pull-command）兜底（T10/T29）。
+2. **翻译 worker panic 会闩住 running 标志**：如验收出现一次即作为加 `catch_unwind` 兜底的依据（T8）。
+3. **模态打开时 Mod+B/I 仍作用于背后文档**：旧 egui 行为平移，未加弹窗门控（T29）。
+4. **旧设置文件含 Meta(Win) 组合**：静默不注册/不匹配，下次保存才出提示 toast（T29）。
+5. **codemirror-lang-math**：低信任小型个人包（MIT，SRI 锚定），math 仅支持 fenced block，渲染质量待复验或替换（T13/T21）。
+6. **工作区新建目录仅面向 Windows**：`joinUnderRoot` 硬编码 `\` 分隔符（T15）。
+7. **清除翻译缓存不置文档脏标记**；被丢弃批次的旧 toast 可能残留（T26）。
+8. **外观小项**：侧栏路径截断无省略号；第二实例经文件参数打开文档不点亮侧栏选中项；光标选区不随 source↔split 切换恢复（T16/T18/T22）。
