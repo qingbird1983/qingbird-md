@@ -6,3 +6,4 @@ Cargo.lock.orig
 
 /.worktrees
 /.superpowers
+/src-tauri/gen

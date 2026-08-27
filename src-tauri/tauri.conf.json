@@ -1,5 +1,5 @@
 {
-  "productName": "qingbird-md",
+  "productName": "青鸟 Markdown",
   "version": "0.1.0",
   "identifier": "com.qingbird.md",
   "build": {
@@ -9,7 +9,12 @@
   "app": {
     "windows": [
       {
-        "title": "青鸟 Markdown"
+        "title": "青鸟 Markdown",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true
       }
     ],
     "security": {

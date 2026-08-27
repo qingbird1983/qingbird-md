@@ -29,8 +29,3 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 ureq = "2"
 image = "0.25"
-
-[profile.release]
-codegen-units = 1
-lto = true
-strip = true
