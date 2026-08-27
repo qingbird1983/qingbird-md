@@ -43,6 +43,22 @@ pub struct TreeNodeDTO {
     pub children: Vec<TreeNodeDTO>,
 }
 
+/// An editor formatting request from the frontend: document text, byte
+/// selection pair and the operation name (`bold`, `h1`, `ul`, …).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditOp {
+    pub content: String,
+    pub sel: [usize; 2],
+    pub op: String,
+}
+
+/// The formatted document plus the new selection after an [`EditOp`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditResult {
+    pub content: String,
+    pub sel: [usize; 2],
+}
+
 /// One credential field of a provider's settings form.
 ///
 /// `ponytail:` unused until Task 8 wires provider listing commands.
