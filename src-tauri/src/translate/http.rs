@@ -9,7 +9,9 @@ pub struct HttpResp {
 }
 
 /// Small HTTP surface used by providers. Tests provide a `MockClient`.
-pub trait HttpClient {
+/// `Send + Sync`: clients are shared across plain background threads
+/// (the cancelable wrapper and the stop flag rely on this).
+pub trait HttpClient: Send + Sync {
     fn get(&self, url: &str) -> Result<HttpResp, String>;
     fn post_form(&self, url: &str, params: &[(String, String)]) -> Result<HttpResp, String>;
     fn post_json(
@@ -120,7 +122,7 @@ fn form_escape(s: &str) -> String {
 /// responses by URL substring, mirroring the Electron `test/translators.test.js`.
 /// Each `MockClient` owns its own record store so tests don't interfere.
 #[cfg(test)]
-pub mod test_mock {
+pub(crate) mod test_mock {
     use super::{HttpClient, HttpResp};
     use std::sync::{Arc, Mutex};
 

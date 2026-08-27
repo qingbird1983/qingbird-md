@@ -1,3 +1,4 @@
+pub mod cancel;
 pub mod cache;
 pub mod http;
 pub mod pipeline;
