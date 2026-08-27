@@ -1,16 +1,16 @@
 // 预览主视图（Task 20）。
 //
-// XSS 信任边界（勿改）：本组件以 dangerouslySetInnerHTML 等价的方式把
-// `parseResult.html` 赋给容器 innerHTML——该字符串的唯一生产者是
-// src-tauri/markdown/html.rs，其中所有文本节点与属性值均经 escape_html 转义，
-// markdown / 文档内容永远无法注入标签或脚本。前端在此层只做两件 DOM 后处理：
+// XSS 信任边界（勿改）：本组件以 dangerouslySetInnerHTML 等价的方式把 html 赋给
+// 容器 innerHTML——字符串生产者唯一：src-tauri/markdown/html.rs（parseResult 与
+// done payload 的三形态 html 皆出于此），其中所有文本节点与属性值均经 escape_html
+// 转义，markdown / 文档内容永远无法注入标签或脚本。前端在此层只做两件 DOM 后处理：
 // 图片 src 经后端 resolve_image 解析成绝对路径再转 asset 协议、代码块注入复制
 // 按钮；绝不向 HTML 字符串拼接任何文档派生内容。
 //
 // 渲染管线：useEffect([html, baseDir]) 先整树重建 innerHTML（旧图片改写与按钮
-// 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态复用同一管线：
-// 按 plan 定案三种形态 html 应随 translation-done payload 下发并经
-// docStore.parseResult 单一来源流入（Task 8 未随附该扩展，见 task-20-report）。
+// 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态（Task 23）：done
+// payload 附带的译文 html 经 docStore.doneHtml 流入——当前阅读模式与批次形态、
+// 内容一致时直接采用（零延迟），否则回退 parseResult.html（原文渲染）兜底。
 import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
@@ -67,9 +67,19 @@ function addCopyButtons(scope: HTMLElement) {
 export default function PreviewView() {
   const ref = useRef<HTMLDivElement>(null);
   const content = useDocStore((s) => s.doc?.content ?? null);
-  const html = useDocStore((s) => s.parseResult?.html ?? null);
+  const mode = useDocStore((s) => s.mode);
+  const parseHtml = useDocStore((s) => s.parseResult?.html ?? null);
+  const doneHtml = useDocStore((s) => s.doneHtml);
   const baseDir = useDocStore((s) => s.doc?.base_dir ?? null);
   const ensureParsed = useDocStore((s) => s.ensureParsed);
+
+  // 译文形态直用：当前阅读模式与批次形态匹配且内容未变。跑批期间的编辑/切档
+  // 已在 done 落库处被 runContent 护栏拦下，这里 contentKey 再核一道（双保险）。
+  const payloadHtml =
+    mode !== "original" && doneHtml && doneHtml.mode === mode && doneHtml.contentKey === content
+      ? doneHtml.html
+      : null;
+  const html = payloadHtml ?? parseHtml;
 
   // 与 OutlinePanel 同款触发：内容变化后保证 parseResult 新鲜（缓存命中零开销；
   // 大纲面板折叠时预览独自兜底）。ensureParsed 幂等且带乱序丢弃护栏。

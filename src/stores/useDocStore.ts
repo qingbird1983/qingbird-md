@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import { undo, redo } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
-import type { DocDTO, Mode, ParseResult, ViewKind } from "../types/ipc";
+import type { DocDTO, Mode, OutlineItem, ParseResult, ViewKind } from "../types/ipc";
 import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 // 环引用仅存在于 action 体内（getState 调用不发生在模块求值期）——plan 明确允许的边
@@ -18,6 +18,9 @@ interface DocState {
   isDirty: boolean;
   savedContent: string; // 供 isDirty 比较
   translations: Map<number, string>; // 翻译完成后按段下标写入（translation-done）
+  // translation-done payload 附带的译文形态 html 单槽（Task 23）：contentKey = 发起批次时的
+  // doc.content，mode = 批次模式。PreviewView 在匹配的阅读模式下零延迟直用，否则回退 parseResult。
+  doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string; outline: OutlineItem[] } | null;
   parseResult: ParseResult | null;
   // 单槽缓存：key = 产出 result 时的完整 content；与 parseResult 永远同一次 set 内联动更新
   htmlCache: { contentKey: string; result: ParseResult } | null;
@@ -57,6 +60,7 @@ export const useDocStore = create<DocState>()((set, get) => ({
   isDirty: false,
   savedContent: "",
   translations: new Map(),
+  doneHtml: null,
   parseResult: null,
   htmlCache: null,
   cmRef: { current: null },
@@ -79,6 +83,7 @@ export const useDocStore = create<DocState>()((set, get) => ({
         isDirty: false,
         cursorSel: [0, 0],
         translations: new Map(), // 新文档段落索引全变，旧译文一律作废
+        doneHtml: null, // payload html 属于旧文档内容，一并作废
         parseResult: null,
         htmlCache: null,
       });

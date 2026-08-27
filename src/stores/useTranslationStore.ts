@@ -20,6 +20,7 @@ interface TranslationState {
   progress: { done: number; total: number } | null;
   gen: number;
   lastRunMode: Mode | null; // 上次整篇翻译所用的阅读模式，startIfFresh 判"模式变了需重跑"
+  runContent: string | null; // 发起批次时的 doc.content：done 时判内容/文档是否仍一致（防编辑/切档后写入过期产物）
   selection: SelectionState | null;
 
   translateDocument(): Promise<void>;
@@ -53,11 +54,33 @@ function handleDone(d: DonePayload) {
     ui.addToast("error", d.error ? `翻译失败：${d.error}` : "翻译失败");
     return;
   }
-  if (d.translations) {
-    useDocStore.setState({ translations: new Map(d.translations) });
-  }
   useTranslationStore.setState({ status: "idle", progress: null });
+  // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与 payload html 全部过期，宁缺勿错不落库。
+  // （stop 的迟到 done 已被上方 gen 失配拦住，此处护栏只管"内容变了但 gen 未变"的窗口。）
+  const contentFresh = !!dd.doc && dd.doc.content === st.runContent;
+  if (contentFresh) {
+    if (d.translations) {
+      useDocStore.setState({ translations: new Map(d.translations) });
+    }
+    // T8ext 契约：translation 批次出 html_translation（run 空间）、bilingual 批次出
+    // html_bilingual（块空间），二者只居其一；以字段在否为准判定本轮形态。
+    if (d.html_translation || d.html_bilingual) {
+      useDocStore.setState({
+        doneHtml: {
+          contentKey: st.runContent!,
+          mode: d.html_translation ? "translation" : "bilingual",
+          html: (d.html_translation ?? d.html_bilingual)!,
+          outline: d.outline ?? [],
+        },
+      });
+    }
+  }
   ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
+  // 换挡补跑（startIfFresh 语义的收尾）：跑批期间用户切到另一翻译模式时，
+  // 本轮 payload 形态与新模式不匹配 ⇒ 立刻按新模式补跑（后端缓存使重复批次近乎零成本）。
+  if (dd.mode !== "original" && st.lastRunMode !== dd.mode) {
+    useTranslationStore.getState().startIfFresh();
+  }
 }
 
 export const useTranslationStore = create<TranslationState>()((set, get) => ({
@@ -65,6 +88,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
   progress: null,
   gen: 0,
   lastRunMode: null,
+  runContent: null,
   selection: null,
 
   translateDocument: async () => {
@@ -79,7 +103,14 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         sp.provider,
         useSettingsStore.getState().credsFor(sp.provider),
       );
-      set({ gen: g, status: "running", progress: null, lastRunMode: dd.mode }); // 进度等首个事件
+      // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
+      set({
+        gen: g,
+        status: "running",
+        progress: null,
+        lastRunMode: dd.mode,
+        runContent: dd.doc.content,
+      }); // 进度等首个事件
     } catch (e) {
       set({ status: "error" });
       useUiStore.getState().addToast("error", `发起翻译失败：${errText(e)}`);

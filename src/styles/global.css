@@ -225,6 +225,60 @@ button.menu-btn:disabled,
   display: flex;
 }
 
+/* T23：整篇翻译进度条（仅翻译进行中渲染；空态组件返回 null 不占位） */
+.translation-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-bottom: 1px solid #ddd;
+  background: #eef4fc;
+  font-size: 12px;
+}
+
+.translation-bar .tb-track {
+  flex: 1;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 3px;
+  background: #d8e2f0;
+  overflow: hidden;
+}
+
+.translation-bar .tb-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #2f6fed;
+  transition: width 0.2s ease;
+}
+
+.translation-bar .tb-pct {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-count {
+  color: #667;
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-stop {
+  padding: 1px 10px;
+  border: 1px solid #c8d4e8;
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.translation-bar .tb-stop:hover {
+  border-color: #2f6fed;
+  color: #2f6fed;
+}
+
 /* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
 .main-body > * {
   flex: 1;
@@ -372,6 +426,24 @@ body {
   .editor-toolbar {
     border-bottom-color: #333;
     background: #252526;
+  }
+
+  .translation-bar {
+    border-bottom-color: #333;
+    background: #1f2a3d;
+  }
+
+  .translation-bar .tb-track {
+    background: #2d3a52;
+  }
+
+  .translation-bar .tb-stop {
+    border-color: #3a4a66;
+    background: #2a3448;
+  }
+
+  .translation-bar .tb-count {
+    color: #99a7bd;
   }
 
   .resizer {

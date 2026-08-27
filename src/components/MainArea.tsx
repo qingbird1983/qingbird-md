@@ -14,6 +14,7 @@ import { useUiStore } from "../stores/useUiStore";
 import EditorView from "./EditorView";
 import EditorToolbar from "./EditorToolbar";
 import PreviewView from "./PreviewView";
+import TranslationBar from "./TranslationBar";
 
 // 分栏比例钳制（brief 未给数值，取常规经验值：两侧各留至少 20%）
 const RATIO_MIN = 0.2;
@@ -78,6 +79,8 @@ export default function MainArea() {
     <>
       {/* 预览模式不显示工具栏（延续旧版） */}
       {view !== "preview" && <EditorToolbar />}
+      {/* T23：整篇翻译进度条（仅翻译进行中占位） */}
+      <TranslationBar />
       <div className="main-body">
         {view === "source" && <EditorView />}
         {view === "preview" && <PreviewView />}
