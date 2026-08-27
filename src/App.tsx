@@ -6,6 +6,7 @@ import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
+import OutlinePanel from "./components/OutlinePanel";
 
 function App() {
   useEffect(() => {
@@ -37,7 +38,11 @@ function App() {
         <div className="editor-slot" />
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠 */}
-      {showOutline && <aside className="outline-panel" style={{ width: outlineWidth }} />}
+      {showOutline && (
+        <aside className="outline-panel" style={{ width: outlineWidth }}>
+          <OutlinePanel />
+        </aside>
+      )}
       <StatusBar />
     </div>
   );

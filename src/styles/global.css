@@ -214,6 +214,45 @@ button.menu-btn:disabled,
   grid-column: 3;
 }
 
+/* T19：大纲面板 —— level 缩进行（(level-1)*12px）与空态 */
+.outline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 8px;
+  color: #999;
+  font-size: 13px;
+}
+
+.outline-list {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+}
+
+.outline-item {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.outline-item:hover {
+  background: #eee;
+}
+
 .status-bar {
   grid-column: 1 / -1;
   height: 26px;
