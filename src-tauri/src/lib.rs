@@ -135,7 +135,7 @@ fn create_err(what: &str, path: &str, e: std::io::Error) -> String {
 /// - 相对路径 -> 与文档目录（base_dir）拼接
 ///
 /// ponytail: 不做 `..` 归一化——asset 协议 scope 显式放开为 `**`
-/// （文档可能在任意盘符目录，功能性需求而非漏洞放宽），见 tauri.conf.json 注释。
+/// （文档可能在任意盘符目录，功能性需求而非漏洞放宽），scope 见 tauri.conf.json 的 assetProtocol。
 fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
     let s = src.trim();
     if s.is_empty() {
