@@ -24,8 +24,8 @@ use translate::cache::Cache;
 
 /// Managed shared state, registered via `.manage(AppTxn::new(lock))`.
 ///
-/// `ponytail:` lock_file stays unread outside tests until Task 10 wires the
-/// pending-file poller.
+/// `ponytail:` lock_file 初始化后永不读（测试断言保留除外）——持有 File 本身
+/// 就是让 OS 建议锁活到进程退出，不是脚手架。
 #[allow(dead_code)]
 struct AppTxn {
     /// 翻译缓存共享。Arc 包一层：Task 8 后台 worker 克隆 Arc 出去，收尾时
@@ -469,17 +469,47 @@ fn tree_in(nodes: &[dto::TreeNodeDTO]) -> Vec<workspace::TreeNode> {
         .collect()
 }
 
+// ---- 单实例 handoff（Task 10）----
+
+/// Wire payload of the `document-changed` event（Task 14 绑定字段名）——单一
+/// 来源：pending 轮询与首开参数两条路径都经此构造，serde 形状仅由这里决定，
+/// 恰为 `{"path": "<字符串>"}` 单键对象。
+fn changed_payload(p: &std::path::Path) -> serde_json::Value {
+    serde_json::json!({ "path": p.to_string_lossy() })
+}
+
 pub fn run() {
+    // CLI 文件参数一次解析两处共用：第二实例转交 / 首开直接加载。
+    let file_arg = fileopen::file_arg_from_args(std::env::args().skip(1));
     let lock = single_instance::acquire_lock();
     if lock.is_none() {
         // Second launch: hand a file-association path to the running instance.
-        if let Some(p) = fileopen::file_arg_from_args(std::env::args().skip(1)) {
+        if let Some(p) = file_arg {
             single_instance::write_pending(&p);
         }
         return;
     }
+    // 首开带文件参数（文件关联双击）：与 handoff 共用同一事件统一路径加载
+    // （替代旧 state.open(args)）。事件无缓冲/重放，且前端监听要等 React 挂载
+    // 才注册——若在 setup 直接 emit 必丢。Builder 级 on_page_load 先于任何
+    // 窗口注册、必能捕获首次加载完成；Mutex+take 闩保证全程只发一次，延迟
+    // 500ms 给前端留出挂监听的时间（Task 15 启动时只挂一次）。
+    let initial = Mutex::new(file_arg);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_page_load(move |wv, ev| {
+            if !matches!(ev.event(), tauri::webview::PageLoadEvent::Finished) {
+                return;
+            }
+            if let Some(p) = initial.lock().expect("initial file mutex poisoned").take() {
+                // 延迟发射；detached 线程不阻塞事件循环
+                let wv = wv.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = wv.emit("document-changed", changed_payload(&p));
+                });
+            }
+        })
         .manage(AppTxn::new(lock))
         .invoke_handler(tauri::generate_handler![
             open_file,
@@ -506,8 +536,16 @@ pub fn run() {
             pick_save_path,
             // Task 10-11 追加于此
         ])
-        .setup(|_app| {
-            // Task 10: 启动 pending 轮询线程 / 文件关联首打开（暂略）
+        .setup(|app| {
+            // Task 10: 单实例 handoff——轮询第二实例写入的 pending 文件并转成
+            // document-changed 事件推给前端；纯本地小文件 IO，独立线程不占主循环。
+            let h = app.handle().clone();
+            std::thread::spawn(move || loop {
+                if let Some(p) = single_instance::take_pending() {
+                    let _ = h.emit("document-changed", changed_payload(&p));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            });
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -698,5 +736,21 @@ mod tests {
         assert_eq!(v["gen"], 3);
         assert_eq!(v["done"], 2);
         assert_eq!(v["total"], 5);
+    }
+
+    // ---- Task 10: 单实例 handoff / 文件关联首开 ----
+
+    #[test]
+    fn document_changed_evt_wire_shape() {
+        // Wire contract（Task 14 绑定字段名）：listen 后取 e.payload.path，
+        // payload 恰为 {"path": "<字符串>"} 单键对象。
+        let v = changed_payload(std::path::Path::new(r"D:\docs\hello.md"));
+        assert_eq!(v["path"], r"D:\docs\hello.md");
+        let obj = v.as_object().unwrap();
+        assert_eq!(obj.len(), 1);
+
+        // 非 ASCII 路径原样保留（Windows 双击文件关联常见中文名）
+        let cjk = changed_payload(std::path::Path::new(r"C:\笔记\中文.md"));
+        assert_eq!(cjk["path"], r"C:\笔记\中文.md");
     }
 }
