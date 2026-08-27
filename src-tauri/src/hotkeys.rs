@@ -20,7 +20,13 @@ const MODES: [&str; 3] = ["original", "translation", "bilingual"];
 /// SettingsModal toast 提示。支持面收窄到 Ctrl/Alt/Shift——与旧版 egui
 /// 「须含 Ctrl/Alt/Shift」的可用集一致。空串同理拒绝（「未设置」项）。
 fn registrable(combo: &str) -> bool {
-    !combo.is_empty() && !combo.split('+').any(|p| p.eq_ignore_ascii_case("Meta"))
+    // 必须含修饰键：裸字母经 RegisterHotKey 会成为系统级劫持（手改 settings 才可达，
+    // 但启动路径会真实注册）；与前端 parseCombo 的“修饰必需”约定对齐。
+    !combo.is_empty()
+        && !combo.split('+').any(|p| p.eq_ignore_ascii_case("Meta"))
+        && combo
+            .split('+')
+            .any(|p| matches!(p, "Ctrl" | "Alt" | "Shift" | "Control" | "Option"))
 }
 
 /// 按当前设置同步全局热键：先全量反注册，再按新值注册可注册项。
