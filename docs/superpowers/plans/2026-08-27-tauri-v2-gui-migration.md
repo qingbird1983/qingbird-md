@@ -594,12 +594,13 @@ apply_op 命令本体包装 `apply_op_map`（便于测试的薄壳）。
 
 ---
 
-### Task 7: 图片解析 command
+### Task 7: 图片解析 + Markdown 解析 command
 
 **Files:**
-- Modify: `src-tauri/src/lib.rs`、`src-tauri/src/markdown/html.rs` 或单独 helper
+- Modify: `src-tauri/src/lib.rs`
 
 **Interfaces:**
+- Produces: `parse_markdown(content: String) -> ParseResult` —— 直通 `markdown::html::render_html(content, &HashMap::new(), false)`（原文模式；译文/对照两形态由 Task 8 翻译完成事件附带，不走此命令）。generate_handler 注册时与 `resolve_image` 同批加入。
 - Produces: `resolve_image(src: String, base_dir: Option<String>) -> Option<String>` —— 返回本地绝对路径字符串（供前端 `convertFileSrc(absPath)` 得到可用 URL）：
 ```rust
 fn resolve(src:&str, base_dir:Option<&str>) -> Option<PathBuf> {   // 逻辑 = 旧 render.rs::resolve_src 平移
@@ -1067,6 +1068,14 @@ const CMdisp: Extension[] = [minimalSetup, markdown({codeLanguages: languages}),
 ```
 光标同步：`updateListener` 截 selection 相关更新 → setCursorSel([from,to]); 反向 applyFormat 返回新 sel 后 dispatch selection & scrollIntoView center. keymap 加 Ctrl+B bold / Ctrl+I italic 快捷入口→ docStore.applyFormat（非 CodeMirror 命令，触发式即可，防止重复键）。
 cursorSel 服务划词翻译：外置 subscription in App.tsx → debounce(300ms) 若 selection_translate 则 `translationStore.translateSelection(cm.getText(sel))`。
+
+**偏移单位注意（中英混排正确性关键）**：CodeMirror 的 from/to 是 **字符（code point）偏移**，而 Rust 端 `editor::apply_op` 的 sel 是 **UTF-8 字节偏移**。在 `lib/ipc.ts` 增加一对纯函数并加单测式断言（行内注释给用例）：
+```ts
+/** CM 字符偏移 -> UTF-8 字节偏移（Rust apply_op 需要）。中文每字 +2。 */
+export function charToByteOffset(s: string, charIdx: number): number
+export function byteToCharOffset(s: string, byteIdx: number): number
+```
+实现：按 codePoint 遍历累加 `char.length`（UTF-16 代理对算 1 个 CM 字符但占 4 字节；CM 对代理对计 1 字符——以 `Array.from(s)` 切分为准逐个累加 `cp.length === 1 ? 1 : cp.length`… 实现以两函数互逆往返测试为准：`byteToCharOffset(s, charToByteOffset(s, i)) === i`（非切面处取 <=i 最大合法值亦可接受，但 applyOp 返回的 sel 永远落在 wrap 边界字符处，往返足够）。useDocStore.applyFormat 调 api.applyOp 前做 char→byte，收到 EditResult.sel 后做 byte→char 再 dispatch 给 CodeMirror。
 [ ] 步骤：装载/目测中文输入法 composition 正常（IME 不丢字）、Ctrl+S 保存、undo 分支合理。
 - [ ] **Step 1~3:** 按上实施并构建+手测。commit: `feat(ui): codemirror source editor with history keymap + cursor bridge`
 
