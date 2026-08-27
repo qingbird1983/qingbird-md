@@ -154,3 +154,56 @@ pub const REGISTRY: &[(&str, ProviderMeta)] = &[
 pub fn get(key: &str) -> Option<&'static ProviderMeta> {
     REGISTRY.iter().find(|(k, _)| *k == key).map(|(_, m)| m)
 }
+
+// ---- IPC DTO 转换（Task 8 追加；常量表本体不动）----
+
+fn to_dto(key: &str, m: &ProviderMeta) -> crate::dto::ProviderInfoDto {
+    crate::dto::ProviderInfoDto {
+        key: key.to_string(),
+        label: m.label.to_string(),
+        note: m.note.to_string(),
+        needs_key: m.needs_key,
+        max_len: m.max_len,
+        max_concurrency: m.max_concurrency,
+        fields: m
+            .fields
+            .iter()
+            .map(|f| crate::dto::ProviderFieldDto {
+                key: f.key.to_string(),
+                label: f.label.to_string(),
+                secret: f.secret,
+                placeholder: f.placeholder.to_string(),
+            })
+            .collect(),
+    }
+}
+
+/// One provider's DTO by registry key.
+pub fn info(key: &str) -> Option<crate::dto::ProviderInfoDto> {
+    get(key).map(|m| to_dto(key, m))
+}
+
+/// Every provider flattened from [`REGISTRY`] in registry order.
+pub fn all_infos() -> Vec<crate::dto::ProviderInfoDto> {
+    REGISTRY.iter().map(|(k, m)| to_dto(k, m)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Brief Step 3 编排测试：注册表面完整、auto 免密钥、并发度符合线序契约。
+    #[test]
+    fn providers_info_roundtrip() {
+        let v = all_infos();
+        assert_eq!(v.len(), 8);
+        let auto = v.iter().find(|p| p.key == "auto").unwrap();
+        assert!(!auto.needs_key);
+        assert_eq!(auto.max_concurrency, 3);
+        // 平铺序 = REGISTRY 序；字段转换无损（label/fields 完整搬出）
+        assert_eq!(v[0].key, "mymemory");
+        let llm = info("llm").unwrap();
+        assert_eq!(llm.fields.len(), 3);
+        assert!(info("nope").is_none());
+    }
+}

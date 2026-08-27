@@ -11,21 +11,26 @@ mod storage;
 mod translate;
 mod workspace;
 
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use tauri::Emitter;
 
 use translate::cache::Cache;
 
 /// Managed shared state, registered via `.manage(AppTxn::new(lock))`.
 ///
-/// `ponytail:` cache/cancel/running/gen are unread until Tasks 7-10 wire the
-/// translation pipeline; `#[allow(dead_code)]` keeps that wiring out of Task 5.
+/// `ponytail:` lock_file stays unread outside tests until Task 10 wires the
+/// pending-file poller.
 #[allow(dead_code)]
 struct AppTxn {
-    cache: Mutex<Cache>,            // 翻译缓存共享
-    cancel: Arc<AtomicBool>,        // 当前批次取消旗标
+    /// 翻译缓存共享。Arc 包一层：Task 8 后台 worker 克隆 Arc 出去，收尾时
+    /// 短暂锁回写新键并落盘——绝不跨网络请求持锁。
+    cache: Arc<Mutex<Cache>>,
+    cancel: Arc<AtomicBool>, // 当前批次取消旗标
     running: Arc<AtomicBool>,
     /// 代次：新一轮翻译 +1；事件里带上，前端丢弃过期。
     /// Rust 2024 保留字，raw identifier（序列化不涉及，仅内部状态）。
@@ -36,7 +41,7 @@ struct AppTxn {
 impl Default for AppTxn {
     fn default() -> Self {
         Self {
-            cache: Mutex::new(Cache::new()),
+            cache: Arc::new(Mutex::new(Cache::new())),
             cancel: Arc::new(AtomicBool::new(false)),
             running: Arc::new(AtomicBool::new(false)),
             r#gen: AtomicU64::new(0),
@@ -192,6 +197,204 @@ fn snap_down(c: &str, mut i: usize) -> usize {
     i
 }
 
+// ---- 翻译（Task 8）----
+
+/// Wire contract for the `translation-progress` event (Task 14 binds these
+/// exact field names). Serialized as `{gen, done, total}`.
+#[derive(Clone, serde::Serialize)]
+struct TranslationProgressEvt {
+    /// Rust 2024 保留字 raw identifier；serde 序列化仍输出 `"gen"`。
+    r#gen: u64,
+    done: usize,
+    total: usize,
+}
+
+/// Wire contract for the `translation-done` event:
+/// `{gen, ok, translations?: [[usize, String]], error?: String}`.
+/// `translations` 是按下标升序的 pair 数组（HashMap 无序，保证前端确定性渲染）；
+/// None 字段在 JSON 中整体缺席。
+#[derive(Clone, serde::Serialize)]
+struct TranslationDoneEvt {
+    r#gen: u64,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    translations: Option<Vec<(usize, String)>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Pure core of the done-payload assembly (unit-testable without threads):
+/// successes become `[index, text]` pairs sorted ascending; the first error wins.
+fn done_payload_parts(
+    indices: &[usize],
+    results: &[Result<String, String>],
+) -> (bool, Vec<(usize, String)>, Option<String>) {
+    let mut pairs = Vec::new();
+    let mut err = None;
+    for (i, r) in results.iter().enumerate() {
+        match r {
+            Ok(v) => pairs.push((indices[i], v.clone())),
+            Err(e) => {
+                if err.is_none() {
+                    err = Some(e.clone());
+                }
+            }
+        }
+    }
+    pairs.sort_by_key(|p| p.0);
+    (err.is_none(), pairs, err)
+}
+
+/// State pieces cloned out of [`AppTxn`] once at start so the worker thread
+/// never touches managed-state borrows.
+struct WorkerState {
+    cache: Arc<Mutex<Cache>>, // 回写目标（worker 收尾时短暂锁回写 + 落盘）
+    cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+#[tauri::command]
+fn get_providers() -> Vec<dto::ProviderInfoDto> {
+    translate::providers_meta::all_infos()
+}
+
+#[tauri::command]
+fn get_provider_meta(key: String) -> Option<dto::ProviderInfoDto> {
+    translate::providers_meta::info(&key)
+}
+
+/// 划词翻译：文本天然短，单发直调 provider（超长选区由前端限制）。
+/// 起线程 join 后返回——阻塞网络调用不占用 IPC 线程，划词场景等待可接受。
+#[tauri::command]
+fn translate_text(
+    text: String,
+    provider: String,
+    creds: HashMap<String, String>,
+) -> Result<String, String> {
+    if translate::providers_meta::get(&provider).is_none() {
+        return Err(format!("未知翻译源：{provider}"));
+    }
+    std::thread::spawn(move || {
+        let http = translate::http::UreqClient;
+        translate::providers::provider(&provider, &text, &translate::providers::Creds(creds), &http)
+    })
+    .join()
+    .map_err(|_| "翻译线程崩溃".to_string())
+    .and_then(|r| r)
+}
+
+/// 停止当前后台批次：worker 里每个 HTTP 请求出发前经 CancelableClient 检查旗标，
+/// 置位后未发请求全部 fail-fast、已排队批次在边界处排空。
+#[tauri::command]
+fn stop_translation(state: tauri::State<AppTxn>) {
+    state.cancel.store(true, Ordering::SeqCst);
+}
+
+/// 整篇文档翻译：即刻返回 gen 号，真正翻译在后台线程；进度/完成经 Event 推送
+/// （`translation-progress` / `translation-done`）。忙碌时返回错误。
+#[tauri::command]
+fn translate_document(
+    app: tauri::AppHandle,
+    content: String,
+    mode: String,
+    provider: String,
+    creds: HashMap<String, String>,
+    state: tauri::State<AppTxn>,
+) -> Result<u64, String> {
+    let meta = translate::providers_meta::get(&provider)
+        .ok_or_else(|| format!("未知翻译源：{provider}"))?;
+    let blocks = markdown::parse_blocks(&content);
+    let units = match mode.as_str() {
+        "translation" => markdown::units::collect_text_runs(&blocks),
+        "bilingual" => markdown::units::collect_translatable(&blocks),
+        other => return Err(format!("不支持的模式：{other}")),
+    };
+    // 忙碌检查：CAS false→true 成功才开工；失败即拒绝并保留原任务。
+    state
+        .running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "已有翻译在进行".to_string())?;
+    let r#gen = state.r#gen.fetch_add(1, Ordering::SeqCst) + 1;
+    state.cancel.store(false, Ordering::SeqCst);
+
+    // 缓存只锁拷贝瞬间：快照传给 worker 全程局部使用，结束后 merge 回写。
+    let snapshot = state.cache.lock().expect("cache mutex poisoned").clone();
+    let st = WorkerState {
+        cache: Arc::clone(&state.cache),
+        cancel: Arc::clone(&state.cancel),
+        running: Arc::clone(&state.running),
+    };
+    let (indices, texts): (Vec<usize>, Vec<String>) = units.into_iter().unzip();
+    spawn_translation(app, r#gen, texts, indices, provider, creds, meta, st, snapshot);
+    Ok(r#gen)
+}
+
+/// 后台 worker 编排：UreqClient 包 CancelableClient 走 pipeline，progress 闭包
+/// emit 进度事件；收尾时 merge 回写缓存并落盘，再 emit 完成事件、释放 running。
+/// 事件只在 worker 线程经 AppHandle clone 发出；前端按 gen 丢弃过期事件。
+fn spawn_translation(
+    app: tauri::AppHandle,
+    r#gen: u64,
+    texts: Vec<String>,
+    indices: Vec<usize>,
+    provider: String,
+    creds: HashMap<String, String>,
+    meta: &'static translate::providers_meta::ProviderMeta,
+    st: WorkerState,
+    mut work_cache: Cache,
+) {
+    std::thread::spawn(move || {
+        let http0 = translate::http::UreqClient;
+        let http = translate::cancel::CancelableClient { inner: &http0, cancel: &st.cancel };
+
+        // 开跑前已在快照中的键无需回写（translate_units 只新增缺失键）
+        let preknown: HashSet<String> = texts
+            .iter()
+            .map(|t| Cache::key(&provider, t))
+            .filter(|k| work_cache.get(k).is_some())
+            .collect();
+
+        let progress = |done: usize, total: usize| {
+            let _ = app.emit("translation-progress", TranslationProgressEvt { r#gen, done, total });
+        };
+        let results = translate::pipeline::translate_units(
+            &texts,
+            &provider,
+            &translate::providers::Creds(creds),
+            meta.max_len,
+            meta.max_concurrency,
+            &mut work_cache,
+            &http,
+            &progress,
+        );
+
+        // merge 回写：锁内只做内存 set + 快照 JSON，落盘紧随其后（单一写者，
+        // 由 running 单飞保护，锁不跨网络请求）。
+        {
+            let mut shared = st.cache.lock().expect("cache mutex poisoned");
+            for (i, r) in results.iter().enumerate() {
+                if let Ok(v) = r {
+                    let k = Cache::key(&provider, &texts[i]);
+                    if !preknown.contains(&k) {
+                        shared.set(k, v.clone());
+                    }
+                }
+            }
+            let _ = shared.save(&storage::cache_path());
+            shared.mark_saved();
+        }
+
+        let (ok, pairs, err) = done_payload_parts(&indices, &results);
+        let payload = if ok {
+            TranslationDoneEvt { r#gen, ok: true, translations: Some(pairs), error: None }
+        } else {
+            TranslationDoneEvt { r#gen, ok: false, translations: None, error: err }
+        };
+        let _ = app.emit("translation-done", payload);
+        st.running.store(false, Ordering::SeqCst);
+    });
+}
+
 fn tree_out(nodes: &[workspace::TreeNode]) -> Vec<dto::TreeNodeDTO> {
     nodes
         .iter()
@@ -241,7 +444,13 @@ pub fn run() {
             apply_op,
             parse_markdown,
             resolve_image,
-            // Task 8-11 追加于此
+            // Task 8: 翻译
+            get_providers,
+            get_provider_meta,
+            translate_text,
+            translate_document,
+            stop_translation,
+            // Task 9-11 追加于此
         ])
         .setup(|_app| {
             // Task 10: 启动 pending 轮询线程 / 文件关联首打开（暂略）
@@ -380,5 +589,60 @@ mod tests {
         let all = filter_workspace(tree.clone(), "   ".into()); // 空查询原样返回
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].children.len(), 2);
+    }
+
+    // ---- Task 8: 翻译命令 ----
+
+    #[test]
+    fn done_payload_parts_sorts_pairs_and_picks_first_error() {
+        // 混合成败：只收集成功对，错误取首个；输出按 index 升序
+        let indices = [5usize, 2, 9];
+        let results = vec![
+            Ok("五".to_string()),
+            Err("已取消".to_string()),
+            Ok("九".to_string()),
+        ];
+        let (ok, pairs, err) = done_payload_parts(&indices, &results);
+        assert!(!ok);
+        assert_eq!(err.as_deref(), Some("已取消"));
+        assert_eq!(pairs, vec![(5usize, "五".into()), (9usize, "九".into())]);
+
+        let (_, pairs2, _) = done_payload_parts(&[3usize, 1], &[Ok("乙".into()), Ok("甲".into())]);
+        assert_eq!(pairs2, vec![(1usize, "甲".into()), (3usize, "乙".into())]);
+    }
+
+    #[test]
+    fn translation_done_evt_wire_shape() {
+        // Wire contract（Task 14 绑定字段名）：{gen, ok, translations?: [[i, text]], error?}
+        let e = TranslationDoneEvt {
+            r#gen: 7,
+            ok: true,
+            translations: Some(vec![(0, "甲".into()), (1, "乙".into())]),
+            error: None,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["gen"], 7);
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["translations"], serde_json::json!([[0, "甲"], [1, "乙"]]));
+        assert!(v.get("error").is_none());
+
+        let e2 = TranslationDoneEvt {
+            r#gen: 7,
+            ok: false,
+            translations: None,
+            error: Some("已取消".into()),
+        };
+        let v2 = serde_json::to_value(&e2).unwrap();
+        assert_eq!(v2["error"], "已取消");
+        assert!(v2.get("translations").is_none());
+    }
+
+    #[test]
+    fn translation_progress_evt_wire_shape() {
+        let e = TranslationProgressEvt { r#gen: 3, done: 2, total: 5 };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["gen"], 3);
+        assert_eq!(v["done"], 2);
+        assert_eq!(v["total"], 5);
     }
 }
