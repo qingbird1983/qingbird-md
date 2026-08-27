@@ -208,6 +208,26 @@ button.menu-btn:disabled,
   min-height: 0;
 }
 
+/* T21：CodeMirror 宿主——撑满 editor-slot；暗色由 oneDark 接管配色 */
+.editor-cm {
+  height: 100%;
+  overflow: hidden;
+}
+
+.editor-cm .cm-editor {
+  height: 100%;
+  font-size: 14px;
+}
+
+.editor-cm .cm-editor.cm-focused {
+  outline: none; /* 焦点态由壳层与选区绘制表达，去掉默认蓝框 */
+}
+
+.editor-cm .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Microsoft YaHei", monospace;
+  line-height: 1.6;
+}
+
 .outline-panel {
   overflow-y: auto;
   grid-row: 2;

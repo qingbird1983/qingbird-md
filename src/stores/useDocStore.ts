@@ -3,7 +3,7 @@
 // parseResult 与之原子联动，供 OutlinePanel / Preview 单一来源消费（plan Task 19 修正接口）。
 import { create } from "zustand";
 import type { DocDTO, Mode, ParseResult, ViewKind } from "../types/ipc";
-import { api } from "../lib/ipc";
+import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 // 环引用仅存在于 action 体内（getState 调用不发生在模块求值期）——plan 明确允许的边
 import { useTranslationStore } from "./useTranslationStore";
@@ -89,14 +89,28 @@ export const useDocStore = create<DocState>()((set, get) => ({
   applyFormat: async (op) => {
     const d = get().doc;
     if (!d) return;
+    const [c0, c1] = get().cursorSel;
     try {
-      const r = await api.applyOp({ content: d.content, sel: get().cursorSel, op });
+      // 偏移口径桥（types/ipc.ts EditOp 契约）：store.cursorSel 是 CM code unit
+      // 偏移，Rust apply_op 需要 UTF-8 字节偏移；返回的 sel 同样转回 code unit。
+      const r = await api.applyOp({
+        content: d.content,
+        sel: [charToByteOffset(d.content, c0), charToByteOffset(d.content, c1)],
+        op,
+      });
+      if (get().doc !== d) {
+        // await 期间用户已编辑/切换文档 ⇒ 结果基于陈旧内容，应用会吞掉新输入
+        useUiStore.getState().addToast("info", "文档已变化，本次格式化已取消");
+        return;
+      }
       set({
         doc: { ...d, content: r.content },
-        cursorSel: r.sel,
+        cursorSel: [
+          byteToCharOffset(r.content, r.sel[0]),
+          byteToCharOffset(r.content, r.sel[1]),
+        ],
         isDirty: r.content !== get().savedContent,
       });
-      // ponytail: sel 直传暂按字符偏移口径；char↔byte 转换函数随 plan Task 21 在 ipc.ts 落地后接入
     } catch (e) {
       useUiStore.getState().addToast("error", `编辑操作失败：${errText(e)}`);
     }

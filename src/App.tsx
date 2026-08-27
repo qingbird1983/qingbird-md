@@ -19,6 +19,21 @@ function App() {
     void useTranslationStore.getState().listenDone();
   }, []);
 
+  useEffect(
+    () =>
+      // T21 划词翻译外置订阅：cursorSel（CM code unit 偏移，与 JS 下标同口径）
+      // 变化即取选中文本交给 translateSelection——其内置 300ms 防抖，拖选期间
+      // 只在停顿后发起一次；selection_translate 关闭时不触发；空选区清空浮窗。
+      useDocStore.subscribe((s, prev) => {
+        if (s.cursorSel === prev.cursorSel) return;
+        if (!useSettingsStore.getState().settings?.selection_translate) return;
+        const [from, to] = s.cursorSel;
+        const text = from !== to && s.doc ? s.doc.content.slice(from, to) : "";
+        useTranslationStore.getState().translateSelection(text);
+      }),
+    [],
+  );
+
   const showNav = useUiStore((s) => s.showNav);
   const showOutline = useUiStore((s) => s.showOutline);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
