@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
 import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
+import ToastContainer from "./components/ToastContainer";
 
 function App() {
   useEffect(() => {
@@ -67,6 +68,8 @@ function App() {
       <SelectionPopup />
       {/* T26 设置弹窗：ui.settingsOpen 门控，条件挂载保证每次打开都是新草稿 */}
       {settingsOpen && <SettingsModal />}
+      {/* T27 toast 容器：fixed 定位，随应用生命周期挂载 */}
+      <ToastContainer />
     </div>
   );
 }
