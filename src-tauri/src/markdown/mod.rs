@@ -1,4 +1,5 @@
 pub mod model;
+#[cfg(feature = "egui")]
 pub mod render;
 pub mod syntax;
 

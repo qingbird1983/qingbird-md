@@ -1,0 +1,19 @@
+{
+  "productName": "qingbird-md",
+  "version": "0.1.0",
+  "identifier": "com.qingbird.md",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "青鸟 Markdown"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}
