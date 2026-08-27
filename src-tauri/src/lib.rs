@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::Emitter;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use translate::cache::Cache;
 
@@ -70,6 +71,55 @@ fn open_file(path: String) -> Result<dto::DocDTO, String> {
 #[tauri::command]
 fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+// ---- 对话框（Task 9，tauri-plugin-dialog）----
+
+/// Convert a dialog result into a path string: `FilePath::Path` -> string,
+/// everything else (`Url`, `None`) -> None.
+fn dialog_result_to_path(chosen: Option<FilePath>) -> Option<String> {
+    match chosen {
+        Some(FilePath::Path(p)) => Some(p.to_string_lossy().into_owned()),
+        _ => None,
+    }
+}
+
+/// Native open-file dialog filtered to markdown-ish files.
+///
+/// blocking API 禁止主线程调用（会冻结事件循环），故命令为 async——
+/// 跑在 tauri::async_runtime 的 worker 线程上。
+#[tauri::command]
+async fn pick_file(window: tauri::Window) -> Option<String> {
+    let chosen = window
+        .dialog()
+        .file()
+        .add_filter("Markdown", &["md", "markdown", "txt"])
+        .set_parent(&window)
+        .blocking_pick_file();
+    dialog_result_to_path(chosen)
+}
+
+/// Native directory picker for a workspace folder.
+#[tauri::command]
+async fn pick_folder(window: tauri::Window) -> Option<String> {
+    let chosen = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .blocking_pick_folder();
+    dialog_result_to_path(chosen)
+}
+
+/// Native save dialog seeded with a default filename.
+#[tauri::command]
+async fn pick_save_path(default_name: String, window: tauri::Window) -> Option<String> {
+    let chosen = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_file_name(default_name)
+        .blocking_save_file();
+    dialog_result_to_path(chosen)
 }
 
 // ---- 设置 ----
@@ -450,7 +500,11 @@ pub fn run() {
             translate_text,
             translate_document,
             stop_translation,
-            // Task 9-11 追加于此
+            // Task 9: 对话框
+            pick_file,
+            pick_folder,
+            pick_save_path,
+            // Task 10-11 追加于此
         ])
         .setup(|_app| {
             // Task 10: 启动 pending 轮询线程 / 文件关联首打开（暂略）
