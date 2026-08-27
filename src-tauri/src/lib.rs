@@ -12,6 +12,7 @@ mod translate;
 mod workspace;
 
 use std::fs::File;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
@@ -125,6 +126,43 @@ fn create_err(what: &str, path: &str, e: std::io::Error) -> String {
     }
 }
 
+// ---- 预览（Task 7）----
+
+/// Resolve a markdown image `src` to a local absolute path
+/// （逻辑 = 旧 render.rs::resolve_src 平移）：
+/// - http(s)/data: -> `None`（远程图交给前端按 alt 兜底）
+/// - file:// -> 剥前缀原样使用
+/// - 相对路径 -> 与文档目录（base_dir）拼接
+///
+/// ponytail: 不做 `..` 归一化——asset 协议 scope 显式放开为 `**`
+/// （文档可能在任意盘符目录，功能性需求而非漏洞放宽），见 tauri.conf.json 注释。
+fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
+    let s = src.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Some(p) = s.strip_prefix("file://") {
+        return Some(PathBuf::from(p));
+    }
+    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("data:") {
+        return None;
+    }
+    let p = PathBuf::from(base_dir?).join(s);
+    // join 在 Windows 上插入反斜杠；统一为 '/' 保持路径字符串可预测
+    // （前端展示、测试断言一致）。Win32 API 两种分隔符均接受。
+    Some(PathBuf::from(p.to_string_lossy().replace('\\', "/")))
+}
+
+#[tauri::command]
+fn resolve_image(src: String, base_dir: Option<String>) -> Option<String> {
+    resolve(&src, base_dir.as_deref()).map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn parse_markdown(content: String) -> markdown::html::ParseResult {
+    markdown::html::render_html(&content, &std::collections::HashMap::new(), false)
+}
+
 // ---- 编辑器纯逻辑外壳 ----
 
 #[tauri::command]
@@ -201,7 +239,9 @@ pub fn run() {
             create_file,
             create_folder,
             apply_op,
-            // Task 7-11 追加于此
+            parse_markdown,
+            resolve_image,
+            // Task 8-11 追加于此
         ])
         .setup(|_app| {
             // Task 10: 启动 pending 轮询线程 / 文件关联首打开（暂略）
@@ -244,6 +284,22 @@ mod tests {
     }
 
     // ---- Task 6: 工作区 / 编辑器命令外壳 ----
+
+    // ---- Task 7: 图片解析 / Markdown 解析命令 ----
+
+    #[test]
+    fn resolve_skips_remote_and_resolves_relative() {
+        assert_eq!(resolve("https://a/b.png", Some("D:/w")), None);
+        assert_eq!(resolve("data:image/png;base64,x", None), None);
+        assert_eq!(
+            resolve("img/logo.png", Some("D:/w")).unwrap().to_string_lossy(),
+            "D:/w/img/logo.png"
+        );
+        assert_eq!(resolve("file://C:/x.png", None).unwrap().to_string_lossy(), "C:/x.png");
+        // 平移自旧逻辑的边界：空 src 与纯空白拒绝
+        assert_eq!(resolve("", Some("D:/w")), None);
+        assert_eq!(resolve("   ", Some("D:/w")), None);
+    }
 
     #[test]
     fn apply_op_maps_types() {
