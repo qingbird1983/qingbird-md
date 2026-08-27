@@ -15,6 +15,8 @@ body,
 }
 
 .topbar {
+  /* T16 网格契约：菜单条横贯三列（auto-placement 否则会塌缩到 r1c1） */
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 2px;
