@@ -41,6 +41,8 @@ export default function CommandPalette() {
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    // IME 组合期（拼音/双拼确认候选）的 Enter/Esc 不是导航意图，一律放行输入法
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (items.length) setSel((s) => (s + 1) % items.length);
