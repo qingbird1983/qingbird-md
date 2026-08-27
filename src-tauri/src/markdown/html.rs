@@ -280,11 +280,16 @@ impl<'t> Ctx<'t> {
                 }
             }
             None => {
+                // 与高亮路径同构：每个行边界恰好一个 '\n'（此处分隔符插入），
+                // 否则 mono 块所有行连成一段、CSS 的行号 gutter 无法成行。
                 let mut ls: Vec<&str> = code.split('\n').collect();
                 if ls.len() > 1 && ls.last() == Some(&"") {
                     ls.pop();
                 }
                 for (i, l) in ls.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
                     let _ = write!(out, "<span class=\"ln\">{}</span>{}", i + 1, escape_html(l));
                 }
             }
@@ -384,5 +389,17 @@ mod tests {
         assert!(r.html.contains("class=\"ln\">1</span>"));
         // Should contain colored spans (syntect)
         assert!(r.html.contains("style=\"color:#"));
+    }
+
+    #[test]
+    fn unknown_lang_code_block_lines_newline_separated() {
+        // Task 20 gutter 前提：mono 路径必须与高亮路径同构——行边界恰好一个
+        // '\n'，否则所有行连成一段，CSS（white-space: pre-wrap + .ln 行号）
+        // 无法断行。
+        let r = render_html("```\nalpha\nbeta\n```", &HashMap::new(), false);
+        assert!(r.html.contains(r#"<span class="ln">1</span>alpha"#));
+        assert!(r.html.contains("\n<span class=\"ln\">2</span>beta"));
+        let code = r.html.split("</code>").next().unwrap();
+        assert_eq!(code.matches("<span class=\"ln\">").count(), 2);
     }
 }
