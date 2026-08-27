@@ -31,6 +31,18 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "icon": ["icons/icon.ico"]
+    "icon": ["icons/icon.ico"],
+    "fileAssociations": [
+      { "ext": ["md"], "name": "青鸟 Markdown 文档", "role": "Editor" },
+      { "ext": ["markdown"], "name": "青鸟 Markdown 文档", "role": "Editor" },
+      { "ext": ["txt"], "name": "文本文件", "role": "Editor" }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }
