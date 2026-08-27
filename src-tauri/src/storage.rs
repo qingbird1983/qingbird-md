@@ -86,14 +86,18 @@ pub fn load_settings() -> Settings {
     Settings::default()
 }
 
-pub fn save_settings(s: &Settings) {
-    let p = settings_path();
-    if let Some(parent) = p.parent() {
-        let _ = std::fs::create_dir_all(parent);
+/// Persist `s` to `path`, creating parent dirs as needed; error string on any
+/// failure（成功与否可判定，是命令层“先落盘、后广播”的前提）。
+pub fn save_settings_to(path: &std::path::Path, s: &Settings) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    if let Ok(json) = serde_json::to_string_pretty(s) {
-        let _ = std::fs::write(&p, json);
-    }
+    let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+pub fn save_settings(s: &Settings) -> Result<(), String> {
+    save_settings_to(&settings_path(), s)
 }
 
 #[cfg(test)]
@@ -106,6 +110,40 @@ mod tests {
         assert_eq!(s.provider, "auto");
         assert!(s.selection_translate);
         assert_eq!(s.outline, "on");
+    }
+
+    #[test]
+    fn save_writes_reloadable_json_and_creates_parents() {
+        // Wire contract（Task 14）：settings-updated 的 payload 就是这个 JSON 对象
+        let unique = format!(
+            "{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let target = std::env::temp_dir()
+            .join(format!("qingbird-save-{unique}"))
+            .join("deep")
+            .join("qingbird-settings.json");
+        let mut s = Settings::default();
+        s.provider = "youdao".into();
+        s.theme = "dark".into();
+        save_settings_to(&target, &s).unwrap();
+
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(v["provider"], "youdao");
+        assert_eq!(v["theme"], "dark");
+    }
+
+    #[test]
+    fn save_reports_write_failure_as_err() {
+        // 目标即已存在的目录：fs::write 必败 → Err。
+        // Err 上抛是“先持久化、后广播”前提——失败路径绝不 emit。
+        let dir = std::env::temp_dir().join(format!("qingbird-save-dir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(save_settings_to(&dir, &Settings::default()).is_err());
     }
 
     #[test]

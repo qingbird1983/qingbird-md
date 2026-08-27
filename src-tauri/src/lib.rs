@@ -129,9 +129,14 @@ fn load_settings() -> storage::Settings {
     storage::load_settings()
 }
 
+/// 保存设置到用户数据目录，成功后向全部窗口广播 `settings-updated`
+/// （payload 即新 Settings 对象——前端多窗口/刷新后感知，Task 14 监听）。
+/// 先持久化、后广播：磁盘写入失败直接返回 Err 且不发事件。
 #[tauri::command]
-fn save_settings(settings: storage::Settings) {
-    storage::save_settings(&settings);
+fn save_settings(app: tauri::AppHandle, settings: storage::Settings) -> Result<(), String> {
+    storage::save_settings(&settings)?;
+    app.emit("settings-updated", &settings)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
