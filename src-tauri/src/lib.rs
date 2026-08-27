@@ -153,14 +153,15 @@ fn get_user_data_dir() -> String {
 
 /// 清空翻译缓存并立即落盘（Task 26 设置弹窗「清除翻译缓存」）。
 /// 两次短暂锁：clear 与 save 各自持锁，绝不跨任何长操作持有。
+/// save 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
 #[tauri::command]
-fn clear_cache(st: tauri::State<AppTxn>) {
+fn clear_cache(st: tauri::State<AppTxn>) -> Result<(), String> {
     st.cache.lock().expect("cache mutex poisoned").clear();
-    let _ = st
-        .cache
+    st.cache
         .lock()
         .expect("cache mutex poisoned")
-        .save(&storage::cache_path());
+        .save(&storage::cache_path())
+        .map_err(|e| e.to_string())
 }
 
 // ---- 工作区 ----
@@ -376,8 +377,9 @@ fn get_provider_meta(key: String) -> Option<dto::ProviderInfoDto> {
 }
 
 /// 划词翻译：文本天然短，单发直调 provider（超长选区由前端限制）。
-/// 起线程 join 后返回——阻塞网络调用不占用 IPC 线程，划词场景等待可接受。
-#[tauri::command]
+/// async 命令：阻塞网络调用必须离开主线程（UreqClient 无超时，provider
+/// 挂起可达 30s+），否则冻结 UI 事件循环（同 T9 pick_* 先例）。
+#[tauri::command(async)]
 fn translate_text(
     text: String,
     provider: String,
