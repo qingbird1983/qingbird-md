@@ -45,7 +45,10 @@ function addCopyButtons(scope: HTMLElement) {
     btn.className = "copy-btn";
     btn.textContent = "复制";
     btn.addEventListener("click", () => {
-      navigator.clipboard.writeText(code.textContent ?? "").then(
+      // 剥离 .ln 行号：克隆 code 节点并移除行号 span，再取纯代码文本。
+      const clone = code.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(".ln").forEach((n) => n.remove());
+      navigator.clipboard.writeText(clone.textContent ?? "").then(
         () => {
           btn.classList.add("ok");
           btn.textContent = "✓";

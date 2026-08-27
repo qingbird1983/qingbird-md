@@ -266,6 +266,11 @@ impl<'t> Ctx<'t> {
                     lines.pop();
                 }
                 for (i, toks) in lines.iter().enumerate() {
+                    // 与 mono 路径同构：每个行边界恰好一个 '\n'（首行前除外），
+                    // 否则高亮块所有行连成一段、CSS 的行号 gutter 无法成行。
+                    if i > 0 {
+                        out.push('\n');
+                    }
                     let _ = write!(out, "<span class=\"ln\">{}</span>", i + 1);
                     for (c, piece) in toks {
                         let _ = write!(
@@ -389,6 +394,21 @@ mod tests {
         assert!(r.html.contains("class=\"ln\">1</span>"));
         // Should contain colored spans (syntect)
         assert!(r.html.contains("style=\"color:#"));
+    }
+
+    #[test]
+    fn known_lang_code_block_lines_newline_separated() {
+        // 高亮路径与 mono 路径同构：每个行边界恰好一个 '\n'，否则高亮块
+        // 所有行连成一段，CSS（white-space: pre-wrap + .ln 行号）无法断行。
+        let r = render_html("```rust\nfn a() {}\nfn b() {}\n```", &HashMap::new(), false);
+        assert!(r.html.contains("style=\"color:#"), "must take highlight path");
+        assert!(r.html.contains(r#"<span class="ln">1</span>"#));
+        assert!(
+            r.html.contains("\n<span class=\"ln\">2</span>"),
+            "highlighted lines must be newline-separated"
+        );
+        let code = r.html.split("</code>").next().unwrap();
+        assert_eq!(code.matches("<span class=\"ln\">").count(), 2);
     }
 
     #[test]
