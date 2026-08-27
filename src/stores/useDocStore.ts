@@ -141,9 +141,12 @@ export const useDocStore = create<DocState>()((set, get) => ({
     const d = get().doc;
     if (!d) return;
     if (get().htmlCache?.contentKey === d.content) return; // 幂等命中
+    const key = d.content; // 捕获当前内容：快速换档时防止旧 parse 乱序覆盖新文档
     try {
-      const r = await api.parse(d.content);
-      set({ parseResult: r, htmlCache: { contentKey: d.content, result: r } });
+      const r = await api.parse(key);
+      // await 期间文档可能已切换/关闭：内容不再是 key ⇒ 过期结果直接丢弃
+      if (get().doc?.content !== key) return;
+      set({ parseResult: r, htmlCache: { contentKey: key, result: r } });
     } catch (e) {
       useUiStore.getState().addToast("error", `解析失败：${errText(e)}`);
     }
