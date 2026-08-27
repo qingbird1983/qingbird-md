@@ -279,6 +279,85 @@ button.menu-btn:disabled,
   color: #2f6fed;
 }
 
+/* T24：划词翻译浮窗——旧版 egui CENTER_TOP [0, 44] 锚点的 web 等价：
+   fixed 顶部居中、top 44px；max-width/height 即视口钳制，结果超高滚动 */
+.sel-pop {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  max-width: min(480px, calc(100vw - 24px));
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+}
+
+.sel-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.sel-pop-title {
+  font-weight: 600;
+}
+
+.sel-pop-clear {
+  background: none;
+  border: none;
+  color: #667;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sel-pop-clear:hover {
+  color: #2f6fed;
+}
+
+.sel-pop-src {
+  max-height: 8em;
+  overflow-y: auto;
+  color: #667;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-sep {
+  height: 1px;
+  margin: 6px 0;
+  background: #e0e0e0;
+}
+
+.sel-pop-res {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-spin {
+  width: 16px;
+  height: 16px;
+  margin: 4px 0;
+  border: 2px solid #c8d4e8;
+  border-top-color: #2f6fed;
+  border-radius: 50%;
+  animation: sel-pop-rot 0.8s linear infinite;
+}
+
+@keyframes sel-pop-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
 .main-body > * {
   flex: 1;
@@ -444,6 +523,32 @@ body {
 
   .translation-bar .tb-count {
     color: #99a7bd;
+  }
+
+  .sel-pop {
+    border-color: #454545;
+    background: #2d2d2d;
+  }
+
+  .sel-pop-clear {
+    color: #99a7bd;
+  }
+
+  .sel-pop-clear:hover {
+    color: #58a6ff;
+  }
+
+  .sel-pop-src {
+    color: #99a7bd;
+  }
+
+  .sel-pop-sep {
+    background: #444;
+  }
+
+  .sel-pop-spin {
+    border-color: #3a4a66;
+    border-top-color: #58a6ff;
   }
 
   .resizer {

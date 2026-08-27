@@ -8,6 +8,7 @@ import TopBar from "./components/TopBar";
 import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
+import SelectionPopup from "./components/SelectionPopup";
 
 function App() {
   useEffect(() => {
@@ -60,6 +61,8 @@ function App() {
         </aside>
       )}
       <StatusBar />
+      {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
+      <SelectionPopup />
     </div>
   );
 }
