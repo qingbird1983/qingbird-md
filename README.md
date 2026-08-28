@@ -1,8 +1,13 @@
 # qingbird-md (Rust + Tauri 2)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
+
 带中英翻译的 Markdown 编辑阅读器桌面应用 — **Rust 核心 + React/TypeScript 前端 + Tauri 2 IPC**。
 
-这是把原 Electron 版 `qingbird-md` 迁移到 Tauri 2 的项目（中间经历 eframe/egui 纯 Rust 版，本轮迁回 webview 方案），功能与旧版保持一致：Rust 核心承载全部业务逻辑（Markdown 解析与 HTML 渲染、7 种翻译源签名/分批/并发流水线与缓存、设置持久化、工作区遍历、单实例与全局热键），React 前端（CodeMirror 6 编辑器 + zustand 状态）负责交互，两者经 Tauri 2 的 20 个 invoke 命令与 4 个事件通信，线格式契约由 `src/types/ipc.ts` 与 Rust DTO 逐字段对齐并测试锁定。
+这是把原 Electron 版 `qingbird-md` 迁移到 Tauri 2 的项目（中间经历 eframe/egui 纯 Rust 版，本轮迁回 webview 方案），功能与旧版保持一致：Rust 核心承载全部业务逻辑（Markdown 解析与 HTML 渲染、7 种翻译源签名/分批/并发流水线与缓存、设置持久化、工作区遍历、单实例与全局热键），React 前端（CodeMirror 6 编辑器 + zustand 状态）负责交互，两者经 Tauri 2 的 invoke 命令与事件通信，线格式契约由 `src/types/ipc.ts` 与 Rust DTO 逐字段对齐并测试锁定。
+
+**文档打开预览的 IPC 流程**：`open_file` 为 async 命令，读取文件后顺带把首次 markdown 渲染结果装进 `DocDTO.parse` 一趟下发到前端 —— 预览打开即有首帧内容，不再走"打开文档 → 再调一次 `parse_markdown`"的两趟往返。`parse_markdown` 仍保留，专给编辑期内容变化后的重解析用（前端 150 ms 防抖，只解析停顿时的最终内容）。
 
 ## 功能
 
@@ -62,17 +67,34 @@ src/                      # React 前端
 └── types/ipc.ts          # Rust↔TS 线格式契约
 docs/regression-checklist.md  # 人工回归手测清单
 docs/superpowers/             # 设计 spec 与实施计划
+LICENSE                       # MIT License
+CHANGELOG.md                  # 版本变更记录
 ```
 
 ## 设计与计划文档
 
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)
+- 许可证：[LICENSE](LICENSE)（MIT）
 - 设计 spec：[docs/superpowers/specs/2025-06-16-tauri-v2-design.md](docs/superpowers/specs/2025-06-16-tauri-v2-design.md)
 - 实施计划：[docs/superpowers/plans/2026-08-27-tauri-v2-gui-migration.md](docs/superpowers/plans/2026-08-27-tauri-v2-gui-migration.md)
 - 回归手测清单：[docs/regression-checklist.md](docs/regression-checklist.md)
 
-## 数据目录
+## 数据目录与凭据安全
 
-设置与翻译缓存写于 `%APPDATA%\qingbird-md\`（`qingbird-settings.json`、`qingbird-cache.json`，损坏时自动留 `.bak`）。密钥不出本进程。
+设置与翻译缓存写于 `%APPDATA%\qingbird-md\`：
+
+- `qingbird-settings.json` —— 翻译源选择、API 凭据、工作区路径、快捷键、主题等
+- `qingbird-cache.json` —— 翻译结果缓存（按 provider + 文本 hash 索引）
+
+**凭据（API key / secret）** 仅落本机 `qingbird-settings.json`，由用户本人在设置弹窗内输入（`secret: true` 字段以 `type="password"` 渲染，不进入任何日志 / toast / 截图）。**不出本进程、不上传、不进 git 历史**——此仓库的代码、提交记录、release 产物中均不包含任何真实凭据，`.gitignore` 也确保 `%APPDATA%` 路径不会被误纳入仓库。
+
+损坏防护：加载时若发现 JSON 解析失败，会自动备份为 `*.bak` 并回退到默认值，下次保存即重建。
+
+## 贡献与反馈
+
+- **Bug / 需求**：在 [GitHub Issues](https://github.com/muyan1983/qingbird-md/issues) 提交，请附最小复现路径与系统信息（Windows 版本、WebView2 版本号）。
+- **人工回归手测**：见 [docs/regression-checklist.md](docs/regression-checklist.md)，按节逐条勾选。
+- **变更记录**：[CHANGELOG.md](CHANGELOG.md)。当前最新为 `0.1.0`。
 
 ## 已知限制
 
