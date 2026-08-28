@@ -135,26 +135,59 @@ fn collect_code<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> String {
 fn collect_inlines<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Vec<Inline> {
     let mut out = Vec::new();
     while let Some(ev) = it.next() {
-        match ev {
-            Event::End(_) => break,
-            Event::Text(t) => out.push(Inline::Text(t.into_string())),
-            Event::Code(c) => out.push(Inline::Code(c.into_string())),
-            Event::SoftBreak | Event::HardBreak => out.push(Inline::LineBreak),
-            Event::Start(Tag::Strong) => out.push(Inline::Strong(collect_inlines(it))),
-            Event::Start(Tag::Emphasis) => out.push(Inline::Emph(collect_inlines(it))),
-            Event::Start(Tag::Strikethrough) => out.push(Inline::Del(collect_inlines(it))),
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                let text = collect_inlines(it);
-                out.push(Inline::Link { text, href: dest_url.into_string() });
-            }
-            Event::Start(Tag::Image { dest_url, .. }) => {
-                let alt = collect_raw_text(it);
-                out.push(Inline::Image { alt, src: dest_url.into_string() });
-            }
-            _ => {}
+        if !push_inline(&mut out, ev, it) {
+            break;
         }
     }
     out
+}
+
+/// Fold one inline-ish event into `out`, consuming nested events from `it`
+/// for containers. Returns false only when `ev` is an `End` — the caller's
+/// container boundary, which the caller owns.
+fn push_inline<'a>(
+    out: &mut Vec<Inline>,
+    ev: Event<'a>,
+    it: &mut impl Iterator<Item = Event<'a>>,
+) -> bool {
+    match ev {
+        Event::End(_) => false,
+        Event::Text(t) => {
+            out.push(Inline::Text(t.into_string()));
+            true
+        }
+        Event::Code(c) => {
+            out.push(Inline::Code(c.into_string()));
+            true
+        }
+        Event::SoftBreak | Event::HardBreak => {
+            out.push(Inline::LineBreak);
+            true
+        }
+        Event::Start(Tag::Strong) => {
+            out.push(Inline::Strong(collect_inlines(it)));
+            true
+        }
+        Event::Start(Tag::Emphasis) => {
+            out.push(Inline::Emph(collect_inlines(it)));
+            true
+        }
+        Event::Start(Tag::Strikethrough) => {
+            out.push(Inline::Del(collect_inlines(it)));
+            true
+        }
+        Event::Start(Tag::Link { dest_url, .. }) => {
+            let text = collect_inlines(it);
+            out.push(Inline::Link { text, href: dest_url.into_string() });
+            true
+        }
+        Event::Start(Tag::Image { dest_url, .. }) => {
+            let alt = collect_raw_text(it);
+            out.push(Inline::Image { alt, src: dest_url.into_string() });
+            true
+        }
+        _ => true,
+    }
 }
 
 fn collect_blocks<'a>(
@@ -192,16 +225,56 @@ fn collect_items<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Vec<ListItem> 
 fn collect_item<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> ListItem {
     let mut task = None;
     let mut blocks = Vec::new();
+    // Tight lists (no blank line between items) carry item content as bare
+    // inline events WITHOUT a Paragraph wrapper. Buffer those strays and
+    // flush them as an implicit paragraph at each block boundary — dropping
+    // them rendered empty <li> bullets (README 功能 list regression).
+    let mut stray: Vec<Inline> = Vec::new();
     while let Some(ev) = it.next() {
         match ev {
             Event::End(TagEnd::Item) => break,
             Event::TaskListMarker(checked) => task = Some(checked),
-            Event::Start(tag) => blocks.push(consume_block(&tag, it)),
-            Event::Rule => blocks.push(Block::Rule),
-            _ => {}
+            // Block-level tags own their subtree via consume_block; the rest
+            // (Strong/Emphasis/Strikethrough/Link/Image/…) are inline starts
+            // and belong to the stray buffer.
+            Event::Start(tag)
+                if matches!(
+                    &tag,
+                    Tag::Paragraph
+                        | Tag::Heading { .. }
+                        | Tag::CodeBlock(_)
+                        | Tag::BlockQuote(_)
+                        | Tag::List(_)
+                        | Tag::Table(_)
+                ) =>
+            {
+                flush_stray(&mut stray, &mut blocks);
+                blocks.push(consume_block(&tag, it));
+            }
+            Event::Start(tag) => {
+                push_inline(&mut stray, Event::Start(tag), it);
+            }
+            Event::Rule => {
+                flush_stray(&mut stray, &mut blocks);
+                blocks.push(Block::Rule);
+            }
+            ev => {
+                if !push_inline(&mut stray, ev, it) {
+                    break;
+                }
+            }
         }
     }
+    flush_stray(&mut stray, &mut blocks);
     ListItem { task, blocks }
+}
+
+/// Emit buffered tight-item inlines as an implicit paragraph block.
+fn flush_stray(stray: &mut Vec<Inline>, blocks: &mut Vec<Block>) {
+    if !stray.is_empty() {
+        let text = std::mem::take(stray);
+        blocks.push(paragraph_block(text));
+    }
 }
 
 fn consume_table<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Block {
@@ -282,6 +355,40 @@ mod tests {
             Block::Code { lang, code }
                 if lang.as_deref() == Some("rust") && code.contains("fn main")
         ));
+    }
+
+    #[test]
+    fn tight_list_items_keep_inline_content() {
+        // pulldown-cmark tight lists (no blank line between items) emit bare
+        // inline events WITHOUT a Paragraph wrapper. Regression: collect_item
+        // dropped them, rendering empty <li> bullets (README 功能 list).
+        let blocks = parse_blocks("- **加粗**：正文 `code` [链](https://e.com)\n- 纯文本项\n  - 嵌套项");
+        let list = match &blocks[0] {
+            Block::List { items, .. } => items,
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert_eq!(list.len(), 2);
+        assert!(list[0].blocks.iter().any(|b| matches!(
+            b,
+            Block::Paragraph { text } if text.iter().any(|i| matches!(i, Inline::Strong(_)))
+        )));
+        assert!(list[0].blocks.iter().any(|b| matches!(
+            b,
+            Block::Paragraph { text }
+                if text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("正文")))
+                    && text.iter().any(|i| matches!(i, Inline::Code(_)))
+                    && text.iter().any(|i| matches!(i, Inline::Link { .. }))
+        )));
+        assert!(list[1].blocks.iter().any(|b| matches!(
+            b,
+            Block::Paragraph { text } if text.iter().any(|i| matches!(i, Inline::Text(t) if t == "纯文本项"))
+        )));
+        // Nested list under a tight item must survive, not be swallowed by
+        // inline collection.
+        assert!(list[1].blocks.iter().any(
+            |b| matches!(b, Block::List { items, .. } if items.len() == 1)),
+            "nested list under tight item must be kept"
+        );
     }
 
     #[test]
