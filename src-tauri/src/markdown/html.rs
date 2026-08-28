@@ -22,14 +22,14 @@ use super::syntax::highlight_spans;
 use super::units::inline_plain_text;
 use crate::translate::pipeline::needs_translation;
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct OutlineItem {
     pub level: u8,
     pub text: String,
     pub id: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ParseResult {
     pub html: String,
     pub outline: Vec<OutlineItem>,

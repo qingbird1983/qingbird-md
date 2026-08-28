@@ -65,8 +65,11 @@ impl AppTxn {
 
 // ---- 文件 ----
 
+/// 打开文档：读取 + doc_dto 内完成首次 markdown 渲染（parse 随文档一趟下发）。
+/// async 命令：render_html 是 CPU 密集操作（大文档 release 下可达百 ms 级），
+/// 必须离开主线程，否则解析期间整个窗口冻结（同 T9 pick_* 先例）。
 #[tauri::command]
-fn open_file(path: String) -> Result<dto::DocDTO, String> {
+async fn open_file(path: String) -> Result<dto::DocDTO, String> {
     let p = std::path::PathBuf::from(&path);
     let content = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
     Ok(dto::doc_dto(&p, content))
@@ -241,8 +244,10 @@ fn resolve_image(src: String, base_dir: Option<String>) -> Option<String> {
     resolve(&src, base_dir.as_deref()).map(|p| p.to_string_lossy().into_owned())
 }
 
+/// 编辑期重新渲染（open_file 已随文档首渲，此处只服务内容变化后的重解析）。
+/// async：同 open_file，解析离开主线程。
 #[tauri::command]
-fn parse_markdown(content: String) -> markdown::html::ParseResult {
+async fn parse_markdown(content: String) -> markdown::html::ParseResult {
     markdown::html::render_html(&content, &std::collections::HashMap::new(), false)
 }
 

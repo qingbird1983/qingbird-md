@@ -5,6 +5,9 @@
 use serde::{Deserialize, Serialize};
 
 /// A loaded document handed to the frontend.
+///
+/// `parse` 是 content 的 markdown 渲染结果，随文档一次 IPC 下发——前端打开
+/// 预览首帧即有内容（否则还要把全文再传回 parse_markdown，多一趟往返且中途空窗）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocDTO {
     pub name: String,
@@ -13,10 +16,12 @@ pub struct DocDTO {
     pub base_dir: Option<String>,
     pub char_count: usize,
     pub line_count: usize,
+    pub parse: crate::markdown::html::ParseResult,
 }
 
 /// Build a [`DocDTO`] from a resolved path and its UTF-8 content.
 pub fn doc_dto(path: &std::path::Path, content: String) -> DocDTO {
+    let parse = crate::markdown::html::render_html(&content, &Default::default(), false);
     DocDTO {
         name: path
             .file_name()
@@ -26,6 +31,7 @@ pub fn doc_dto(path: &std::path::Path, content: String) -> DocDTO {
         base_dir: path.parent().map(|d| d.to_string_lossy().into_owned()),
         char_count: content.chars().count(),
         line_count: content.lines().count(),
+        parse,
         content,
     }
 }

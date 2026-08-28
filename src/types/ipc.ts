@@ -1,7 +1,7 @@
 // IPC wire types —— 与 src-tauri 的 serde 输出逐字段对应。Rust serde 默认
 // 不改名字段名，TS 保持同名 snake_case 字段；Option<T> → `| null`。
 
-/** dto.rs DocDTO */
+/** dto.rs DocDTO：parse 为后端随文档一次下发的渲染结果（打开预览零延迟首帧） */
 export interface DocDTO {
   name: string;
   path: string | null;
@@ -9,6 +9,7 @@ export interface DocDTO {
   base_dir: string | null;
   char_count: number;
   line_count: number;
+  parse: ParseResult;
 }
 
 /** dto.rs TreeNodeDTO */
