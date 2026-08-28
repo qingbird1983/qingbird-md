@@ -82,10 +82,10 @@ body,
   background: var(--item-hover-bg);
 }
 
-/* Task 4/5：标签条（壳层第 2 行，横贯全部列）。样式契约见 TabBar.tsx 头注释。 */
+/* Task 4/5：标签条（壳层第 2 行，仅中列）。样式契约见 TabBar.tsx 头注释。 */
 .tabbar {
   grid-row: 2;
-  grid-column: 1 / -1;
+  grid-column: 3;
   display: flex;
   align-items: flex-end;
   gap: 2px;
@@ -305,10 +305,10 @@ button.menu-btn:disabled,
   grid-column: 3;
 }
 
-/* T22：工具栏（Task 5 上移到壳层第 3 行、横贯全部列；preview 模式不渲染该行） */
+/* T22：工具栏（Task 5 上移到壳层第 3 行、仅中列；preview 模式不渲染该行） */
 .editor-toolbar {
   grid-row: 3;
-  grid-column: 1 / -1;
+  grid-column: 3;
   display: flex;
   align-items: center;
   gap: 2px;
