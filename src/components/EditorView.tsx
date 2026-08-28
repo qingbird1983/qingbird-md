@@ -5,7 +5,7 @@
 //     推给 docStore（原子更新——App 的划词订阅方拿到一致的内容+选区快照）；
 //     仅 selection 变化走 setCursorSel。
 //   store → editor：subscribe 对比 store 内容与视图内容——编辑器自身推送恒等值
-//     被短路；只有外部变更（openDoc 换文档 / applyFormat 全文替换）才走一次
+//     被短路；只有外部变更（openTab 换文档 / applyFormat 全文替换）才走一次
 //     全量 replaceRange + selection 回填（CM 口径，applyFormat 已把字节转回
 //     字符）+ scrollIntoView(center)。
 //
@@ -64,14 +64,11 @@ export default function EditorView() {
               return;
             }
             const content = u.state.doc.toString();
-            const d = st.doc;
-            if (d && d.content !== content) {
-              // 内容+选区单次 setState：App 划词订阅方看到原子快照
-              useDocStore.setState({
-                doc: { ...d, content },
-                isDirty: content !== st.savedContent,
-                cursorSel: [from, to],
-              });
+            const t = st.tabs.find((x) => x.id === st.activeId);
+            if (t && t.content !== content) {
+              // 内容+选区原子写入 active tab（applyEdit 同步重算派生投影）：
+              // App 划词订阅方拿到原子快照
+              st.applyEdit(content, [from, to]);
             } else {
               st.setCursorSel([from, to]);
             }
@@ -83,7 +80,7 @@ export default function EditorView() {
     // 工具栏撤销/重做桥接（Task 22）：实例句柄挂到 docStore，卸载时清空
     useDocStore.getState().cmRef.current = view;
 
-    // store → editor：外部内容变更（openDoc/applyFormat）全量替换 + 光标回填 +
+    // store → editor：外部内容变更（openTab/applyFormat）全量替换 + 光标回填 +
     // 居中滚动；选区钳制到新文档长度（Rust clamp_sel 同款语义）。
     const unsubDoc = useDocStore.subscribe((s) => {
       const content = s.doc?.content;

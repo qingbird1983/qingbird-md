@@ -74,7 +74,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 
     selectFile: (p) => {
       set({ selectedPath: p });
-      void useDocStore.getState().openDoc(p);
+      void useDocStore.getState().openTab(p);
     },
 
     searchFilter: async (q) => {

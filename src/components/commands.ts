@@ -18,11 +18,11 @@ export interface Command {
 
 const hasDoc = () => !!useDocStore.getState().doc;
 
-// FileMenu.pickOpen 同款两步：选路径 → openDoc（store 内自带失败 toast）。
+// FileMenu.pickOpen 同款两步：选路径 → openTab（store 内自带失败 toast）。
 // T29 起导出：App.tsx 的 Ctrl+O 快捷键与面板命令共用同一实现（不复制逻辑）。
 export async function openFile() {
   const p = await api.pickFile();
-  if (p) await useDocStore.getState().openDoc(p);
+  if (p) await useDocStore.getState().openTab(p);
 }
 
 export const COMMANDS: Command[] = [

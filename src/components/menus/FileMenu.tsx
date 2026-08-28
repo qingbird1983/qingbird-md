@@ -1,5 +1,5 @@
 // 文件菜单：新建/打开/保存/另存为/打开工作区/退出。
-// 新建与打开直接按 brief 接线（prompt 输入 → ws.createFile；api.pickFile → doc.openDoc），
+// 新建与打开直接按 brief 接线（prompt 输入 → ws.createFile；api.pickFile → doc.openTab），
 // 其余全部派发 store action；无文档时保存/另存禁用，无工作区时新建禁用。
 import { api } from "../../lib/ipc";
 import { useDocStore } from "../../stores/useDocStore";
@@ -8,7 +8,7 @@ import Menu, { MenuItem } from "./Menu";
 
 export default function FileMenu() {
   const hasDoc = useDocStore((s) => !!s.doc);
-  const openDoc = useDocStore((s) => s.openDoc);
+  const openTab = useDocStore((s) => s.openTab);
   const saveDoc = useDocStore((s) => s.saveDoc);
   const hasRoot = useWorkspaceStore((s) => !!s.root);
   const createFile = useWorkspaceStore((s) => s.createFile);
@@ -16,7 +16,7 @@ export default function FileMenu() {
 
   const pickOpen = async () => {
     const p = await api.pickFile();
-    if (p) await openDoc(p);
+    if (p) await openTab(p);
   };
 
   return (

@@ -56,23 +56,19 @@ function handleDone(d: DonePayload) {
   }
   useTranslationStore.setState({ status: "idle", progress: null });
   // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与 payload html 全部过期，宁缺勿错不落库。
-  // （stop 的迟到 done 已被上方 gen 失配拦住，此处护栏只管"内容变了但 gen 未变"的窗口。）
+  // 改走标签化 applyTranslationResult —— 翻译产物的归宿是当前 active tab。
   const contentFresh = !!dd.doc && dd.doc.content === st.runContent;
   if (contentFresh) {
-    if (d.translations) {
-      useDocStore.setState({ translations: new Map(d.translations) });
-    }
-    // T8ext 契约：translation 批次出 html_translation（run 空间）、bilingual 批次出
-    // html_bilingual（块空间），二者只居其一；以字段在否为准判定本轮形态。
-    if (d.html_translation || d.html_bilingual) {
-      useDocStore.setState({
-        doneHtml: {
-          contentKey: st.runContent!,
-          mode: d.html_translation ? "translation" : "bilingual",
-          html: (d.html_translation ?? d.html_bilingual)!,
-        },
-      });
-    }
+    const translations = d.translations ? new Map(d.translations) : new Map<number, string>();
+    const doneHtml =
+      d.html_translation || d.html_bilingual
+        ? {
+            contentKey: st.runContent!,
+            mode: (d.html_translation ? "translation" : "bilingual") as Exclude<Mode, "original">,
+            html: (d.html_translation ?? d.html_bilingual)!,
+          }
+        : null;
+    useDocStore.getState().applyTranslationResult(translations, doneHtml);
   }
   ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
   // 换挡补跑（startIfFresh 语义的收尾）：跑批期间用户切到另一翻译模式时，
