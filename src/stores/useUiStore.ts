@@ -21,12 +21,14 @@ interface UiState {
   sidebarWidth: number;
   outlineWidth: number;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
+  wideContent: boolean; // 正文宽版（markdown.css .markdown-body.wide 1000px；窄版恒 A4 794px）
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
 
   toggleNav(): void;
   toggleOutline(): void;
+  toggleWideContent(): void;
   addToast(kind: ToastKind, text: string): void;
   removeToast(id: number): void;
   openPalette(): void;
@@ -40,18 +42,29 @@ interface UiState {
 
 let toastSeq = 0;
 
+// 宽版偏好跨启动保留：Tauri WebView2 的 localStorage 随应用数据目录持久化，
+// 一个布尔值不值得走 Rust 设置文件。
+const WIDE_KEY = "qb.wide-content";
+
 export const useUiStore = create<UiState>()((set) => ({
   showNav: true,
   showOutline: true,
   sidebarWidth: 240,
   outlineWidth: 200,
   splitRatio: 0.5,
+  wideContent: localStorage.getItem(WIDE_KEY) === "1",
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
+  toggleWideContent: () =>
+    set((s) => {
+      const wideContent = !s.wideContent;
+      localStorage.setItem(WIDE_KEY, wideContent ? "1" : "0");
+      return { wideContent };
+    }),
 
   addToast: (kind, text) => {
     const id = ++toastSeq;

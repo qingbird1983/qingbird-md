@@ -1,8 +1,8 @@
 /* 预览排版（Task 20）：GitHub 风格的类，覆盖 markdown/html.rs 的元素契约 ——
    h1-h6（id="h-N"）、p、ul/ol、li.task done|todo、table/thead/tbody、
    blockquote、行内 code、pre.code-block（.code-lang 标签 + span.ln 行号 +
-   syntect 彩色 span，theme 固定 base16-ocean.dark 故底色恒为深色）、del、a、hr、
-   .tr-box（双语对照浮出块）。颜色经变量集中在文件头部，暗色主题仅换一组值。 */
+   syntect 彩色 span，theme 固定 InspiredGitHub 浅色主题，底色由这里给淡灰）、
+   del、a、hr、.tr-box（双语对照浮出块）。颜色经变量集中在文件头部，暗色主题仅换一组值。 */
 
 .markdown-body {
   --md-fg: #1f2328;
@@ -15,13 +15,20 @@
   --md-quote-fg: #59636e;
   --md-task-bg: #fff;
   --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
-  --md-ok-fg: #7ee787;      /* 复制成功态/code-lang 药丸：恒在深色 pre 底上，不随主题 */
-  --md-pre-bg: #2b303b; /* base16-ocean.dark 原生背景 */
-  --md-pre-fg: #c0c5ce;
-  --md-pre-muted: #65737e;
+  --md-ok-fg: #1a7f37;      /* 复制成功态/code-lang 药丸：恒在浅灰 pre 底上，不随主题 */
+  --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（syntect 为 InspiredGitHub 浅色 span） */
+  --md-pre-fg: #1f2328;
+  --md-pre-muted: #6e778e; /* 行号 */
   --md-tr-bg: #ddf4ff;
   --md-tr-border: #54aeff;
   --md-tr-fg: #0a3069;
+
+  /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
+     窗口/split 分栏窄于该值时自然收缩回流式排版。宽版 .wide 放宽到
+     1000px（视图菜单「正文宽版」切换，偏好存 uiStore/localStorage）。 */
+  box-sizing: border-box;
+  max-width: 794px;
+  margin-inline: auto;
 
   padding: 16px 24px 40px;
   font-family: var(--font-ui); /* T30：全局 CJK 字体栈（styles/theme.css） */
@@ -34,6 +41,11 @@
 /* 首尾元素的边距贴边 */
 .markdown-body > :first-child { margin-top: 0 !important; }
 .markdown-body > :last-child { margin-bottom: 0 !important; }
+
+/* 正文宽版（视图菜单切换） */
+.markdown-body.wide {
+  max-width: 1000px;
+}
 
 /* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
    light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
@@ -48,11 +60,12 @@ body[data-theme="dark"] .markdown-body {
   --md-th-bg: #2b2f33;
   --md-quote-fg: #8b949e;
   --md-task-bg: #1e1e1e;
-  --md-pre-fg: #c0c5ce;
-  --md-pre-muted: #65737e;
   --md-tr-bg: #12263a;
   --md-tr-border: #274a68;
   --md-tr-fg: #79b8ff;
+  /* ponytail: 代码块配色不随暗色主题——syntect span 色已按浅色主题
+     (InspiredGitHub) 烘进 HTML，暗底配深字会不可读，故暗色下仍保持
+     浅灰代码块。需要真暗色代码块时后端需按主题出两份 span。 */
 }
 
 .markdown-body h1,
@@ -205,7 +218,7 @@ body[data-theme="dark"] .markdown-body {
   padding: 1px 8px;
   font-size: 11px;
   border-radius: 4px;
-  background: rgba(46, 160, 67, 0.18); /* 恒在深色 pre 底上，不随主题 */
+  background: rgba(26, 127, 55, 0.1); /* 浅灰 pre 底上的淡绿药丸，不随主题 */
   color: var(--md-ok-fg);
 }
 

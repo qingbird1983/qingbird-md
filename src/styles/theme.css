@@ -42,6 +42,7 @@
   --shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
   --shadow-strong: 0 6px 16px rgba(0, 0, 0, 0.2);
   --resizer-hover: #bbb;
+  --scrollbar-thumb: #c8c8c8; /* 滚动条滑块（滚动中渐显，见 global.css） */
 }
 
 body[data-theme="dark"] {
@@ -71,6 +72,7 @@ body[data-theme="dark"] {
   --backdrop: rgba(0, 0, 0, 0.5);
   --backdrop-weak: rgba(0, 0, 0, 0.4);
   --resizer-hover: #555;
+  --scrollbar-thumb: #555;
 }
 
 body {

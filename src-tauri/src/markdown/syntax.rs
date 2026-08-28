@@ -32,7 +32,10 @@ fn find_syntax(lang: &str) -> Option<&'static syntect::parsing::SyntaxReference>
 pub fn highlight_spans(code: &str, lang: Option<&str>) -> Option<Vec<(Color, String)>> {
     let lang = lang?;
     let syn = find_syntax(lang)?;
-    let mut h = HighlightLines::new(syn, &themes().themes["base16-ocean.dark"]);
+    // InspiredGitHub：内置默认主题集中唯一的浅色主题——正文白底上代码块
+    // 呈淡灰底深色字（前端 markdown.css --md-pre-bg 配合）；深底主题会逼出
+    // 整块深色代码区，阅读场景过沉。
+    let mut h = HighlightLines::new(syn, &themes().themes["InspiredGitHub"]);
     let mut spans: Vec<(Color, String)> = Vec::new();
     for line in LinesWithEndings::from(code) {
         if let Ok(ranges) = h.highlight_line(line, syntaxes()) {

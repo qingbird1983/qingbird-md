@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect } from "react";
 import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
@@ -14,7 +14,36 @@ import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 import { openFile } from "./components/commands";
 import { comboMatches } from "./lib/hotkeys";
+import { startColDrag } from "./lib/colDrag";
 import { api } from "./lib/ipc";
+
+// 面板宽度钳制：左右栏与主区之间拖宽条的取值范围（默认 240/200 落在其中）
+const PANEL_MIN = 160;
+const PANEL_MAX = 480;
+
+// 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
+// 左栏向右拖增宽，右大纲向左拖增宽，方向用 side 翻转；宽度存 uiStore，跨视图切换保持。
+function PanelResizer({ side }: { side: "left" | "right" }) {
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const st = useUiStore.getState();
+    const startW = side === "left" ? st.sidebarWidth : st.outlineWidth;
+    startColDrag(e, (dx) => {
+      const w = side === "left" ? startW + dx : startW - dx;
+      const clamped = Math.min(PANEL_MAX, Math.max(PANEL_MIN, w));
+      if (side === "left") useUiStore.getState().setSidebarWidth(clamped);
+      else useUiStore.getState().setOutlineWidth(clamped);
+    });
+  };
+  return (
+    <div
+      className={`resizer app-resizer ${side === "left" ? "res-left" : "res-right"}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={side === "left" ? "调整文件栏宽度" : "调整大纲栏宽度"}
+      onPointerDown={startDrag}
+    />
+  );
+}
 
 function App() {
   useEffect(() => {
@@ -55,6 +84,12 @@ function App() {
     //   在 parseCombo 已拒绝（Win 键不稳定，见 lib/hotkeys.ts 注释）。
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      // WebView2 加速键 F5/Ctrl+R 同样整页重载（与右键菜单"刷新"同源）——
+      // 桌面应用没有"刷新"语义，拦下防误触清空未保存文档。
+      if (e.code === "F5" || ((e.ctrlKey || e.metaKey) && e.code === "KeyR")) {
+        e.preventDefault();
+        return;
+      }
       const dd = useDocStore.getState();
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyP") {
         e.preventDefault();
@@ -137,9 +172,13 @@ function App() {
       <TopBar />
       {/* T18 Sidebar 挂入点；ui.showNav 折叠 */}
       {showNav && (
-        <nav className="sidebar" style={{ width: sidebarWidth }}>
-          <Sidebar />
-        </nav>
+        <>
+          <nav className="sidebar" style={{ width: sidebarWidth }}>
+            <Sidebar />
+          </nav>
+          {/* 面板与主区的分隔/拖宽条（1px 发丝线 + 7px 热区，悬停提示可拖拽） */}
+          <PanelResizer side="left" />
+        </>
       )}
       {/* T22 MainArea：source/preview/split 路由 + 格式工具栏；T23 TranslationBar 宿主 */}
       <main className="main-area">
@@ -147,9 +186,12 @@ function App() {
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠 */}
       {showOutline && (
-        <aside className="outline-panel" style={{ width: outlineWidth }}>
-          <OutlinePanel />
-        </aside>
+        <>
+          <PanelResizer side="right" />
+          <aside className="outline-panel" style={{ width: outlineWidth }}>
+            <OutlinePanel />
+          </aside>
+        </>
       )}
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}

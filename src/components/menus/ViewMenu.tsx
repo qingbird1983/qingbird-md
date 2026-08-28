@@ -1,4 +1,4 @@
-// 视图菜单：源码/预览/分栏三态 + 侧栏/大纲开关。均为纯 UI 态切换，永不禁用。
+// 视图菜单：源码/预览/分栏三态 + 侧栏/大纲开关 + 正文宽版。均为纯 UI 态切换，永不禁用。
 import { useDocStore } from "../../stores/useDocStore";
 import { useUiStore } from "../../stores/useUiStore";
 import Menu, { MenuItem, MenuSep } from "./Menu";
@@ -16,6 +16,8 @@ export default function ViewMenu() {
   const showOutline = useUiStore((s) => s.showOutline);
   const toggleNav = useUiStore((s) => s.toggleNav);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
+  const wideContent = useUiStore((s) => s.wideContent);
+  const toggleWideContent = useUiStore((s) => s.toggleWideContent);
 
   return (
     <Menu label="视图">
@@ -47,6 +49,14 @@ export default function ViewMenu() {
             onSelect={() => {
               close();
               toggleOutline();
+            }}
+          />
+          <MenuItem
+            label="正文宽版"
+            active={wideContent}
+            onSelect={() => {
+              close();
+              toggleWideContent();
             }}
           />
         </>

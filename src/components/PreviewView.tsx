@@ -15,6 +15,7 @@ import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
+import { useUiStore } from "../stores/useUiStore";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
 /** img src 只在 DOM 层改写：resolve 失败/null（http/data 等）保持原样由浏览器加载。 */
@@ -107,6 +108,7 @@ export default function PreviewView() {
   const doneHtml = useDocStore((s) => s.doneHtml);
   const baseDir = useDocStore((s) => s.doc?.base_dir ?? null);
   const ensureParsed = useDocStore((s) => s.ensureParsed);
+  const wide = useUiStore((s) => s.wideContent);
 
   // 译文形态直用：当前阅读模式与批次形态匹配且内容未变。跑批期间的编辑/切档
   // 已在 done 落库处被 runContent 护栏拦下，这里 contentKey 再核一道（双保险）。
@@ -136,7 +138,7 @@ export default function PreviewView() {
 
   return (
     <div className="preview-scroll">
-      <div className="markdown-body" ref={ref} />
+      <div className={wide ? "markdown-body wide" : "markdown-body"} ref={ref} />
     </div>
   );
 }

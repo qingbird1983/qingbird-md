@@ -6,12 +6,13 @@ body,
 }
 
 /* AppShell 网格骨架（brief 规范）：行 = TopBar auto / 中部 1fr / StatusBar auto，
-   列 = sidebar auto(可折叠) / main 1fr / outline auto(可折叠) */
+   列 = sidebar auto / 拖宽条 auto / main 1fr / 拖宽条 auto / outline auto(均可折叠，
+   auto 轨道随内容消失自动塌缩为 0) */
 #app-shell {
   display: grid;
   height: 100%;
   grid-template-rows: auto 1fr auto;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto auto;
 }
 
 .topbar {
@@ -200,7 +201,7 @@ button.menu-btn:disabled,
   display: flex;
   flex-direction: column;
   grid-row: 2;
-  grid-column: 2;
+  grid-column: 3;
 }
 
 /* T22：工具栏（source/split 模式显示，preview 不显示） */
@@ -610,21 +611,48 @@ button.menu-btn:disabled,
 }
 
 .main-body > .resizer {
-  flex: 0 0 4px;
+  flex: 0 0 7px;
 }
 
 .split-half {
   overflow: hidden;
 }
 
-/* split 中缝：默认淡色细条，悬停提示可拖拽 */
+/* 分隔线（对齐参考图）：1px 发丝线居中于 7px 透明热区，既是分隔也是拖柄；
+   悬停/拖拽中加深提示（.dragging 由 lib/colDrag 开关——capture 下指针会漂出
+   热区，:hover 不可靠）。面板折叠时热区随之卸载、网格轨道塌缩为 0。 */
 .resizer {
+  position: relative;
   cursor: col-resize;
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
   background: var(--border);
 }
 
-.resizer:hover {
+.resizer:hover::before,
+.resizer.dragging::before {
   background: var(--resizer-hover);
+}
+
+/* 面板拖宽条（App 壳层左右栏与主区之间） */
+.app-resizer {
+  width: 7px;
+  grid-row: 2;
+}
+
+.app-resizer.res-left {
+  grid-column: 2;
+}
+
+.app-resizer.res-right {
+  grid-column: 4;
 }
 
 /* T22：预览首次真正挂载（T20 组件当时无宿主）——容器滚动由壳层负责 */
@@ -665,7 +693,7 @@ button.menu-btn:disabled,
 .outline-panel {
   overflow-y: auto;
   grid-row: 2;
-  grid-column: 3;
+  grid-column: 5;
 }
 
 /* T19：大纲面板 —— level 缩进行（(level-1)*12px）与空态 */
@@ -748,4 +776,54 @@ button.menu-btn:disabled,
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---- 滚动条淡显淡出：静止时滚动条完全隐形，滚动中渐显，停止渐隐 ----
+   --sb-thumb 注册为可过渡的 <color>（@property，WebView2/Chromium 85+），
+   滚动条伪元素继承宿主的该变量；.scrolling 由 main.tsx 的全局 scroll 委托
+   在滚动开始时加上、停止约 900ms 后摘除，过渡随宿主 transition 渐变。 */
+@property --sb-thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+.sidebar,
+.outline-panel,
+.preview-scroll,
+.editor-cm .cm-scroller {
+  --sb-thumb: transparent;
+  transition: --sb-thumb 0.5s;
+}
+
+.sidebar.scrolling,
+.outline-panel.scrolling,
+.preview-scroll.scrolling,
+.editor-cm .cm-scroller.scrolling {
+  --sb-thumb: var(--scrollbar-thumb);
+}
+
+.sidebar::-webkit-scrollbar,
+.outline-panel::-webkit-scrollbar,
+.preview-scroll::-webkit-scrollbar,
+.editor-cm .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.outline-panel::-webkit-scrollbar-thumb,
+.preview-scroll::-webkit-scrollbar-thumb,
+.editor-cm .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+.sidebar::-webkit-scrollbar-track,
+.outline-panel::-webkit-scrollbar-track,
+.preview-scroll::-webkit-scrollbar-track,
+.editor-cm .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
 }

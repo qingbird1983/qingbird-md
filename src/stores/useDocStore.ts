@@ -53,7 +53,7 @@ let docChangedRegistered = false;
 
 export const useDocStore = create<DocState>()((set, get) => ({
   doc: null,
-  view: "split",
+  view: "preview",
   mode: "original",
   cursorSel: [0, 0],
   isDirty: false,
