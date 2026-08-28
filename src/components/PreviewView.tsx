@@ -3,9 +3,9 @@
 // XSS 信任边界（勿改）：本组件以 dangerouslySetInnerHTML 等价的方式把 html 赋给
 // 容器 innerHTML——字符串生产者唯一：src-tauri/markdown/html.rs（parseResult 与
 // done payload 的三形态 html 皆出于此），其中所有文本节点与属性值均经 escape_html
-// 转义，markdown / 文档内容永远无法注入标签或脚本。前端在此层只做两件 DOM 后处理：
-// 图片 src 经后端 resolve_image 解析成绝对路径再转 asset 协议、代码块注入复制
-// 按钮；绝不向 HTML 字符串拼接任何文档派生内容。
+// 转义，markdown / 文档内容永远无法注入标签或脚本。前端在此层只做三件 DOM 后
+// 处理：图片 src 经后端 resolve_image 解析成绝对路径再转 asset 协议、代码块
+// 注入复制按钮、标题注入折叠 caret；绝不向 HTML 字符串拼接任何文档派生内容。
 //
 // 渲染管线：useEffect([html, baseDir]) 先整树重建 innerHTML（旧图片改写与按钮
 // 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态（Task 23）：done
@@ -43,7 +43,8 @@ function addCopyButtons(scope: HTMLElement) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "copy-btn";
-    btn.textContent = "复制";
+    btn.textContent = "⧉";
+    btn.title = "复制代码";
     btn.addEventListener("click", () => {
       // 剥离 .ln 行号：克隆 code 节点并移除行号 span，再取纯代码文本。
       const clone = code.cloneNode(true) as HTMLElement;
@@ -54,13 +55,47 @@ function addCopyButtons(scope: HTMLElement) {
           btn.textContent = "✓";
           setTimeout(() => {
             btn.classList.remove("ok");
-            btn.textContent = "复制";
+            btn.textContent = "⧉";
           }, 2000);
         },
         () => {}, // 剪贴板不可用：静默放弃，按钮还原
       );
     });
     pre.appendChild(btn);
+  }
+}
+
+/**
+ * 标题折叠（对齐旧版 UI）：每个标题前置 ▼ caret，点击隐藏到下一个同级或
+ * 更高级标题为止的全部兄弟节点。折叠态存 DOM（inline display），重渲染
+ * （内容变化 → innerHTML 重建）即重置——ponytail: 折叠不跨编辑保留，
+ * 需要持久化时提升到 uiStore 按 contentKey 记忆。
+ */
+function addHeadingToggles(scope: HTMLElement) {
+  const heads = scope.querySelectorAll<HTMLHeadingElement>("h1,h2,h3,h4,h5,h6");
+  for (const h of Array.from(heads)) {
+    if (h.querySelector(".h-toggle")) continue; // StrictMode 双跑防重复
+    const level = Number(h.tagName[1]);
+    const caret = document.createElement("button");
+    caret.type = "button";
+    caret.className = "h-toggle";
+    caret.textContent = "▼";
+    caret.title = "折叠/展开本节";
+    caret.setAttribute("aria-expanded", "true");
+    caret.addEventListener("click", () => {
+      const collapsed = h.classList.toggle("h-collapsed");
+      caret.textContent = collapsed ? "▶" : "▼";
+      caret.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      let sib = h.nextElementSibling;
+      while (sib) {
+        const isStop =
+          sib.matches("h1,h2,h3,h4,h5,h6") && Number(sib.tagName[1]) <= level;
+        if (isStop) break;
+        (sib as HTMLElement).style.display = collapsed ? "none" : "";
+        sib = sib.nextElementSibling;
+      }
+    });
+    h.prepend(caret);
   }
 }
 
@@ -94,6 +129,7 @@ export default function PreviewView() {
     el.innerHTML = html ?? ""; // 文档切换瞬间置空，避免上一份内容闪留
     void rewriteImages(el, baseDir);
     addCopyButtons(el);
+    addHeadingToggles(el);
   }, [html, baseDir]);
 
   if (content === null) return <div className="preview-empty">未打开文档</div>;

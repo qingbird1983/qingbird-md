@@ -707,6 +707,21 @@ button.menu-btn:disabled,
   background: var(--item-hover-bg);
 }
 
+/* H1/H2 级别徽章（对齐旧版参考 UI） */
+.outline-badge {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--item-hover-bg);
+  color: var(--muted-fg);
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+  vertical-align: 1px;
+}
+
 .status-bar {
   grid-column: 1 / -1;
   height: 26px;
