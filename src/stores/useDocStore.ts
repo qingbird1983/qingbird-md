@@ -264,13 +264,15 @@ export const useDocStore = create<DocState>()((set, get) => {
           sel: [charToByteOffset(t.content, c0), charToByteOffset(t.content, c1)],
           op,
         });
-        // 等价于原版 "doc 引用陈旧则丢弃"：activeId 变了说明用户已切走。
-        if (get().activeId !== t.id) {
+        // 三向陈旧守卫：activeId 变了（切走）/ tab 已被关（id 不再）/ 内容被改（打字）
+        // 任何一项命中都说明 r 是基于陈旧内容的结果，跳过覆盖。
+        const cur = activeTab(get());
+        if (!cur || cur.id !== t.id || cur.content !== t.content) {
           useUiStore.getState().addToast("info", "文档已变化，本次格式化已取消");
           return;
         }
-        patchActive((cur) => ({
-          ...cur,
+        patchActive((cur2) => ({
+          ...cur2,
           content: r.content,
           cursorSel: [
             byteToCharOffset(r.content, r.sel[0]),
@@ -334,9 +336,10 @@ export const useDocStore = create<DocState>()((set, get) => {
         const key = cur.content;
         try {
           const r = await api.parse(key);
-          if (get().activeId !== myId) return; // 用户已切走
-          patchActive((cur2) => ({
-            ...cur2,
+          const cur2 = activeTab(get());
+          if (!cur2 || cur2.id !== myId || cur2.content !== key) return; // 切走/关掉/内容被改 = 过期
+          patchActive((c) => ({
+            ...c,
             parseResult: r,
             htmlCache: { contentKey: key, result: r },
           }));
