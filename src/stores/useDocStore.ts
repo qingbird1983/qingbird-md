@@ -70,8 +70,8 @@ interface DocState {
   setCursorSel(s: [number, number]): void;
   /** 编辑器内容+选区原子写入 active tab（EditorView updateListener 用）。 */
   applyEdit(content: string, cursorSel: [number, number]): void;
-  /** 滚动事件落库；切回本标签时恢复。 */
-  setScrollTop(n: number): void;
+  /** 滚动事件落库到指定 tab；切回本标签时恢复。 */
+  setScrollTop(id: string, n: number): void;
   applyFormat(op: string): Promise<void>;
   saveDoc(as: boolean): Promise<boolean>;     // 返回值变了：true=写盘成功，false=用户取消
   switchView(v: ViewKind): void;
@@ -142,6 +142,19 @@ export const useDocStore = create<DocState>()((set, get) => {
     const tabs = [...s.tabs];
     tabs[idx] = mut(tabs[idx]);
     set(commit(tabs, s.activeId));
+  }
+
+  // 按 id 定位写入：用于跨 await 后 active tab 可能已变更的场景（滚动刷新、saveDoc）。
+  // 仍走 commit()，投影在同一次 set 内重算，doc/isDirty/view 不脱节。
+  function patchTab(id: string, mut: (t: OpenTab) => OpenTab): void {
+    const s = get();
+    const idx = s.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return; // tab 已被关
+    const tabs = [...s.tabs];
+    tabs[idx] = mut(tabs[idx]);
+    const nextActiveId = s.activeId;
+    // 投影仍按当前 activeId 算（不变）。本写入不动 activeId。
+    set({ tabs, ...projection(tabs, nextActiveId) });
   }
 
   return {
@@ -256,8 +269,8 @@ export const useDocStore = create<DocState>()((set, get) => {
       patchActive((t) => ({ ...t, content, cursorSel }));
     },
 
-    setScrollTop: (n) => {
-      patchActive((t) => (t.scrollTop === n ? t : { ...t, scrollTop: n }));
+    setScrollTop: (id, n) => {
+      patchTab(id, (t) => (t.scrollTop === n ? t : { ...t, scrollTop: n }));
     },
 
     applyFormat: async (op) => {
@@ -293,6 +306,7 @@ export const useDocStore = create<DocState>()((set, get) => {
     saveDoc: async (as) => {
       const t = activeTab(get());
       if (!t) return false;
+      const myId = t.id; // 锁定目标 tab id
       let target = t.path;
       if (!target || as) {
         target = await api.pickSavePath(t.name);
@@ -301,7 +315,8 @@ export const useDocStore = create<DocState>()((set, get) => {
       try {
         await api.saveFile(target, t.content);
         const { name } = pathParts(target);
-        patchActive((cur) => ({
+        // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close）
+        patchTab(myId, (cur) => ({
           ...cur,
           path: target!,
           name,

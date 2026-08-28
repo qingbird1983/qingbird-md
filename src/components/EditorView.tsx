@@ -42,9 +42,9 @@ export default function EditorView() {
   useEffect(() => {
     // mount 时锁住 activeId 与对应 tab 的快照，避免后续异步回调跑错 tab。
     const st0 = useDocStore.getState();
-    const myId = st0.activeId;
-    const t0 = st0.tabs.find((t) => t.id === myId);
+    const t0 = st0.tabs.find((t) => t.id === st0.activeId);
     if (!t0) return;
+    const myId = t0.id;
 
     const view = new CmEditorView({
       parent: hostRef.current!,
@@ -114,8 +114,8 @@ export default function EditorView() {
       lastScroll = top;
       clearTimeout(scrollTimer);
       scrollTimer = setTimeout(() => {
-        // 用 getState 读最新 store，避免闭包旧值；setScrollTop 内部按 id 找 tab
-        useDocStore.getState().setScrollTop(top);
+        // 用 getState 读最新 store，避免闭包旧值；显式传 myId 写回本 tab
+        useDocStore.getState().setScrollTop(myId, top);
       }, 100);
     };
     view.scrollDOM.addEventListener("scroll", onScroll);
@@ -139,7 +139,7 @@ export default function EditorView() {
       // 卸载前同步落库最新滚动位置——防抖定时器会在“滚动后立即切标签”时
       // 被 clearTimeout 取消，尾巴上的 scrollTop 若不在此处 flush 就会丢失。
       if (lastScroll !== t0.scrollTop) {
-        useDocStore.getState().setScrollTop(lastScroll);
+        useDocStore.getState().setScrollTop(myId, lastScroll);
       }
       clearTimeout(scrollTimer);
       view.scrollDOM.removeEventListener("scroll", onScroll);
