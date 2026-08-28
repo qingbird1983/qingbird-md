@@ -763,6 +763,7 @@ button.menu-btn:disabled,
 
 .app-resizer.res-right {
   grid-column: 4;
+  grid-row: 2 / 5; /* 与 res-left 对齐：分隔线贯穿 tabbar/toolbar/main，避免右侧只在 row 4 顶到工具栏 */
 }
 
 /* T22：预览首次真正挂载（T20 组件当时无宿主）——容器滚动由壳层负责 */
