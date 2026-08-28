@@ -2,6 +2,13 @@
 name = "qingbird-md"
 version = "0.1.0"
 edition = "2024"
+description = "Markdown editor & reader with bilingual EN↔ZH translation (Tauri 2 + Rust core + React/TypeScript UI)"
+license = "MIT"
+readme = "../../README.md"
+repository = "https://github.com/muyan1983/qingbird-md"
+homepage = "https://github.com/muyan1983/qingbird-md"
+keywords = ["markdown", "translation", "tauri", "editor", "bilingual"]
+categories = ["text-editors", "internationalization"]
 
 [lib]
 name = "qingbird_md_lib"
