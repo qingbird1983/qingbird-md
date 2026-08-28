@@ -6,8 +6,8 @@
 //   - 关闭 X = 关（同一 closeTab 流程；stopPropagation 防止冒泡到单击切激活）。
 //   - 右侧 + 按钮 = 新建空标签（newTab）。
 //
-// 重入护栏（DirtyConfirmDialog 没有单例锁）：维护 closingIds Set；任一标签的
-// closeTab 在飞行中时禁用该标签的关闭入口（X 按钮 + onDoubleClick），避免后续
+// 重入护栏（DirtyConfirmDialog 没有单例锁）：维护 closingIds Set；任一 closeTab
+// 在飞行中时禁用所有标签的关闭入口（X 按钮 + onDoubleClick），避免后续
 // showDirtyConfirm 覆盖正在显示的弹窗并使首个 promise 永不 settle。
 //
 // 样式全部走 .tabbar/.tab/.tab.active/.tab-close/.tab-add/.tab-dirty（见 global.css）。
@@ -45,7 +45,9 @@ export default function TabBar() {
       {tabs.map((t) => {
         const isActive = t.id === activeId;
         const isDirty = t.content !== t.savedContent;
-        const isClosing = closingIds.has(t.id);
+        // DirtyConfirmDialog 是单例且无内部锁：并发关两个脏标签会让首个 promise
+        // 永不 settle、finally 不执行、closingIds 条目卡死。任一 close 飞行中即屏蔽所有关闭入口。
+        const isClosing = closingIds.size > 0;
         return (
           <div
             key={t.id}
