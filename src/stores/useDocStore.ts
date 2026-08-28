@@ -70,6 +70,8 @@ interface DocState {
   setCursorSel(s: [number, number]): void;
   /** 编辑器内容+选区原子写入 active tab（EditorView updateListener 用）。 */
   applyEdit(content: string, cursorSel: [number, number]): void;
+  /** 滚动事件落库；切回本标签时恢复。 */
+  setScrollTop(n: number): void;
   applyFormat(op: string): Promise<void>;
   saveDoc(as: boolean): Promise<boolean>;     // 返回值变了：true=写盘成功，false=用户取消
   switchView(v: ViewKind): void;
@@ -252,6 +254,10 @@ export const useDocStore = create<DocState>()((set, get) => {
 
     applyEdit: (content, cursorSel) => {
       patchActive((t) => ({ ...t, content, cursorSel }));
+    },
+
+    setScrollTop: (n) => {
+      patchActive((t) => (t.scrollTop === n ? t : { ...t, scrollTop: n }));
     },
 
     applyFormat: async (op) => {

@@ -1,20 +1,19 @@
-// 编辑器主视图（Task 21）：CodeMirror 6 源码编辑器。
+// 编辑器主视图（Task 21 + 多标签扩展）。
 //
-// 双向同步（无回环关键 = 等值短路）：
-//   editor → store：updateListener 把 docChanged 的内容与选区合成一次 setState
-//     推给 docStore（原子更新——App 的划词订阅方拿到一致的内容+选区快照）；
-//     仅 selection 变化走 setCursorSel。
-//   store → editor：subscribe 对比 store 内容与视图内容——编辑器自身推送恒等值
-//     被短路；只有外部变更（openTab 换文档 / applyFormat 全文替换）才走一次
-//     全量 replaceRange + selection 回填（CM 口径，applyFormat 已把字节转回
-//     字符）+ scrollIntoView(center)。
+// 多标签扩展要点：
+//   - mount 时把 cmRef 写到 store 顶层（顶层 cmRef 永远指向 active tab 的 CM）。
+//   - mount 时从 active tab 读 scrollTop + cursorSel，恢复到 CM。
+//   - 编辑产生的 cursorSel 变更走 setCursorSel（原行为不变）。
+//   - 编辑产生的 content 变更走 applyEdit（在 store 里改 active tab.content 与
+//     cursorSel 原子写入，触发 commit 联动重算投影）。
+//   - scroll 事件节流落库 setScrollTop；切回本标签时由 MainArea 的 key 触发
+//     卸载/重挂，新 mount 读取最新 scrollTop 恢复。
 //
-// 偏移口径：CM 位置 = UTF-16 code unit；Rust apply_op.sel = UTF-8 字节。
-// 换算函数在 lib/ipc.ts，useDocStore.applyFormat 完成出入双向转换，本组件
-// 只处理 CM 口径。
+// ⚠️ 不要在本组件里 useDocStore.setState({ tabs: [...] })——会绕过 Task 1 的投影
+// 模型导致 doc/isDirty/view 失真。所有写入一律走 store action。
 //
-// IME 安全：store 推送从不反向 dispatch 回 CM（等值短路），组合输入期间
-// 不会被 replaceRange 打断。
+// 单实例生命周期：MainArea.tsx 里 key={activeTabId ?? "empty"} 切标签时强制
+// unmount/remount，杜绝跨标签 CM 状态污染。
 import { useEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView as CmEditorView, keymap } from "@codemirror/view";
@@ -41,60 +40,88 @@ export default function EditorView() {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // mount 时锁住 activeId 与对应 tab 的快照，避免后续异步回调跑错 tab。
+    const st0 = useDocStore.getState();
+    const myId = st0.activeId;
+    const t0 = st0.tabs.find((t) => t.id === myId);
+    if (!t0) return;
+
     const view = new CmEditorView({
       parent: hostRef.current!,
       state: EditorState.create({
-        doc: useDocStore.getState().doc?.content ?? "",
+        doc: t0.content,
+        selection: { anchor: t0.cursorSel[0], head: t0.cursorSel[1] },
         extensions: [
-          minimalSetup, // 已含 default/history keymap 与 undo history
+          minimalSetup,
           markdown({ codeLanguages: [mathLang, ...languages] }),
           keymap.of([
             { key: "Mod-s", preventDefault: true, run: () => { void useDocStore.getState().saveDoc(false); return true; } },
             { key: "Mod-b", preventDefault: true, run: () => { void useDocStore.getState().applyFormat("bold"); return true; } },
             { key: "Mod-i", preventDefault: true, run: () => { void useDocStore.getState().applyFormat("italic"); return true; } },
           ]),
-          CmEditorView.lineWrapping, // markdown 源码软换行，与预览排版一致
+          CmEditorView.lineWrapping,
           themeComp.of(isDarkTheme() ? oneDark : []),
           CmEditorView.updateListener.of((u) => {
             if (!u.docChanged && !u.selectionSet) return;
+            const cur = useDocStore.getState();
+            const myTab = cur.tabs.find((t) => t.id === myId);
+            if (!myTab) return; // tab 已被关闭
             const { from, to } = u.state.selection.main;
-            const st = useDocStore.getState();
             if (!u.docChanged) {
-              st.setCursorSel([from, to]);
+              // 光标变更：等值短路后走 setCursorSel（→ patchActive → 投影重算）
+              if (myTab.cursorSel[0] === from && myTab.cursorSel[1] === to) return;
+              cur.setCursorSel([from, to]);
               return;
             }
             const content = u.state.doc.toString();
-            const t = st.tabs.find((x) => x.id === st.activeId);
-            if (t && t.content !== content) {
-              // 内容+选区原子写入 active tab（applyEdit 同步重算派生投影）：
-              // App 划词订阅方拿到原子快照
-              st.applyEdit(content, [from, to]);
-            } else {
-              st.setCursorSel([from, to]);
-            }
+            if (myTab.content === content) return;
+            // 内容 + 选区原子写入 active tab，走 applyEdit：App 划词订阅方拿到原子快照
+            cur.applyEdit(content, [from, to]);
           }),
         ],
       }),
     });
 
-    // 工具栏撤销/重做桥接（Task 22）：实例句柄挂到 docStore，卸载时清空
-    useDocStore.getState().cmRef.current = view;
+    // 挂载后恢复滚动位置（CM 在 nextTick 才把 layout 出来，用 rAF 等一帧）
+    requestAnimationFrame(() => {
+      view.scrollDOM.scrollTop = t0.scrollTop;
+    });
 
-    // store → editor：外部内容变更（openTab/applyFormat）全量替换 + 光标回填 +
-    // 居中滚动；选区钳制到新文档长度（Rust clamp_sel 同款语义）。
+    // store → editor：外部内容变更（openTab 新文档 / applyFormat 全文替换）
+    // 全量替换 + 光标回填 + 居中滚动；选区钳制到新文档长度。
     const unsubDoc = useDocStore.subscribe((s) => {
-      const content = s.doc?.content;
-      if (content === undefined || view.state.doc.toString() === content) return;
+      const tab = s.tabs.find((t) => t.id === myId);
+      if (!tab) return;
+      const content = tab.content;
+      if (view.state.doc.toString() === content) return;
       const len = view.state.doc.length;
       const clamp = (p: number) => Math.max(0, Math.min(p, len));
-      const [f, t] = s.cursorSel;
+      const [f, head] = tab.cursorSel;
       const anchor = clamp(f);
       view.dispatch({
         changes: { from: 0, to: len, insert: content },
-        selection: { anchor, head: clamp(t) },
+        selection: { anchor, head: clamp(head) },
         effects: CmEditorView.scrollIntoView(anchor, { y: "center" }),
       });
     });
+
+    // scroll 落库：节流 100ms，去重写。
+    let scrollTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastScroll = t0.scrollTop;
+    const onScroll = () => {
+      const top = view.scrollDOM.scrollTop;
+      if (top === lastScroll) return;
+      lastScroll = top;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        // 用 getState 读最新 store，避免闭包旧值；setScrollTop 内部按 id 找 tab
+        useDocStore.getState().setScrollTop(top);
+      }, 100);
+    };
+    view.scrollDOM.addEventListener("scroll", onScroll);
+
+    // 工具栏撤销/重做桥接：实例句柄挂到 docStore，卸载时清空
+    useDocStore.getState().cmRef.current = view;
 
     // 主题 compartment：settings.theme 或系统明暗变化时重配
     let lastDark = isDarkTheme();
@@ -109,6 +136,8 @@ export default function EditorView() {
     mq.addEventListener("change", applyTheme);
 
     return () => {
+      clearTimeout(scrollTimer);
+      view.scrollDOM.removeEventListener("scroll", onScroll);
       useDocStore.getState().cmRef.current = null;
       mq.removeEventListener("change", applyTheme);
       unsubTheme();
