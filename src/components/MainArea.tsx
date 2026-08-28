@@ -1,6 +1,7 @@
 // 主区装配（Task 22）：按 docStore.view 路由 source / preview / split 三形态。
 //
-// source = 编辑器通栏；preview = 预览通栏（不显示工具栏——延续旧版）；
+// source = 编辑器通栏；preview = 预览通栏（不显示工具栏——工具栏已于 Task 5
+// 上移到 App 壳层 tab 条下方，按 docStore.view 门控）；
 // split = 左 EditorView 右 PreviewView（同组件复用），中间竖向 resizer。
 //
 // 分栏拖动：与壳层面板拖宽条共用 lib/colDrag（纯 Pointer Events + capture +
@@ -12,7 +13,6 @@ import { useDocStore } from "../stores/useDocStore";
 import { useUiStore } from "../stores/useUiStore";
 import { startColDrag } from "../lib/colDrag";
 import EditorView from "./EditorView";
-import EditorToolbar from "./EditorToolbar";
 import PreviewView from "./PreviewView";
 import TranslationBar from "./TranslationBar";
 
@@ -22,9 +22,11 @@ const RATIO_MAX = 0.8;
 
 function SplitBody() {
   const ratio = useUiStore((s) => s.splitRatio);
-  // key = doc.path：换文档时重挂 EditorView，清空 CM undo 历史，
-  // 杜绝跨文档 Ctrl+Z 把 A 的内容回写进 B（数据覆盖事故）
-  const docKey = useDocStore((s) => s.doc?.path ?? "empty");
+  // key = activeId：切换标签时重挂 EditorView，清空 CM undo 历史，
+  // 杜绝跨文档 Ctrl+Z 把 A 的内容回写进 B（数据覆盖事故）。
+  // 用 activeId 而非 doc.path：同一文件可开多个标签，各标签内容独立，
+  // 按标签（而非路径）重挂才是正确粒度。
+  const activeId = useDocStore((s) => s.activeId);
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     // resizer 恒为 .main-body 直接子元素，取父容器宽度做比例分母
@@ -42,7 +44,7 @@ function SplitBody() {
   return (
     <>
       <div className="split-half" style={{ flex: `0 0 ${ratio * 100}%` }}>
-        <EditorView key={docKey} />
+        <EditorView key={activeId ?? "empty"} />
       </div>
       <div
         className="resizer"
@@ -59,15 +61,13 @@ function SplitBody() {
 
 export default function MainArea() {
   const view = useDocStore((s) => s.view);
-  const docKey = useDocStore((s) => s.doc?.path ?? "empty");
+  const activeId = useDocStore((s) => s.activeId);
   return (
     <>
-      {/* 预览模式不显示工具栏（延续旧版） */}
-      {view !== "preview" && <EditorToolbar />}
       {/* T23：整篇翻译进度条（仅翻译进行中占位） */}
       <TranslationBar />
       <div className="main-body">
-        {view === "source" && <EditorView key={docKey} />}
+        {view === "source" && <EditorView key={activeId ?? "empty"} />}
         {view === "preview" && <PreviewView />}
         {view === "split" && <SplitBody />}
       </div>

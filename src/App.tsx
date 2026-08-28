@@ -5,6 +5,8 @@ import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
+import TabBar from "./components/TabBar";
+import EditorToolbar from "./components/EditorToolbar";
 import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
@@ -46,6 +48,10 @@ function PanelResizer({ side }: { side: "left" | "right" }) {
 }
 
 function App() {
+  // Task 5：EditorToolbar 从 MainArea 上移到 tab 条下方。此处必须用 hook 订阅
+  // （非 getState()），否则 preview 切换不会触发重渲染、工具栏残留。
+  const toolbarView = useDocStore((s) => s.view);
+
   useEffect(() => {
     // 应用级一次性初始化：设置加载（含 settings-updated 监听）、
     // document-changed 监听（首开参数 + 单实例 handoff 统一入口）、
@@ -170,6 +176,10 @@ function App() {
   return (
     <div id="app-shell">
       <TopBar />
+      <TabBar />
+      {/* EditorToolbar 上移：原属 MainArea 的 {view !== "preview" && <EditorToolbar />}
+          提到 tab 条下面，MainArea 不再渲染。 */}
+      {toolbarView !== "preview" && <EditorToolbar />}
       {/* T18 Sidebar 挂入点；ui.showNav 折叠 */}
       {showNav && (
         <>
@@ -180,7 +190,7 @@ function App() {
           <PanelResizer side="left" />
         </>
       )}
-      {/* T22 MainArea：source/preview/split 路由 + 格式工具栏；T23 TranslationBar 宿主 */}
+      {/* T22 MainArea：source/preview/split 路由（格式工具栏已上移至 tab 条下）；T23 TranslationBar 宿主 */}
       <main className="main-area">
         <MainArea />
       </main>

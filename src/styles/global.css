@@ -5,18 +5,21 @@ body,
   margin: 0;
 }
 
-/* AppShell 网格骨架（brief 规范）：行 = TopBar auto / 中部 1fr / StatusBar auto，
+/* AppShell 网格骨架（brief 规范 + Task 5 扩展）：行 = TopBar auto / TabBar auto /
+   EditorToolbar auto（preview 模式不渲染 → 空行塌缩为 0）/ 中部 1fr / StatusBar auto，
    列 = sidebar auto / 拖宽条 auto / main 1fr / 拖宽条 auto / outline auto(均可折叠，
-   auto 轨道随内容消失自动塌缩为 0) */
+   auto 轨道随内容消失自动塌缩为 0)。工具栏行恒占编号（可为空），保证下方
+   元素的显式 grid-row 在 preview 下不错位。 */
 #app-shell {
   display: grid;
   height: 100%;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto auto 1fr auto;
   grid-template-columns: auto auto 1fr auto auto;
 }
 
 .topbar {
-  /* T16 网格契约：菜单条横贯三列（auto-placement 否则会塌缩到 r1c1） */
+  /* T16 网格契约：菜单条横贯全部列（auto-placement 否则会塌缩到 r1c1） */
+  grid-row: 1;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -79,6 +82,104 @@ body,
   background: var(--item-hover-bg);
 }
 
+/* Task 4/5：标签条（壳层第 2 行，横贯全部列）。样式契约见 TabBar.tsx 头注释。 */
+.tabbar {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 3px 6px 3px 10px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tab:hover {
+  background: var(--btn-hover-bg);
+}
+
+.tab.active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: inherit;
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-fg);
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tab-close:hover:not(:disabled) {
+  background: var(--btn-hover-bg);
+}
+
+.tab-close:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  margin-bottom: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+
+.tab-add:hover {
+  background: var(--btn-hover-bg);
+  color: inherit;
+}
+
 /* 当前视图/模式项以 ✓ 标记（不挤占未选项的水平对齐） */
 .menu-item[aria-checked="true"]::before {
   content: "✓";
@@ -99,7 +200,7 @@ body,
 
 .sidebar {
   overflow-y: auto;
-  grid-row: 2;
+  grid-row: 4;
   grid-column: 1;
 }
 
@@ -200,12 +301,14 @@ button.menu-btn:disabled,
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  grid-row: 2;
+  grid-row: 4;
   grid-column: 3;
 }
 
-/* T22：工具栏（source/split 模式显示，preview 不显示） */
+/* T22：工具栏（Task 5 上移到壳层第 3 行、横贯全部列；preview 模式不渲染该行） */
 .editor-toolbar {
+  grid-row: 3;
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -644,7 +747,7 @@ button.menu-btn:disabled,
 /* 面板拖宽条（App 壳层左右栏与主区之间） */
 .app-resizer {
   width: 7px;
-  grid-row: 2;
+  grid-row: 4;
 }
 
 .app-resizer.res-left {
@@ -692,7 +795,7 @@ button.menu-btn:disabled,
 
 .outline-panel {
   overflow-y: auto;
-  grid-row: 2;
+  grid-row: 4;
   grid-column: 5;
 }
 
@@ -751,6 +854,7 @@ button.menu-btn:disabled,
 }
 
 .status-bar {
+  grid-row: 5;
   grid-column: 1 / -1;
   height: 26px;
   display: flex;
