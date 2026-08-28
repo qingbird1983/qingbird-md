@@ -86,3 +86,4 @@ docs/superpowers/             # 设计 spec 与实施计划
 6. **工作区新建目录仅面向 Windows**：`joinUnderRoot` 硬编码 `\` 分隔符（T15）。
 7. **清除翻译缓存不置文档脏标记**；被丢弃批次的旧 toast 可能残留（T26）。
 8. **外观小项**：侧栏路径截断无省略号；第二实例经文件参数打开文档不点亮侧栏选中项；光标选区不随 source↔split 切换恢复（T16/T18/T22）。
+9. **icon.ico 需 BMP 小帧**：`npx tauri icon` 会把全部帧写成 PNG 压缩（Windows 仅官方支持 256px 帧 PNG），winres 嵌入失败时 exe 回退 Tauri 默认图标。现用 Pillow 以 `bitmap_format="bmp"` 重造（源图 `src-tauri/icons/icon-source.png`）；将来重新生成图标后须照此检查帧格式。
