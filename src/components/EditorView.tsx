@@ -136,6 +136,11 @@ export default function EditorView() {
     mq.addEventListener("change", applyTheme);
 
     return () => {
+      // 卸载前同步落库最新滚动位置——防抖定时器会在“滚动后立即切标签”时
+      // 被 clearTimeout 取消，尾巴上的 scrollTop 若不在此处 flush 就会丢失。
+      if (lastScroll !== t0.scrollTop) {
+        useDocStore.getState().setScrollTop(lastScroll);
+      }
       clearTimeout(scrollTimer);
       view.scrollDOM.removeEventListener("scroll", onScroll);
       useDocStore.getState().cmRef.current = null;
