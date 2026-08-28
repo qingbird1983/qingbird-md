@@ -4,6 +4,63 @@ All notable changes to qingbird-md are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-08-28
+
+Multi-tab editing plus a UI layout shift to match the in-app reference.
+Source-only refactor of the frontend; no Rust / IPC contract changes, no
+new dependencies, no new permission scopes.
+
+### Added
+
+- **Multi-tab editor**: open multiple `.md` / `.markdown` / `.txt` files
+  side-by-side in a single window. Each tab keeps its own scroll position,
+  cursor / selection, view mode, parsing cache, translation cache, and
+  dirty state. Switching tabs re-mounts CodeMirror in place and restores
+  cursor + scroll on the next frame.
+- **Tab strip** (below the menu bar): close-via-`X`, close-via-double-click,
+  `+` to add a new blank tab, inactive tabs show hover X, active tab fills
+  the strip background. Newest tab opens at the right edge.
+- **Dirty-confirm dialog** when closing a tab with unsaved changes: Save
+  / Don't Save / Cancel, with `Esc` mapped to Cancel.
+- **Layout shift** (per in-app reference image): top menu bar stays at
+  row 1; tab strip on row 2 only spans the centre column; editor toolbar
+  hoisted to row 3 (above the editor, not inside it); main editor +
+  workspace tree + outline + resizers on row 4; status bar on row 5.
+  Workspace tree's right divider and outline's left divider both span
+  rows 2–5 so the side rails read as full-height panels.
+
+### Changed
+
+- **Default view on opening a file**: was `source`, now `preview`. The
+  reading view is the most common first action for a reader-style app;
+  use `Ctrl+Alt+S` (or View menu) to switch into `source` or `split`.
+- **Editor toolbar is always visible**, including in `preview` mode
+  (was previously hidden when `view === "preview"`). Undo/Redo are
+  no-ops in preview (CM not mounted); format buttons operate on the
+  last-known cursor position.
+
+### Fixed
+
+- `applyFormat` staleness guard now compares content (not just
+  `activeId`), preventing the wrong-tab format-application race when the
+  active tab changes during the Rust round-trip.
+- `saveDoc` now writes path / name / `savedContent` to the tab whose id
+  was captured at entry (via the new `patchTab(id, mut)` helper), not
+  whichever tab is active after the file-dialog awaits. Closes a
+  data-loss class bug in the close-tab save-then-close flow.
+- `setScrollTop` is now id-scoped (signature `(id, n)`) so unmount-time
+  scroll flush lands on the tab being unmounted, not the newly-active
+  tab — restoring scroll position correctly across tab switches.
+- Tab close-during-confirm: a `closingIds` set guards the `DirtyConfirmDialog`
+  so concurrent close attempts resolve in order rather than deadlocking the
+  promise chain.
+- Right-side resizer divider spans rows 2–5 to match the left resizer,
+  so the outline panel's left border reads as a single full-height line.
+
+### Known limitations (carried over from 0.1.0)
+
+See [README → Known limitations](README.md#已知限制) for the full list.
+
 ## [0.1.0] - 2026-08-28
 
 First public release. Tauri 2 desktop app — Rust core + React/TypeScript UI
