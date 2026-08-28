@@ -48,10 +48,6 @@ function PanelResizer({ side }: { side: "left" | "right" }) {
 }
 
 function App() {
-  // Task 5：EditorToolbar 从 MainArea 上移到 tab 条下方。此处必须用 hook 订阅
-  // （非 getState()），否则 preview 切换不会触发重渲染、工具栏残留。
-  const toolbarView = useDocStore((s) => s.view);
-
   useEffect(() => {
     // 应用级一次性初始化：设置加载（含 settings-updated 监听）、
     // document-changed 监听（首开参数 + 单实例 handoff 统一入口）、
@@ -177,9 +173,10 @@ function App() {
     <div id="app-shell">
       <TopBar />
       <TabBar />
-      {/* EditorToolbar 上移：原属 MainArea 的 {view !== "preview" && <EditorToolbar />}
-          提到 tab 条下面，MainArea 不再渲染。 */}
-      {toolbarView !== "preview" && <EditorToolbar />}
+      {/* EditorToolbar 常驻显示（源/预览/分栏均渲染，MainArea 不再渲染）。
+          撤销/重做依赖 cmRef，preview 时为 no-op；格式按钮读 store.cursorSel，
+          preview 时用上次切走前的选区位置——点击行为视为已知约束。 */}
+      <EditorToolbar />
       {/* T18 Sidebar 挂入点；ui.showNav 折叠 */}
       {showNav && (
         <>

@@ -1,10 +1,11 @@
-// 格式工具栏（Task 22）。
+// 格式工具栏（Task 22，常驻显示）。
 //
 // 格式键 → docStore.applyFormat(op)：Rust apply_op 以 store.cursorSel（CM 码点
 // 偏移，store 内完成字节换算）为选区上下文；无文档时全部禁用（disabled=doc==null）。
 // 撤销/重做 → CodeMirror 命令（@codemirror/commands undo/redo），实例经
-// docStore.cmRef 由 EditorView 挂载时写入——编辑器未挂载（preview 视图不渲染
-// 本工具栏）或无文档时不可用。Ctrl+B / Ctrl+S 等键盘入口在 EditorView keymap。
+// docStore.cmRef 由 EditorView 挂载时写入——编辑器未挂载（preview 视图 CM 不存在，
+// dispatchUndo/Redo 内部 if (v) 守卫 → no-op）或无文档时不可用。Ctrl+B / Ctrl+S
+// 等键盘入口在 EditorView keymap。
 import {
   Bold,
   Code,

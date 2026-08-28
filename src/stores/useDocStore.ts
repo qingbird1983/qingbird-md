@@ -178,7 +178,7 @@ export const useDocStore = create<DocState>()((set, get) => {
           name: d.name,
           content: d.content,
           savedContent: d.content,
-          view: "source",
+          view: "preview",
           mode: "original",
           cursorSel: [0, 0],
           scrollTop: 0,
