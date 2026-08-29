@@ -35,7 +35,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
-  height: 34px;
+  height: var(--h-topbar, 38px);
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-bg);
@@ -111,7 +111,7 @@ body {
 /* ── 汉堡菜单弹出面板 ── */
 .app-menu {
   position: fixed;
-  top: 34px; /* 标题栏高度 */
+  top: var(--h-topbar, 38px); /* 标题栏高度 */
   left: 8px;
   z-index: 1100;
   min-width: 200px;
