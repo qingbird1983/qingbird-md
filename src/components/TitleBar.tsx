@@ -24,7 +24,11 @@ export default function TitleBar() {
   }, []);
 
   return (
-    <header className="titlebar" data-tauri-drag-region>
+    <header className="titlebar" data-tauri-drag-region="deep">
+      {/* deep：tauri drag.js 的 composedPath 检测要求点击目标带属性或祖先为
+          deep——裸属性只有正中标题穿透带（title span pe:none）能拖，应用名/
+          窗控间隙落在无属性子 div 上全部失效。deep 让整个标题栏子树可拖，
+          BUTTON 类（汉堡/窗控）仍自动豁免走自身点击。 */}
       {/* 左侧：应用名 + 汉堡菜单按钮 —— AppMenu 在此绝对定位弹出 */}
       <div className="titlebar-left">
         <span className="titlebar-brand">青鸟 Markdown</span>

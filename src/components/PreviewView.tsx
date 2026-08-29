@@ -15,6 +15,8 @@ import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
@@ -133,6 +135,25 @@ export default function PreviewView() {
     addCopyButtons(el);
     addHeadingToggles(el);
   }, [html, baseDir]);
+
+  // 划词翻译（选区查词）预览侧捕获：编辑器侧由 App.tsx 的 CM cursorSel 订阅
+  // 覆盖，预览渲染 DOM 没有 CM 选区事件——这里监听 selectionchange，锚点落
+  // 在本预览容器内才取词交给 translateSelection（300ms 防抖/乱序保护内置）。
+  // 空选区不清浮窗：SelectionPopup「点外即关」已覆盖（预览内再按下亦然），
+  // 且不能顺手清——分栏下选区在编辑器侧时 anchorNode 不在本容器，误清会关掉
+  // 编辑器侧刚弹出的浮窗。
+  useEffect(() => {
+    const onSelChange = () => {
+      if (!useSettingsStore.getState().settings?.selection_translate) return;
+      const el = ref.current;
+      const sel = window.getSelection();
+      if (!el || !sel || sel.isCollapsed || !sel.anchorNode || !el.contains(sel.anchorNode)) return;
+      const text = sel.toString();
+      if (text.trim()) useTranslationStore.getState().translateSelection(text);
+    };
+    document.addEventListener("selectionchange", onSelChange);
+    return () => document.removeEventListener("selectionchange", onSelChange);
+  }, []);
 
   if (content === null) return <div className="preview-empty">未打开文档</div>;
 
