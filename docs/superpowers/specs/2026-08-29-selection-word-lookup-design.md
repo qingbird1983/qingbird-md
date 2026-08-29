@@ -20,6 +20,7 @@
 4. 未配置 LLM 时划词行为与现状完全一致（零感知回落）。
 5. 设置弹窗：LLM 源新增可选"查词模型"输入框与厂商预设下拉（选中即填 baseUrl，模型名 datalist 建议）。
 6. 卡片排版为已确认的"纵向层级"形态（mockup 方向 A），跟随应用亮/暗主题。
+7. 模型 ID 支持从厂商在线拉取后点选（`GET {base}/models`），消除模型名手填错误；拉取失败可退回手填。
 
 ## 3. Non-goals
 
@@ -28,6 +29,7 @@
 - 查词失败静默回落普通翻译（见 §9，失败必须显式可见）。
 - 预览视图选区监听（T24 已记录为后续迭代，本次不扩）。
 - 划词结果的手动方向切换、发音朗读、复制按钮（未要求）。
+- 模型列表的缓存与后台自动刷新（设置页低频操作，YAGNI）。
 - 修改整篇翻译流水线（pipeline.rs / 7 翻译源行为不变）。
 
 ## 4. 现状与改动面
@@ -111,6 +113,16 @@ interface WordLookupDTO {
 
 沿用现有 `provider + 文本 hash` 索引，provider 名用 `"llm-lookup"`，值为 DTO 的 JSON 序列化。查词重复率高，命中即秒回。清缓存入口（设置里的"清除翻译缓存"）自然覆盖。
 
+### 6.4 模型列表拉取命令（lib.rs）
+
+`llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String>`，async：
+
+- `GET {base_url 去尾斜杠}/models`，apiKey 非空时带 `Authorization: Bearer …`，超时 15s。
+- 解析 OpenAI 兼容响应 `{"object":"list","data":[{"id":"…"},…]}`，取 `data[].id`，去重排序返回。
+- 非 2xx 或解析失败 → `Err`（状态码 + 服务端 message 截断），透传给前端展示。
+- 前置：HttpClient trait 新增 `get_headers_timeout(url, headers, timeout_ms)` 方法，默认实现回落现有 `get()`（照 `post_json_timeout` 的既有模式）——`UreqClient` 覆写以带请求头与超时，`MockClient` 零改动。
+- 不缓存结果：设置页低频操作，每次点击现拉。
+
 ## 7. 设置
 
 - `providers_meta.rs`：LLM_FIELDS 增加第 4 个字段 `lookup_model`（label："查词模型（可选，留空同翻译模型）"，secret: false）。凭据走现有 Creds HashMap，storage 零改动，旧设置文件缺字段自然回落。
@@ -126,6 +138,13 @@ interface WordLookupDTO {
 | 自定义 | 不填充 | — |
 
 选中预设即覆盖 baseUrl 字段值（apiKey/model/lookup_model 不动）；模型输入框加 datalist 建议。预设表是提示性的，用户可随时手改 baseUrl。预设数据核验于 2026-08-29（DeepSeek 条目为用户自官网复制校正，其余经官方文档检索核对）；模型名会随厂商迭代过时，datalist 仅为建议，不做硬校验。
+
+**模型在线拉取**（`model` 与 `lookup_model` 两个输入框共用）：
+
+- 两个输入框旁各有一个"拉取模型"按钮（baseUrl 非空时可点，共用同一结果缓存于组件态）。
+- 点击 → 调 `api.llmListModels(baseUrl, apiKey)` → 成功后 datalist 选项替换为拉取列表，toast 提示条数；失败显示错误信息，不阻塞手填。
+- datalist 内容优先级：**拉取结果 > 静态预设建议 > 空**。手填永远允许——各厂商 `/models` 覆盖度不一（豆包可能只返回接入点、部分网关不实现该端点），手填是必要兜底，点选是消除 typo 的主路径。
+- apiKey 修改后需重新拉取（不做自动触发，用户点击驱动）。
 
 ## 8. 前端
 
@@ -161,10 +180,11 @@ Rust（`cargo test --workspace`，mock HttpClient 照 `llm_builds_openai_request
 4. DTO 映射：word 全字段 / sentence 全 null、空串规整、terms 无效项过滤。
 5. 缓存：写入后命中、key 含 `"llm-lookup"`、失败不写。
 6. 契约：DTO serde 输出与 `ipc.ts` camelCase 逐字段对齐（照现有契约测试）。
+7. 模型拉取：`data[].id` 正常解析、缺 `data` / 非 2xx → Err、Bearer 头有无、去重排序。
 
 前端（`npm run build` tsc 严格编译 + `docs/regression-checklist.md` 增补手工条目）：
 
-word 卡片各块渲染、sentence 形态、无 LLM 配置回落、失败错误显示、缓存命中秒回、暗色主题、防抖与乱序（连划两次）。
+word 卡片各块渲染、sentence 形态、无 LLM 配置回落、失败错误显示、缓存命中秒回、暗色主题、防抖与乱序（连划两次）、模型拉取成功填充 datalist、拉取失败报错且可手填、拉取后改 baseUrl 需重新拉取。
 
 ## 11. 参考资料
 
