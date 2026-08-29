@@ -57,12 +57,13 @@
 
 ### 4.2 改动面
 
-新增 2 个文件：
+新增 3 个文件：
 
 | 路径 | 用途 |
 |---|---|
 | `.github/workflows/release.yml` | GitHub Actions workflow 定义 |
 | `.github/scripts/extract-notes.py` | 从 CHANGELOG.md 提取 `## [<version>]` 段的 Python 脚本 |
+| `.github/scripts/test_extract_notes.py` | stdlib unittest 覆盖脚本（7 个测试，覆盖正常/缺段/缺文件/v 前缀等路径） |
 
 零代码逻辑改动（`.rs` / `.ts` / `.css` 不动）。`tauri.conf.json` / `Cargo.toml` / `package.json` 仅作为被读取的 source of truth，不改 workflow 契约。
 
@@ -144,7 +145,7 @@ jobs:
 
 ```yaml
 - name: Extract release notes from CHANGELOG.md
-  shell: python
+  shell: bash
   run: |
     python .github/scripts/extract-notes.py \
       --version "${{ steps.tag.outputs.tag }}" \
@@ -298,7 +299,7 @@ jobs:
           [ "${CARGO}" = "${VERSION}" ]
 
       - name: Extract release notes from CHANGELOG.md
-        shell: python
+        shell: bash
         run: |
           python .github/scripts/extract-notes.py \
             --version "${{ steps.tag.outputs.tag }}" \
@@ -534,6 +535,7 @@ workflow 第一次上线前在 fork repo（如 `muyan1983/qingbird-md-test`）�
 |---|---|---|
 | `.github/workflows/release.yml` | ~2 KB | §6.3 的 workflow yaml |
 | `.github/scripts/extract-notes.py` | ~1 KB | §7 的 Python 脚本 |
+| `.github/scripts/test_extract_notes.py` | ~2 KB | §7 行为的 stdlib unittest（7 个测试） |
 
 **不动**：
 

@@ -382,7 +382,7 @@ jobs:
           [ "${CARGO}" = "${VERSION}" ]
 
       - name: Extract release notes from CHANGELOG.md
-        shell: python
+        shell: bash
         run: |
           python .github/scripts/extract-notes.py \
             --version "${{ steps.tag.outputs.tag }}" \
