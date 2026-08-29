@@ -403,24 +403,35 @@ fn translate_text(
 }
 
 /// 选区查词（spec 2026-08-29）：LLM 词/句分流 + 富结果；结果进翻译缓存
-/// （provider 名 "llm-lookup"），命中零网络。async 同 translate_text 先例：
-/// 阻塞网络离开主线程。缓存锁纪律：短锁读 → 网络（不持锁）→ 短锁写 + 落盘。
+/// （provider 名 "llm-lookup"），命中零网络。网络段走 spawn+join（同
+/// translate_text 先例）：阻塞 HTTP 不占 tokio worker。缓存锁纪律：
+/// 短锁读 → 网络（独立线程，不持锁）→ 短锁写 + 落盘。
 #[tauri::command(async)]
 fn lookup_word(
     text: String,
     creds: HashMap<String, String>,
     st: tauri::State<AppTxn>,
 ) -> Result<dto::WordLookupDTO, String> {
-    // 1. 短锁命中检查（缓存坏 JSON 自愈为未命中，见 cache_get_lookup）
+    // 1. 短锁命中检查（缓存坏 JSON 自愈为未命中，见 cache_get_lookup）；
+    //    命中零网络，无需起线程
     {
         let c = st.cache.lock().expect("cache mutex poisoned");
         if let Some(dto) = translate::lookup::cache_get_lookup(&c, &text) {
             return Ok(dto);
         }
     }
-    // 2. 网络调用绝不持锁
-    let http = translate::http::UreqClient;
-    let dto = translate::lookup::llm_lookup(&text, &translate::providers::Creds(creds), &http)?;
+    // 2. 网络调用绝不持锁：独立线程上跑，join 处只短暂等待；
+    //    text 克隆一份进线程（回写仍需原值），creds move 不再外用
+    let dto = {
+        let net_text = text.clone();
+        std::thread::spawn(move || {
+            let http = translate::http::UreqClient;
+            translate::lookup::llm_lookup(&net_text, &translate::providers::Creds(creds), &http)
+        })
+        .join()
+        .map_err(|_| "查词线程崩溃".to_string())
+        .and_then(|r| r)?
+    };
     // 3. 短锁回写 + 落盘；落盘失败仅丢持久性（内存已有），不向用户报错
     {
         let mut c = st.cache.lock().expect("cache mutex poisoned");
@@ -431,11 +442,17 @@ fn lookup_word(
 }
 
 /// 拉取 LLM 厂商可用模型列表（OpenAI 兼容 GET /models），供设置弹窗点选，
-/// 消除模型 ID 手填错误。编排已在 lookup::fetch_models（可测），此处薄壳。
+/// 消除模型 ID 手填错误。编排已在 lookup::fetch_models（可测），此处薄壳；
+/// spawn+join 同 translate_text 先例，阻塞 HTTP 不占 tokio worker。
 #[tauri::command(async)]
 fn llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
-    let http = translate::http::UreqClient;
-    translate::lookup::fetch_models(&base_url, &api_key, &http)
+    std::thread::spawn(move || {
+        let http = translate::http::UreqClient;
+        translate::lookup::fetch_models(&base_url, &api_key, &http)
+    })
+    .join()
+    .map_err(|_| "模型列表线程崩溃".to_string())
+    .and_then(|r| r)
 }
 
 /// 停止当前后台批次：worker 里每个 HTTP 请求出发前经 CancelableClient 检查旗标，
