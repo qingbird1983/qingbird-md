@@ -179,7 +179,7 @@ Rust（`cargo test --workspace`，mock HttpClient 照 `llm_builds_openai_request
 3. JSON 容错：裸 JSON、围栏包裹、前后杂文本、非法 JSON → Err。
 4. DTO 映射：word 全字段 / sentence 全 null、空串规整、terms 无效项过滤。
 5. 缓存：写入后命中、key 含 `"llm-lookup"`、失败不写。
-6. 契约：DTO serde 输出与 `ipc.ts` camelCase 逐字段对齐（照现有契约测试）。
+6. 契约：DTO serde 输出与 `ipc.ts` snake_case 逐字段对齐（照现有契约测试）。
 7. 模型拉取：`data[].id` 正常解析、缺 `data` / 非 2xx → Err、Bearer 头有无、去重排序。
 
 前端（`npm run build` tsc 严格编译 + `docs/regression-checklist.md` 增补手工条目）：

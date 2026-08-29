@@ -93,9 +93,6 @@ pub struct ProviderInfoDto {
 }
 
 /// 选区查词：一条双语例句（spec 2026-08-29 §5.1）。
-///
-/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupExample {
     pub en: String,
@@ -103,9 +100,6 @@ pub struct LookupExample {
 }
 
 /// 选区查词：一个生僻词解释。
-///
-/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupTerm {
     pub word: String,
@@ -115,9 +109,6 @@ pub struct LookupTerm {
 
 /// 选区查词结果。`kind = "word"` 时全部字段有效；`"sentence"` 时 phonetic
 /// 及以下为 None / 空数组。serde 不改名（snake_case 线格式，ipc.ts 同名对齐）。
-///
-/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordLookupDTO {
     pub kind: String, // "word" | "sentence"

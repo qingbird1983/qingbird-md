@@ -35,9 +35,9 @@ pub trait HttpClient: Send + Sync {
     }
 
     /// GET with per-request headers + timeout. Default falls back to
-    /// [`Self::get`] ignoring both (used by mocks) — mirrors post_json_timeout.
-    ///
-    /// `ponytail:` unused until Task 2 wires the lookup IPC commands.
+    /// [`Self::get`] ignoring both — mirrors post_json_timeout. 默认实现供
+    /// mock 回落；UreqClient/MockClient 均已覆写，默认体自身无人调用，
+    /// 故保留 allow(dead_code)。
     #[allow(dead_code)]
     fn get_headers_timeout(
         &self,

@@ -177,7 +177,13 @@ pub fn fetch_models(base_url: &str, api_key: &str, http: &dyn HttpClient) -> Res
     }
     let r = http.get_headers_timeout(&url, &headers, MODELS_TIMEOUT_MS)?;
     if r.status >= 400 {
-        return Err(format!("拉取模型列表返回 {}", r.status));
+        let mut detail = String::new();
+        if let Ok(v) = serde_json::from_str::<Value>(&r.body) {
+            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
+                detail = format!("：{msg}");
+            }
+        }
+        return Err(format!("拉取模型列表返回 {}{detail}", r.status));
     }
     parse_models_body(&r.body)
 }

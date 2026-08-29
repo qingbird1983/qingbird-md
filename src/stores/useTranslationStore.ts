@@ -164,6 +164,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       // R1 分流：LLM 凭据齐全（baseUrl + model 均非空）→ 查词；否则现状全局源。
       // 与全局翻译源选择无关——划词只认 LLM 是否配置（spec §8.1）。
       const llmCreds = useSettingsStore.getState().credsFor("llm");
+      // 运行时缺键时 baseUrl 为 undefined（credsFor 返回 {}），?. 是真实守卫而非冗余——勿“清理”（曾致全新安装卡死，commit cc8a4c9）
       const llmReady = Boolean(llmCreds.baseUrl?.trim() && llmCreds.model?.trim());
       try {
         if (llmReady) {

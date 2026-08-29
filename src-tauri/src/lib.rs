@@ -412,6 +412,8 @@ fn lookup_word(
     creds: HashMap<String, String>,
     st: tauri::State<AppTxn>,
 ) -> Result<dto::WordLookupDTO, String> {
+    // spec §5.2：用户消息 = text.trim()，入口先归一（缓存键与 prompt 消息随之统一）
+    let text = text.trim().to_string();
     // 1. 短锁命中检查（缓存坏 JSON 自愈为未命中，见 cache_get_lookup）；
     //    命中零网络，无需起线程
     {
