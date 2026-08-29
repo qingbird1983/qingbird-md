@@ -4,6 +4,54 @@ All notable changes to qingbird-md are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-08-29
+
+选区查词（Selection word lookup）端到端打通 — 从 Rust 核心查词流水线，
+到 IPC 命令、前端 R1 划词分流、富卡片四态渲染、设置面板独立查词模型与在线
+拉取。同时补两个标题栏 / 预览态划词的 ACL 与事件路径回归。
+
+### Added
+
+- **选区查词（LLM 富卡片）端到端**：在预览视图划词触发 R1 路径（与翻译 R0
+  分流），按词 / 句长度走两套 prompt，由独立的 `lookup_model` 走 LLM
+  provider 拿到结构化 JSON，前端把结果渲染为四态卡片（词 / 句 / plain /
+  error）。卡片有专属样式，与选区翻译的浮层样式分开。覆盖 `lookup_word`
+  IPC、词 / 句分流 prompt、解析容错（容忍 prose 包裹 / 剔除 code fence）、
+  磁盘缓存三件套（key 标准化 / `prune_to_cap` / 损坏自愈）。
+- **`llm_list_models` IPC 命令**：设置面板点选「拉取模型」按钮，在线调用
+  provider 的 `/models` 端点，返回排序后的模型列表。配 Bearer 头、按
+  `data: []` / `data[].id` 解析、缺失字段显式报错、URL trailing slash
+  归一化。设置里点选后写入 `lookup_model`，不再要求手填模型 ID。
+- **设置面板：查词模型独立字段 + 厂商预设下拉**：与翻译 `llm_model` 分开
+  的 `lookup_model` 字段；厂商预设继续走统一的下拉选择器（DeepSeek /
+  豆包 / GLM / Gemini / Qwen / OpenAI 兼容 / 自定义），baseUrl 与模型
+  名按 spec 校正过（豆包官方端点 `ark.cn-beijing.volces.com` 等）。
+- **划词 R1 分流**：选中文本经 `R1` 路由走查词 IPC；查词配置缺位时
+  退回 `auto` 翻译链，与翻译 R0 行为不冲突。
+
+### Fixed
+
+- **标题栏拖拽被 ACL 拒绝**：自定义标题栏整域 `data-tauri-drag-region`
+  触发 `core:window:start-dragging` 但 capabilities 漏声明；补
+  `core:window:allow-start-dragging`。
+- **预览态划词捕获**：预览视图（HTML）划词不再被原生事件吞掉，监听路径
+  补全，划词后弹出查词 / 翻译选择面板。
+- **`llmCreds` 可选链守卫还原**：全新安装（`settings.json` 不存在）时
+  `baseUrl` 运行时为 `undefined`，去掉守卫会让设置面板在加载阶段卡死；
+  恢复 `?.` 链。
+- **`fetch_models` 错误补服务端 message**：上游返回非 2xx 时把 body 里的
+  `message` / `error` 字段透出，避免只看到状态码；查词入口文本做 `trim`，
+  防止首尾空白触发缓存 miss；摘除 spec 中过时的标注。
+
+### Docs
+
+- `docs/superpowers/specs/2026-08-29-selection-word-lookup-design.md`：
+  选区查词设计 spec（词 / 句分流 + 查词模型 + 预设下拉 + `llm_list_models`
+  模型在线拉取），预设表校正。
+- `docs/superpowers/plans/2026-08-29-selection-word-lookup.md`：6 任务
+  TDD 实施计划 + 线格式 snake_case 约定。
+- `docs/regression-checklist.md`：选区查词手工回归清单（spec §10）。
+
 ## [0.1.2] - 2026-08-29
 
 Title bar / hamburger menu / toolbar refinements plus true dark-mode code
