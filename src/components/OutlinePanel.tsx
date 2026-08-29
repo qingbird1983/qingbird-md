@@ -75,12 +75,12 @@ export default function OutlinePanel() {
                   ?.scrollIntoView({ behavior: "smooth", block: "start" })
               }
             >
-              <span className="outline-badge">H{item.level}</span>
               <span className="outline-text">{item.text}</span>
             </button>
           </li>
         ))}
       </ul>
     </>
+
   );
 }

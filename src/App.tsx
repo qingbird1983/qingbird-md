@@ -4,7 +4,8 @@ import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
-import TopBar from "./components/TopBar";
+import TitleBar from "./components/TitleBar";
+import AppMenu from "./components/AppMenu";
 import TabBar from "./components/TabBar";
 import EditorToolbar from "./components/EditorToolbar";
 import MainArea from "./components/MainArea";
@@ -171,7 +172,8 @@ function App() {
 
   return (
     <div id="app-shell">
-      <TopBar />
+      <TitleBar />
+      <AppMenu />
       <TabBar />
       {/* EditorToolbar 常驻显示（源/预览/分栏均渲染，MainArea 不再渲染）。
           撤销/重做依赖 cmRef，preview 时为 no-op；格式按钮读 store.cursorSel，
