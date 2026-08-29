@@ -44,14 +44,14 @@
 
 ## 5. 数据契约
 
-### 5.1 DTO（Rust 结构体 serde `rename_all = "camelCase"` ↔ `src/types/ipc.ts`，逐字段对齐并纳入契约测试）
+### 5.1 DTO（Rust 结构体 serde 不改名（snake_case，仓库线格式惯例，见 ipc.ts 头注）↔ `src/types/ipc.ts` 同名字段，逐字段对齐并纳入契约测试；`Option<T>` → `| null`）
 
 ```ts
 interface WordLookupDTO {
   kind: "word" | "sentence";   // LLM 判定选中内容的类型
   translation: string;         // 词 → 简洁译名；句 → 整句翻译
   phonetic: string | null;     // 仅 word：英文侧 IPA（带斜杠，如 /əˈmenəti/）
-  partOfSpeech: string | null; // 仅 word：如 "n."、"v."
+  part_of_speech: string | null; // 仅 word：如 "n."、"v."
   usage: string | null;        // 仅 word：2-4 句中文用法说明
   examples: { en: string; zh: string }[];                            // 仅 word：2-3 条
   terms: { word: string; phonetic: string; explanation: string }[];  // 仅 word：生僻词
@@ -92,7 +92,7 @@ interface WordLookupDTO {
 
 模型回复可能带 ```json 围栏或夹带说明文字。解析顺序：剥代码围栏 → 截取首个 `{` 至末个 `}` → serde 解析 → 字段规整（空串转 null、数组过滤无效项）。仍失败则返回 `Err`（错误信息含回复内容前 200 字符截断）。
 
-注意：prompt 要求模型输出的键为 `type`（词性提示词惯例），DTO 字段名为 `kind`——Rust 解析层显式映射 `type` → `kind`，映射规则写进单测。
+注意：prompt 要求模型输出的键为 `type` 与 `partOfSpeech`（提示词惯例），DTO 字段名为 `kind` 与 `part_of_speech`——Rust 解析层显式映射，映射规则写进单测。
 
 ## 6. Rust 侧
 
