@@ -1086,6 +1086,83 @@ button.menu-btn:disabled,
   }
 }
 
+/* ---- 选区查词富卡片（spec 2026-08-29 §8.2，卡片 A 纵向层级）---- */
+.sel-pop-err {
+  color: #e06c75; /* 亮暗主题均可读的错误红，不依赖主题变量 */
+}
+
+.sel-pop-wordhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sel-pop-term {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.sel-pop-phon {
+  color: var(--fg3);
+}
+
+.sel-pop-pos {
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+.sel-pop-main {
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.sel-pop-usage {
+  margin-top: 8px;
+  color: var(--note-fg);
+}
+
+.sel-pop-block {
+  margin-top: 10px;
+}
+
+.sel-pop-terms {
+  border-top: 1px dashed var(--sep-bg);
+  padding-top: 8px;
+}
+
+.sel-pop-label {
+  font-size: 11px;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.sel-pop-example {
+  margin-top: 5px;
+}
+
+.sel-pop-en em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.sel-pop-zh {
+  color: var(--fg3);
+}
+
+.sel-pop-termrow {
+  margin-top: 4px;
+}
+
+.sel-pop-termexp {
+  color: var(--fg3);
+}
+
 /* ============ 模态框 ============ */
 /* 三段式：head（标题）/ body（内容）/ foot（.modal-actions 负边距贴底） */
 .modal-backdrop {
