@@ -118,14 +118,14 @@ interface WordLookupDTO {
 
 | 预设 | baseUrl | 模型建议（datalist） |
 |---|---|---|
-| DeepSeek | `https://api.deepseek.com/v1` | deepseek-chat |
-| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | qwen-plus, qwen-turbo, qwen-max |
-| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | glm-4-flash, glm-4-plus |
-| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | gemini-2.5-flash, gemini-2.5-pro |
-| 豆包 | `https://ark.volcengine.com/api/v3` | （按接入点填写） |
+| DeepSeek | `https://api.deepseek.com` | deepseek-v4-flash, deepseek-v4-pro |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | qwen-flash, qwen-plus, qwen-max |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | glm-5.3-flash, glm-4.7-flash, glm-5.3 |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | gemini-3.6-flash, gemini-2.5-flash, gemini-2.5-pro |
+| 豆包 | `https://ark.cn-beijing.volces.com/api/v3` | doubao-seed-2-0-lite-260215 等（按发布版本），或推理接入点 ep-… |
 | 自定义 | 不填充 | — |
 
-选中预设即覆盖 baseUrl 字段值（apiKey/model/lookup_model 不动）；模型输入框加 datalist 建议。预设表是提示性的，用户可随时手改 baseUrl。
+选中预设即覆盖 baseUrl 字段值（apiKey/model/lookup_model 不动）；模型输入框加 datalist 建议。预设表是提示性的，用户可随时手改 baseUrl。预设数据核验于 2026-08-29（DeepSeek 条目为用户自官网复制校正，其余经官方文档检索核对）；模型名会随厂商迭代过时，datalist 仅为建议，不做硬校验。
 
 ## 8. 前端
 
