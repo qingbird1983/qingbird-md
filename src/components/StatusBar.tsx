@@ -28,26 +28,31 @@ export default function StatusBar() {
         ? "翻译失败"
         : "待机";
 
-  const pathLabel = doc ? `${doc.path ?? doc.name}${isDirty ? " ●" : ""}` : "未打开文档";
+  const pathLabel = doc ? (doc.path ?? doc.name) : "未打开文档";
   // 实时统计：char_count/line_count 是 open_file 时的 DTO 快照，编辑后即过期。
   // 字符按 code point 展开（"字符"语义），行数按 \n 切分。
   const stats = doc
-    ? `字符 ${[...doc.content].length} · 行 ${doc.content.split("\n").length}`
+    ? `${[...doc.content].length} 字 · ${doc.content.split("\n").length} 行`
     : null;
-  const rest = [
-    stats,
-    MODE_LABEL[mode] ?? mode,
-    provider ?? "—",
-    transLabel,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
   return (
     <footer className="status-bar">
-      {/* T16 review 修补：路径独立成文本节点才能出省略号（.status-path 收缩规则） */}
-      <span className="status-path">{pathLabel}</span>
-      {rest ? <span className="status-rest">· {rest}</span> : null}
+      {/* 左侧：文件路径（可收缩出省略号）+ 脏标记 */}
+      <div className="status-left">
+        <span className="status-path">{pathLabel}</span>
+        {isDirty && (
+          <span className="status-dot" title="未保存的更改">
+            ● 未保存
+          </span>
+        )}
+      </div>
+      {/* 右侧：字数/行数 · 阅读模式 · 翻译源 · 翻译状态 */}
+      <div className="status-right">
+        {stats && <span>{stats}</span>}
+        <span>{MODE_LABEL[mode] ?? mode}</span>
+        <span>{provider ?? "—"}</span>
+        <span>{transLabel}</span>
+      </div>
     </footer>
   );
 }

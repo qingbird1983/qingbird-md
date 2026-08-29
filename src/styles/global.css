@@ -1,3 +1,11 @@
+/* 全局视觉层。视觉语言借鉴 SuperMarkdown：三层灰阶铺面、单一蓝紫主色、
+   三档圆角（6/8/12）、大范围柔光投影、宽松留白。布局骨架（#app-shell 网格）
+   与全部类名保持原样——本次只换皮，不动交互契约。 */
+
+* {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
@@ -5,11 +13,16 @@ body,
   margin: 0;
 }
 
-/* AppShell 网格骨架（brief 规范 + Task 5 扩展）：行 = TopBar auto / TabBar auto /
-   EditorToolbar auto（preview 模式不渲染 → 空行塌缩为 0）/ 中部 1fr / StatusBar auto，
-   列 = sidebar auto / 拖宽条 auto / main 1fr / 拖宽条 auto / outline auto(均可折叠，
-   auto 轨道随内容消失自动塌缩为 0)。工具栏行恒占编号（可为空），保证下方
-   元素的显式 grid-row 在 preview 下不错位。 */
+body {
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* AppShell 网格骨架：行 = TopBar / TabBar / EditorToolbar / 主区 / StatusBar，
+   列 = sidebar / 拖宽条 / main / 拖宽条 / outline。
+   顶栏三条（菜单、标签、工具栏）横贯全宽，侧栏与大纲只占主区行——对齐
+   SuperMarkdown 的 titlebar→tabbar→toolbar→main 层次。两侧面板折叠时
+   auto 轨道随内容消失塌缩为 0。 */
 #app-shell {
   display: grid;
   height: 100%;
@@ -17,16 +30,37 @@ body,
   grid-template-columns: auto auto 1fr auto auto;
 }
 
+/* ============ 顶栏 ============ */
 .topbar {
-  /* T16 网格契约：菜单条横贯全部列（auto-placement 否则会塌缩到 r1c1） */
   grid-row: 1;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 6px;
+  height: var(--h-topbar);
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-bg);
+  user-select: none;
+}
+
+/* 品牌标识（对齐 SuperMarkdown 的 .titlebar-app） */
+.brand {
+  margin-right: 10px;
+  padding-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg2);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.brand-sep {
+  width: 1px;
+  height: 18px;
+  margin-right: 8px;
+  background: var(--border);
+  flex: none;
 }
 
 /* TopBar 下拉菜单组（button + absolute ul 轻实现） */
@@ -44,89 +78,133 @@ body,
   position: relative;
 }
 
-.menu-btn {
-  padding: 3px 10px;
-  border-radius: 4px;
+.topbar .menu-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
 }
 
-.menu-btn:hover,
-.menu-btn[aria-expanded="true"] {
+.topbar .menu-btn:hover,
+.topbar .menu-btn[aria-expanded="true"] {
   background: var(--btn-hover-bg);
+  color: var(--fg);
 }
 
 .menu-pop {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 5px);
   left: 0;
   z-index: 1000;
-  min-width: 160px;
+  min-width: 190px;
   margin: 0;
-  padding: 4px 0;
+  padding: 5px;
   list-style: none;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  animation: pop-in 0.12s ease;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .menu-item {
   position: relative;
   display: block;
   width: 100%;
-  padding: 5px 24px;
+  padding: 6px 10px 6px 26px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
   text-align: left;
   white-space: nowrap;
 }
 
 .menu-item:hover:not(:disabled) {
   background: var(--item-hover-bg);
+  color: var(--fg);
 }
 
-/* Task 4/5：标签条（壳层第 2 行，仅中列）。样式契约见 TabBar.tsx 头注释。 */
+.menu-item:disabled {
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+.menu-item[aria-checked="true"]::before {
+  content: "✓";
+  position: absolute;
+  left: 9px;
+  color: var(--accent);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--sep-bg);
+}
+
+/* ============ 标签条 ============ */
 .tabbar {
   grid-row: 2;
-  grid-column: 3;
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  padding: 4px 6px 0;
+  height: var(--h-tabbar);
+  padding: 4px 8px 0;
   border-bottom: 1px solid var(--border);
   background: var(--panel-bg);
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 .tabbar::-webkit-scrollbar {
-  height: 4px;
+  display: none;
 }
 
 .tab {
   display: flex;
   align-items: center;
-  gap: 4px;
-  max-width: 220px;
-  padding: 3px 6px 3px 10px;
+  gap: 6px;
+  max-width: 200px;
+  min-width: 90px;
+  padding: 5px 6px 5px 12px;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  font-size: 13px;
-  color: var(--muted-fg);
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  font-size: 12.5px;
+  color: var(--fg2);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
 }
 
 .tab:hover {
-  background: var(--btn-hover-bg);
+  background: var(--bg3);
+  color: var(--fg);
 }
 
 .tab.active {
   border-color: var(--border);
-  background: var(--surface);
-  color: inherit;
+  background: var(--bg);
+  color: var(--fg);
+  font-weight: 500;
 }
 
 .tab-title {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -136,7 +214,7 @@ body,
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--muted-fg);
+  background: var(--accent);
 }
 
 .tab-close {
@@ -144,18 +222,19 @@ body,
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   background: none;
-  color: inherit;
+  color: var(--fg3);
   cursor: pointer;
 }
 
 .tab-close:hover:not(:disabled) {
-  background: var(--btn-hover-bg);
+  background: var(--bg3);
+  color: var(--fg);
 }
 
 .tab-close:disabled {
@@ -168,75 +247,212 @@ body,
   align-items: center;
   justify-content: center;
   flex: none;
-  align-self: center;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   margin-left: auto;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   background: none;
-  color: var(--muted-fg);
+  color: var(--fg2);
   cursor: pointer;
 }
 
 .tab-add:hover {
-  background: var(--btn-hover-bg);
-  color: inherit;
+  background: var(--bg3);
+  color: var(--fg);
 }
 
-/* 当前视图/模式项以 ✓ 标记（不挤占未选项的水平对齐） */
-.menu-item[aria-checked="true"]::before {
-  content: "✓";
-  position: absolute;
-  left: 8px;
-}
-
-.menu-item:disabled {
-  color: var(--muted-fg);
-  cursor: default;
-}
-
-.menu-sep {
-  height: 1px;
-  margin: 4px 8px;
-  background: var(--sep-bg);
-}
-
-.sidebar {
-  overflow-y: auto;
-  grid-row: 2 / 5;
-  grid-column: 1;
-}
-
-/* T18：侧栏内部 —— 吸顶工具行（过滤输入 + 新建/刷新）与树列表 */
-.ws-tools {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* ============ 工具栏 ============ */
+.editor-toolbar {
+  grid-row: 3;
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px 6px;
+  height: var(--h-toolbar);
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel-bg);
+  background: var(--bg);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.editor-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-toolbar .tb-gap {
+  flex: 1;
+}
+
+/* 分组竖线（对齐 SuperMarkdown 的 .tb-sep） */
+.editor-toolbar .tb-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: var(--border);
+  flex: none;
+}
+
+.editor-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.editor-toolbar button:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.editor-toolbar button:active:not(:disabled) {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.editor-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ============ 主区 ============ */
+.main-area {
+  grid-row: 4;
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
+.main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
+.main-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-body > .resizer {
+  flex: 0 0 7px;
+}
+
+.split-half {
+  overflow: hidden;
+}
+
+/* ============ 侧边栏 ============ */
+.sidebar {
+  grid-row: 4;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+}
+
+/* 分区小标题（对齐 SuperMarkdown 的 .sb-section-title） */
+.sb-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 12px 14px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.sb-action {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.sb-action:hover {
+  background: var(--accent-weak);
+}
+
+/* T18：侧栏工具行（过滤输入 + 新建/刷新） */
+.ws-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 4px 10px 8px;
+  background: var(--bg2);
 }
 
 .ws-filter {
   flex: 1;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 5px 10px;
   font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
   background: var(--field-bg);
   color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.tool-btn {
-  flex-shrink: 0;
+.ws-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+.ws-tools .tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ws-tools .tool-btn:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
 }
 
 button.menu-btn:disabled,
@@ -245,26 +461,32 @@ button.menu-btn:disabled,
   cursor: default;
 }
 
-.tree-root,
+/* 树列表：占据剩余高度自成滚动容器 */
+.tree-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
 .tree-group {
   margin: 0;
-  padding: 2px 0;
+  padding: 0;
   list-style: none;
 }
 
 .tree-row {
   display: flex;
   align-items: center;
-  gap: 2px;
-  width: calc(100% - 8px);
-  margin: 0 4px;
-  padding-top: 3px;
-  padding-right: 6px;
-  padding-bottom: 3px;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   background: none;
-  color: inherit;
+  color: var(--fg2);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -276,74 +498,293 @@ button.menu-btn:disabled,
 
 .tree-row:hover:not(:disabled) {
   background: var(--item-hover-bg);
+  color: var(--fg);
 }
 
 .tree-row[aria-selected="true"] {
   background: var(--tree-selected-bg);
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .tree-caret {
-  width: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
   flex-shrink: 0;
   color: var(--caret-fg);
-  font-size: 11px;
+}
+
+/* 展开时箭头顺时针转 90°（lucide ChevronRight 的 className 直接落在 svg 上） */
+.tree-caret .caret-open {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
 }
 
 .tree-icon {
+  display: inline-flex;
   flex-shrink: 0;
+  color: var(--fg3);
 }
 
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 空态 */
 .ws-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 24px 16px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.ws-empty .modal-btn {
+  padding: 5px 14px;
+}
+
+/* ============ 大纲 ============ */
+.outline-panel {
+  grid-row: 4;
+  grid-column: 5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+}
+
+/* T19：大纲面板 —— 标题 + 缩进列表（对齐 SuperMarkdown 的 .ol-title/.ol-item） */
+.outline-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 12px 14px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
+.outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outline-item:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* H1-H6 级别徽章 */
+.outline-badge {
+  flex: none;
+  min-width: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--muted-fg);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.outline-empty {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 16px 8px;
+  padding: 20px 14px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+}
+
+/* ============ 状态栏 ============ */
+.status-bar {
+  grid-row: 5;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: var(--h-statusbar);
+  padding: 0 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--status-fg);
+  user-select: none;
+}
+
+.status-bar > .status-left,
+.status-bar > .status-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* 路径段可收缩出省略号，其余段保持完整不缩 */
+.status-bar .status-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-bar .status-right > span {
+  flex: none;
+}
+
+.status-dot {
+  color: var(--accent);
+}
+
+/* ============ 分隔线 / 拖宽条 ============ */
+/* 1px 发丝线居中于 7px 透明热区，既是分隔也是拖柄；悬停/拖拽中加深提示
+   （.dragging 由 lib/colDrag 开关——capture 下指针会漂出热区，:hover 不可靠）。 */
+.resizer {
+  position: relative;
+  cursor: col-resize;
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.resizer:hover::before,
+.resizer.dragging::before {
+  background: var(--accent);
+}
+
+/* 面板拖宽条（App 壳层左右栏与主区之间） */
+.app-resizer {
+  width: 7px;
+  grid-row: 4;
+}
+
+.app-resizer.res-left {
+  grid-column: 2;
+}
+
+.app-resizer.res-right {
+  grid-column: 4;
+}
+
+/* ============ 编辑器 ============ */
+.editor-cm {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor {
+  height: 100%;
+  font-size: 15px;
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor.cm-focused {
+  outline: none; /* 焦点态由 caret 与选区表达，去掉默认蓝框 */
+}
+
+.editor-cm .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.75;
+  padding: 10px 0 30vh;
+}
+
+.editor-cm .cm-content {
+  padding: 0 24px 0 8px;
+  caret-color: var(--accent);
+}
+
+/* 明暗由 oneDark compartment 接管暗色；亮色下把行号槽融进纸面 */
+.editor-cm .cm-gutters {
+  border-right: none;
+  background: transparent;
+  color: var(--fg3);
+}
+
+.editor-cm .cm-activeLineGutter {
+  background: transparent;
+  color: var(--fg2);
+}
+
+/* ============ 预览 ============ */
+.preview-scroll {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   color: var(--muted-fg);
   font-size: 13px;
 }
 
-.main-area {
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  grid-row: 4;
-  grid-column: 3;
-}
-
-/* T22：工具栏（Task 5 上移到壳层第 3 行、仅中列；preview 模式不渲染该行） */
-.editor-toolbar {
-  grid-row: 3;
-  grid-column: 3;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 6px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-bg);
-}
-
-.editor-toolbar .tb-gap {
-  flex: 1;
-}
-
-/* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
-.main-body {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  display: flex;
-}
-
-/* T23：整篇翻译进度条（仅翻译进行中渲染；空态组件返回 null 不占位） */
+/* ============ 整篇翻译进度条 ============ */
 .translation-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 10px;
+  gap: 10px;
+  flex: none;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--tr-box-bg);
   font-size: 12px;
+  color: var(--fg2);
+}
+
+.translation-bar .tb-label {
+  flex: none;
+  font-weight: 500;
+  color: var(--accent);
 }
 
 .translation-bar .tb-track {
@@ -374,9 +815,9 @@ button.menu-btn:disabled,
 }
 
 .translation-bar .tb-stop {
-  padding: 1px 10px;
+  padding: 2px 12px;
   border: 1px solid var(--btn-border);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   background: var(--btn-bg);
   color: inherit;
   font: inherit;
@@ -389,23 +830,25 @@ button.menu-btn:disabled,
   color: var(--accent);
 }
 
-/* T24：划词翻译浮窗——旧版 egui CENTER_TOP [0, 44] 锚点的 web 等价：
-   fixed 顶部居中、top 44px；max-width/height 即视口钳制，结果超高滚动 */
+/* ============ 划词翻译浮窗 ============ */
+/* 旧版 egui CENTER_TOP [0,44] 锚点的 web 等价：fixed 顶部居中；
+   max-width/height 即视口钳制，结果超高滚动。 */
 .sel-pop {
   position: fixed;
-  top: 44px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1100;
   max-width: min(480px, calc(100vw - 24px));
   max-height: 50vh;
   overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow);
   font-size: 13px;
+  animation: pop-in 0.14s ease;
 }
 
 .sel-pop-head {
@@ -413,17 +856,20 @@ button.menu-btn:disabled,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .sel-pop-title {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.04em;
 }
 
 .sel-pop-clear {
   background: none;
   border: none;
-  color: var(--note-fg);
+  color: var(--fg3);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -443,7 +889,7 @@ button.menu-btn:disabled,
 
 .sel-pop-sep {
   height: 1px;
-  margin: 6px 0;
+  margin: 8px 0;
   background: var(--sep-bg);
 }
 
@@ -456,7 +902,7 @@ button.menu-btn:disabled,
   width: 16px;
   height: 16px;
   margin: 4px 0;
-  border: 2px solid var(--btn-border);
+  border: 2px solid var(--tr-track-bg);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: sel-pop-rot 0.8s linear infinite;
@@ -468,7 +914,8 @@ button.menu-btn:disabled,
   }
 }
 
-/* T26：设置模态（Modal 壳 + SettingsModal 表单共用） */
+/* ============ 模态框 ============ */
+/* 三段式：head（标题）/ body（内容）/ foot（.modal-actions 负边距贴底） */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -482,76 +929,118 @@ button.menu-btn:disabled,
 .modal {
   display: flex;
   flex-direction: column;
-  min-width: 420px;
-  max-width: min(560px, calc(100vw - 32px));
+  min-width: 460px;
+  max-width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  padding: 12px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-strong);
+  box-shadow: var(--shadow);
   font-size: 13px;
+  animation: modal-in 0.16s ease;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal:focus {
+  outline: none;
 }
 
 .modal-title {
+  flex: none;
+  padding: 14px 18px;
+  font-size: 14px;
   font-weight: 600;
-  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
 }
 
 .modal-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 6px 0;
+  gap: 10px;
+  margin: 8px 0;
 }
 
 .modal-row > label {
   flex-shrink: 0;
-  min-width: 76px;
+  min-width: 80px;
+  font-size: 12px;
+  color: var(--fg2);
 }
 
 .modal-row > select,
 .modal-row > input {
   flex: 1;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 8px 10px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
   background: var(--field-bg);
   color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.modal-row > select:focus,
+.modal-row > input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
 }
 
 .modal-check > label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  color: var(--fg);
   cursor: pointer;
 }
 
+.modal-row > .modal-btn {
+  flex: none;
+}
+
 .modal-note {
-  margin: 6px 0;
+  margin: 8px 0;
   color: var(--note-fg);
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .modal-sep {
   height: 1px;
-  margin: 8px 0;
+  margin: 14px 0;
   background: var(--sep-bg);
 }
 
 .modal-btn {
-  padding: 3px 12px;
+  padding: 6px 14px;
   border: 1px solid var(--btn-border);
-  border-radius: 4px;
+  border-radius: 7px;
   background: var(--btn-bg);
-  color: inherit;
+  color: var(--fg);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
 .modal-btn:hover:not(:disabled) {
@@ -577,20 +1066,25 @@ button.menu-btn:disabled,
 }
 
 .modal-test {
-  margin: 6px 0;
+  margin: 8px 0;
   color: var(--test-fg);
+  font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+/* 负边距把操作区拉成贴底 foot（不占用 body 内边距） */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin: 16px -18px -16px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
 }
 
-/* T28：命令面板——顶部居中浮层，z 高于模态（1200）低于 toast（1300） */
+/* ============ 命令面板 ============ */
 .palette-backdrop {
   position: fixed;
   inset: 0;
@@ -600,40 +1094,45 @@ button.menu-btn:disabled,
 
 .palette {
   position: absolute;
-  top: 80px;
+  top: 14vh;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  width: min(480px, calc(100vw - 32px));
-  max-height: min(400px, calc(100vh - 120px));
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 160px));
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-strong);
+  box-shadow: var(--shadow);
   font-size: 13px;
+  animation: modal-in 0.14s ease;
 }
 
 .palette-input {
-  margin: 8px;
-  padding: 6px 8px;
+  flex: none;
+  margin: 0;
+  padding: 14px 18px;
   font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--field-bg);
+  font-size: 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
   color: inherit;
+  outline: none;
 }
 
-.palette-input:focus {
-  outline: none;
-  border-color: var(--accent);
+.palette-input::placeholder {
+  color: var(--placeholder-fg);
 }
 
 .palette-list {
+  flex: 1;
+  min-height: 0;
   margin: 0;
-  padding: 0 4px 4px;
+  padding: 6px;
   list-style: none;
   overflow-y: auto;
 }
@@ -641,52 +1140,57 @@ button.menu-btn:disabled,
 .palette-item {
   display: block;
   width: 100%;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: none;
-  color: inherit;
+  color: var(--fg2);
   font: inherit;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
-/* 选中态即悬停态（onMouseMove 同步 sel），与 tree-row 选中色同源 */
 .palette-item[aria-selected="true"] {
   background: var(--palette-selected-bg);
+  color: var(--accent);
 }
 
 .palette-empty {
-  padding: 10px;
+  padding: 20px;
   color: var(--muted-fg);
+  font-size: 12.5px;
   text-align: center;
 }
 
-/* T27：toast 通知——fixed 右下堆叠，slide+fade 入场；kind 左色条区分 */
+/* ============ Toast ============ */
+/* 底部居中堆叠（对齐 SuperMarkdown 的 .toast），kind 以左侧色条区分 */
 .toast-stack {
   position: fixed;
-  right: 12px;
-  bottom: 36px; /* StatusBar 之上 */
+  left: 50%;
+  bottom: 48px; /* StatusBar 之上 */
+  transform: translateX(-50%);
   z-index: 1300;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
 }
 
 .toast {
-  max-width: min(360px, calc(100vw - 24px));
-  padding: 8px 12px;
-  border: 1px solid var(--border-strong);
-  border-left-width: 4px;
-  border-radius: 6px;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
   font-size: 13px;
   word-break: break-word;
   cursor: pointer;
-  animation: toast-in 0.25s ease-out;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
 }
 
 .toast-success {
@@ -704,193 +1208,15 @@ button.menu-btn:disabled,
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
-/* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
-.main-body > * {
-  flex: 1;
-  min-width: 0;
-}
-
-.main-body > .resizer {
-  flex: 0 0 7px;
-}
-
-.split-half {
-  overflow: hidden;
-}
-
-/* 分隔线（对齐参考图）：1px 发丝线居中于 7px 透明热区，既是分隔也是拖柄；
-   悬停/拖拽中加深提示（.dragging 由 lib/colDrag 开关——capture 下指针会漂出
-   热区，:hover 不可靠）。面板折叠时热区随之卸载、网格轨道塌缩为 0。 */
-.resizer {
-  position: relative;
-  cursor: col-resize;
-}
-
-.resizer::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 3px;
-  width: 1px;
-  background: var(--border);
-}
-
-.resizer:hover::before,
-.resizer.dragging::before {
-  background: var(--resizer-hover);
-}
-
-/* 面板拖宽条（App 壳层左右栏与主区之间） */
-.app-resizer {
-  width: 7px;
-  grid-row: 4;
-}
-
-.app-resizer.res-left {
-  grid-column: 2;
-  grid-row: 2 / 5;
-}
-
-.app-resizer.res-right {
-  grid-column: 4;
-  grid-row: 2 / 5; /* 与 res-left 对齐：分隔线贯穿 tabbar/toolbar/main，避免右侧只在 row 4 顶到工具栏 */
-}
-
-/* T22：预览首次真正挂载（T20 组件当时无宿主）——容器滚动由壳层负责 */
-.preview-scroll {
-  height: 100%;
-  overflow-y: auto;
-}
-
-.preview-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--muted-fg);
-  font-size: 13px;
-}
-
-/* T21：CodeMirror 宿主——撑满主区；暗色由 oneDark 接管配色 */
-.editor-cm {
-  height: 100%;
-  overflow: hidden;
-}
-
-.editor-cm .cm-editor {
-  height: 100%;
-  font-size: 14px;
-}
-
-.editor-cm .cm-editor.cm-focused {
-  outline: none; /* 焦点态由壳层与选区绘制表达，去掉默认蓝框 */
-}
-
-.editor-cm .cm-scroller {
-  font-family: var(--font-mono);
-  line-height: 1.6;
-}
-
-.outline-panel {
-  overflow-y: auto;
-  grid-row: 4;
-  grid-column: 5;
-}
-
-/* T19：大纲面板 —— level 缩进行（(level-1)*12px）与空态 */
-.outline-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px 8px;
-  color: var(--muted-fg);
-  font-size: 13px;
-}
-
-.outline-list {
-  margin: 0;
-  padding: 2px 0;
-  list-style: none;
-}
-
-.outline-item {
-  display: block;
-  width: calc(100% - 8px);
-  margin: 0 4px;
-  padding-top: 3px;
-  padding-bottom: 3px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.outline-item:hover {
-  background: var(--item-hover-bg);
-}
-
-/* H1/H2 级别徽章（对齐旧版参考 UI） */
-.outline-badge {
-  display: inline-block;
-  min-width: 20px;
-  margin-right: 6px;
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--item-hover-bg);
-  color: var(--muted-fg);
-  font-size: 11px;
-  line-height: 17px;
-  text-align: center;
-  vertical-align: 1px;
-}
-
-.status-bar {
-  grid-row: 5;
-  grid-column: 1 / -1;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  border-top: 1px solid var(--border);
-  background: var(--panel-bg);
-  color: var(--status-fg);
-}
-
-.status-bar > span {
-  flex-shrink: 0;
-}
-
-/* T16 review 修补：路径段是真实文本节点，长路径自身收缩出省略号，
-   其余段（字符行数/模式/provider/翻译状态）保持完整不缩。 */
-.status-bar > .status-path {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ---- 滚动条淡显淡出：静止时滚动条完全隐形，滚动中渐显，停止渐隐 ----
+/* ---- 滚动条淡显淡出：静止时完全隐形，滚动中渐显，停止渐隐 ----
    --sb-thumb 注册为可过渡的 <color>（@property，WebView2/Chromium 85+），
    滚动条伪元素继承宿主的该变量；.scrolling 由 main.tsx 的全局 scroll 委托
    在滚动开始时加上、停止约 900ms 后摘除，过渡随宿主 transition 渐变。 */
@@ -900,42 +1226,52 @@ button.menu-btn:disabled,
   initial-value: transparent;
 }
 
-.sidebar,
-.outline-panel,
+.tree-root,
+.outline-list,
 .preview-scroll,
-.editor-cm .cm-scroller {
+.editor-cm .cm-scroller,
+.modal-body,
+.palette-list {
   --sb-thumb: transparent;
   transition: --sb-thumb 0.5s;
 }
 
-.sidebar.scrolling,
-.outline-panel.scrolling,
+.tree-root.scrolling,
+.outline-list.scrolling,
 .preview-scroll.scrolling,
-.editor-cm .cm-scroller.scrolling {
+.editor-cm .cm-scroller.scrolling,
+.modal-body.scrolling,
+.palette-list.scrolling {
   --sb-thumb: var(--scrollbar-thumb);
 }
 
-.sidebar::-webkit-scrollbar,
-.outline-panel::-webkit-scrollbar,
+.tree-root::-webkit-scrollbar,
+.outline-list::-webkit-scrollbar,
 .preview-scroll::-webkit-scrollbar,
-.editor-cm .cm-scroller::-webkit-scrollbar {
+.editor-cm .cm-scroller::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar,
+.palette-list::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.sidebar::-webkit-scrollbar-thumb,
-.outline-panel::-webkit-scrollbar-thumb,
+.tree-root::-webkit-scrollbar-thumb,
+.outline-list::-webkit-scrollbar-thumb,
 .preview-scroll::-webkit-scrollbar-thumb,
-.editor-cm .cm-scroller::-webkit-scrollbar-thumb {
+.editor-cm .cm-scroller::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb,
+.palette-list::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
   border-radius: 5px;
   background-clip: padding-box;
 }
 
-.sidebar::-webkit-scrollbar-track,
-.outline-panel::-webkit-scrollbar-track,
+.tree-root::-webkit-scrollbar-track,
+.outline-list::-webkit-scrollbar-track,
 .preview-scroll::-webkit-scrollbar-track,
-.editor-cm .cm-scroller::-webkit-scrollbar-track {
+.editor-cm .cm-scroller::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track,
+.palette-list::-webkit-scrollbar-track {
   background: transparent;
 }

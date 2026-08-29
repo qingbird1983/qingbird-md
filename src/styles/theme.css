@@ -1,82 +1,140 @@
-/* T30 主题变量贯通：亮暗两套调色板 + CJK 字体栈。
+/* 设计令牌。
+   视觉语言借鉴 SuperMarkdown：三层中性灰阶（纸面 bg / 面板 bg2 / 悬停 bg3）
+   + 三级前景（fg / fg2 / fg3）+ 单一蓝紫 accent，统一大圆角与柔和投影。
    真源在 useSettingsStore：theme(light|dark|auto) 经 isDarkTheme 解析后由
    syncDomTheme 写入 body[data-theme="dark|light"]，auto 档由 matchMedia watch
    随系统实时切换。CSS 侧恒以 var() 取色，组件样式零硬编码色。 */
 
 :root {
-  /* 字体：brief 指定栈——拉丁走 Segoe UI，中文命中雅黑（Tauri WebView 系统字体），
-     苹方/Noto 为跨平台兜底；无须打包字体文件（省 15MB）。 */
-  --font-ui: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
-  /* 代码/编辑器等宽：Consolas 之后落雅黑，保证 CJK 注释不豆腐 */
-  --font-mono: ui-monospace, SFMono-Regular, Consolas, "Microsoft YaHei", monospace;
+  /* 字体：拉丁走系统 UI 栈，中文命中雅黑/苹方；无须打包字体文件（省 15MB）。 */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  /* 代码/编辑器等宽：Cascadia/JetBrains 优先，末位落雅黑保证 CJK 注释不豆腐 */
+  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas,
+    "Microsoft YaHei", monospace;
 
-  /* ---- 亮色基准（与 T15-T28 既有字面色逐一对齐，零视觉漂移）---- */
-  --bg: #fafafa;
-  --fg: #222;
-  --accent: #2f6fed;
-  --on-accent: #fff;
-  --accent-strong: #2558c4; /* primary 按钮 hover；暗色沿用亮值（既有行为） */
-  --border: #ddd;           /* 面板分隔线/中缝 */
-  --border-strong: #ccc;    /* 浮层/输入框描边 */
-  --panel-bg: #f5f5f5;      /* topbar/状态条/工具栏底 */
-  --surface: #fff;          /* 浮层/弹窗/toast 底 */
-  --field-bg: #fff;         /* 输入框底 */
-  --btn-hover-bg: #e8e8e8;  /* 菜单按钮 hover */
-  --item-hover-bg: #eee;    /* 菜单项/树行/大纲行 hover */
-  --tree-selected-bg: #d5e4f7;
-  --palette-selected-bg: #e8f0fe;
-  --caret-fg: #777;
-  --muted-fg: #999;         /* 空态/禁用文字；暗色沿用亮值（既有行为） */
-  --note-fg: #667;
-  --test-fg: #555;          /* 连接测试输出 */
-  --status-fg: #555;
-  --sep-bg: #e0e0e0;        /* 菜单/弹窗内分隔线 */
-  --btn-border: #c8d4e8;    /* 普通按钮描边/进度环底 */
-  --btn-bg: #fff;           /* 普通按钮底（暗色独立于 surface，为蓝调 #2a3448） */
-  --tr-box-bg: #eef4fc;     /* 翻译进度条底 */
-  --tr-track-bg: #d8e2f0;
-  --success: #2e7d32;
-  --danger: #c62828;
-  --backdrop: rgba(0, 0, 0, 0.35);
-  --backdrop-weak: rgba(0, 0, 0, 0.25);
-  --shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  --shadow-strong: 0 6px 16px rgba(0, 0, 0, 0.2);
-  --resizer-hover: #bbb;
-  --scrollbar-thumb: #c8c8c8; /* 滚动条滑块（滚动中渐显，见 global.css） */
+  /* ---- 中性灰阶：三层递进 ---- */
+  --bg: #ffffff; /* 纸面：编辑器/主区 */
+  --bg2: #f7f7f8; /* 面板：顶栏/标签条/工具栏底/侧栏/大纲/状态条 */
+  --bg3: #ececf0; /* 悬停/按下：按钮与列表行的交互态 */
+
+  /* ---- 前景：三级递减 ---- */
+  --fg: #333338; /* 主文本 */
+  --fg2: #6b6b72; /* 次级文本：菜单项、树行、状态条 */
+  --fg3: #9a9aa2; /* 弱文本：分区标题、空态、图标 */
+
+  /* ---- 主色 ---- */
+  --accent: #4f6ef7;
+  --accent-strong: #3b57d6; /* primary hover / 按下 */
+  --accent-weak: rgba(79, 110, 247, 0.12); /* 选中底 */
+  --accent-ring: rgba(79, 110, 247, 0.35); /* focus 外环 */
+  --on-accent: #ffffff; /* 主色底上的文字 */
+
+  /* ---- 描边与面 ---- */
+  --border: #e4e4e9; /* 面板分隔线/中缝 */
+  --border-strong: #d6d6dd; /* 浮层/输入框描边 */
+  --sep-bg: #e9e9ee; /* 菜单/弹窗内分隔线 */
+  --panel-bg: var(--bg2); /* 顶栏/标签条/工具栏/状态条底 */
+  --surface: #ffffff; /* 浮层/弹窗/toast 底 */
+  --field-bg: #ffffff; /* 输入框底 */
+
+  /* ---- 交互态 ---- */
+  --btn-hover-bg: var(--bg3); /* 菜单按钮 hover */
+  --item-hover-bg: var(--bg3); /* 菜单项/树行/大纲行 hover */
+  --btn-bg: #ffffff; /* 普通按钮底 */
+  --btn-border: #dcdce3; /* 普通按钮描边 */
+  --tree-selected-bg: var(--accent-weak);
+  --palette-selected-bg: var(--accent-weak);
+  --caret-fg: var(--fg3); /* 树展开箭头 */
+  --muted-fg: var(--fg3); /* 空态/禁用文字 */
+  --note-fg: var(--fg2); /* 说明文字 */
+  --test-fg: var(--fg2); /* 连接测试输出 */
+  --status-fg: var(--fg2); /* 状态条 */
+  --placeholder-fg: #b0b0b8;
+
+  /* ---- 语义色 ---- */
+  --success: #2ea043;
+  --warning: #d29922;
+  --danger: #d64545;
+
+  /* ---- 翻译进度条（accent 系浅底，与主区白纸拉开层次）---- */
+  --tr-box-bg: #eef1fe;
+  --tr-track-bg: #d8defb;
+
+  /* ---- 投影：大范围柔光，浮层脱离纸面 ---- */
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --shadow-strong: 0 12px 40px rgba(0, 0, 0, 0.18);
+
+  --backdrop: rgba(0, 0, 0, 0.4);
+  --backdrop-weak: rgba(0, 0, 0, 0.28);
+
+  /* ---- 圆角：三档，全站只用这三档 ---- */
+  --r-sm: 6px; /* 按钮、输入、列表行 */
+  --r-md: 8px; /* 标签、卡片 */
+  --r-lg: 12px; /* 浮层、弹窗、搜索条 */
+
+  /* ---- 尺寸节奏 ---- */
+  --h-topbar: 38px;
+  --h-tabbar: 36px;
+  --h-toolbar: 44px;
+  --h-statusbar: 26px;
+
+  --resizer-hover: #c3c3cc;
+  --scrollbar-thumb: #cdcdd4; /* 滚动条滑块（滚动中渐显，见 global.css） */
 }
 
 body[data-theme="dark"] {
-  --bg: #1e1e1e;
-  --fg: #ddd;
-  --accent: #58a6ff;
-  --border: #333;
-  --border-strong: #454545;
-  --panel-bg: #252526;
-  --surface: #2d2d2d;
-  --field-bg: #1e1e1e;
-  --btn-hover-bg: #3a3d41;
-  --item-hover-bg: #3a3d41;
-  --tree-selected-bg: #094771;
-  --palette-selected-bg: #094771;
-  --caret-fg: #aaa;
-  --note-fg: #99a7bd;
-  --test-fg: #99a7bd;
-  --status-fg: #aaa;
-  --sep-bg: #444;
-  --btn-border: #3a4a66;
-  --btn-bg: #2a3448;
-  --tr-box-bg: #1f2a3d;
-  --tr-track-bg: #2d3a52;
-  --success: #66bb6a;
-  --danger: #ef5350;
-  --backdrop: rgba(0, 0, 0, 0.5);
-  --backdrop-weak: rgba(0, 0, 0, 0.4);
-  --resizer-hover: #555;
-  --scrollbar-thumb: #555;
+  --bg: #1b1b1f;
+  --bg2: #222226;
+  --bg3: #2a2a30;
+  --fg: #e6e6ea;
+  --fg2: #a0a0a8;
+  --fg3: #6f6f78;
+
+  --accent: #7b94ff;
+  --accent-strong: #93a8ff;
+  --accent-weak: rgba(123, 148, 255, 0.16);
+  --accent-ring: rgba(123, 148, 255, 0.4);
+  --on-accent: #14141a;
+
+  --border: #33333a;
+  --border-strong: #3f3f48;
+  --sep-bg: #2e2e36;
+  --panel-bg: var(--bg2);
+  --surface: #232329;
+  --field-bg: #1b1b1f;
+
+  --btn-hover-bg: var(--bg3);
+  --item-hover-bg: var(--bg3);
+  --btn-bg: #2a2a30;
+  --btn-border: #3a3a42;
+  --caret-fg: var(--fg3);
+  --muted-fg: var(--fg3);
+  --note-fg: var(--fg2);
+  --test-fg: var(--fg2);
+  --status-fg: var(--fg2);
+  --placeholder-fg: #55555e;
+
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f0616b;
+
+  --tr-box-bg: #232842;
+  --tr-track-bg: #303857;
+
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --shadow-strong: 0 12px 40px rgba(0, 0, 0, 0.55);
+
+  --backdrop: rgba(0, 0, 0, 0.55);
+  --backdrop-weak: rgba(0, 0, 0, 0.42);
+
+  --resizer-hover: #55555e;
+  --scrollbar-thumb: #4a4a54;
 }
 
 body {
   font-family: var(--font-ui);
+  font-size: 14px;
   color: var(--fg);
   background: var(--bg);
 }

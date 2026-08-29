@@ -47,29 +47,40 @@ export default function OutlinePanel() {
     [payloadHtml, parseOutline],
   );
 
-  if (content === null) return <div className="outline-empty">未打开文档</div>;
-  if (!outline || outline.length === 0) return <div className="outline-empty">无标题</div>;
+  // 分区标题常驻（对齐 SuperMarkdown 的 .ol-title），空态也保持面板形态
+  const title = <div className="outline-title">大纲</div>;
+  if (content === null || !outline || outline.length === 0) {
+    return (
+      <>
+        {title}
+        <div className="outline-empty">{content === null ? "未打开文档" : "无标题"}</div>
+      </>
+    );
+  }
 
   return (
-    <ul className="outline-list" aria-label="大纲">
-      {outline.map((item) => (
-        <li key={item.id}>
-          <button
-            type="button"
-            className="outline-item"
-            style={{ paddingLeft: Math.max(0, item.level - 1) * 12 }}
-            title={item.text}
-            onClick={() =>
-              document
-                .getElementById(item.id)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" })
-            }
-          >
-            <span className="outline-badge">H{item.level}</span>
-            {item.text}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <>
+      {title}
+      <ul className="outline-list" aria-label="大纲">
+        {outline.map((item) => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className="outline-item"
+              style={{ paddingLeft: 8 + Math.max(0, item.level - 1) * 13 }}
+              title={item.text}
+              onClick={() =>
+                document
+                  .getElementById(item.id)
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+            >
+              <span className="outline-badge">H{item.level}</span>
+              <span className="outline-text">{item.text}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

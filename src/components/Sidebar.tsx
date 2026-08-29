@@ -4,6 +4,7 @@
 // 新建名称沿用 FileMenu 同款原生 window.prompt 路线；createFile/Folder
 // 在 store 内成功后已自行 refresh + toast，这里不再重复调用。
 import { useState } from "react";
+import { ChevronRight, FilePlus2, FileText, FolderPlus, Folder, RefreshCw } from "lucide-react";
 import type { TreeNodeDTO } from "../types/ipc";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 
@@ -38,11 +39,13 @@ function Row({ node, depth, open, filterActive, openSet, onToggle }: RowProps) {
           else if (p) selectFile(p);
         }}
       >
-        <span className="tree-caret">{node.is_dir ? (open ? "▾" : "▸") : ""}</span>
-        <span className="tree-icon" aria-hidden>
-          {node.is_dir ? "📁" : "📄"}
+        <span className="tree-caret" aria-hidden>
+          {node.is_dir ? <ChevronRight size={12} className={open ? "caret-open" : undefined} /> : null}
         </span>
-        {node.name}
+        <span className="tree-icon" aria-hidden>
+          {node.is_dir ? <Folder size={14} /> : <FileText size={14} />}
+        </span>
+        <span className="tree-name">{node.name}</span>
       </button>
       {node.is_dir && node.children.length > 0 && (open || filterActive) && (
         <ul className="tree-group">
@@ -87,18 +90,25 @@ export default function Sidebar() {
 
   return (
     <>
+      {/* 分区标题 + 工具行：标题「工作区」，右侧切换工作区入口 */}
+      <div className="sb-title">
+        工作区
+        <button type="button" className="sb-action" onClick={() => void openWorkspace()}>
+          {root ? "切换…" : "打开…"}
+        </button>
+      </div>
       <div className="ws-tools">
         <input
           type="search"
           className="ws-filter"
-          placeholder="过滤…"
+          placeholder="过滤文件…"
           value={search}
           onChange={(e) => void searchFilter(e.target.value)}
           disabled={!root}
         />
         <button
           type="button"
-          className="menu-btn tool-btn"
+          className="tool-btn"
           title="新建文件"
           disabled={!root}
           onClick={() => {
@@ -106,11 +116,11 @@ export default function Sidebar() {
             if (n?.trim()) void createFile(n.trim());
           }}
         >
-          ＋📄
+          <FilePlus2 size={15} />
         </button>
         <button
           type="button"
-          className="menu-btn tool-btn"
+          className="tool-btn"
           title="新建文件夹"
           disabled={!root}
           onClick={() => {
@@ -118,26 +128,21 @@ export default function Sidebar() {
             if (n?.trim()) void createFolder(n.trim());
           }}
         >
-          ＋📁
+          <FolderPlus size={15} />
         </button>
         <button
           type="button"
-          className="menu-btn tool-btn"
+          className="tool-btn"
           title="刷新"
           disabled={!root}
           onClick={() => void refresh()}
         >
-          ⟳
+          <RefreshCw size={14} />
         </button>
       </div>
 
       {!root ? (
-        <div className="ws-empty">
-          未打开工作区
-          <button type="button" className="menu-btn" onClick={() => void openWorkspace()}>
-            打开…
-          </button>
-        </div>
+        <div className="ws-empty">未打开工作区，点击右上「打开…」选择目录</div>
       ) : tree.length === 0 ? (
         <div className="ws-empty">{filterActive ? "无匹配项" : "空目录"}</div>
       ) : (

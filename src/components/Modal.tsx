@@ -31,7 +31,8 @@ export default function Modal({ title, onClose, children }: ModalProps) {
     >
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}>
         <div className="modal-title">{title}</div>
-        {children}
+        {/* 三段式模态：body 承载内容并自成滚动；.modal-actions 以负边距贴底成 foot */}
+        <div className="modal-body">{children}</div>
       </div>
     </div>
   );

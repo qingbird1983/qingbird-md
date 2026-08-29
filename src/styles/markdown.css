@@ -19,9 +19,10 @@
   --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（syntect 为 InspiredGitHub 浅色 span） */
   --md-pre-fg: #1f2328;
   --md-pre-muted: #6e778e; /* 行号 */
-  --md-tr-bg: #ddf4ff;
-  --md-tr-border: #54aeff;
-  --md-tr-fg: #0a3069;
+  /* 双语对照块走主色系，与全局 accent 同源 */
+  --md-tr-bg: #eef1fe;
+  --md-tr-border: #c3ccfa;
+  --md-tr-fg: #2c3f8f;
 
   /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
      窗口/split 分栏窄于该值时自然收缩回流式排版。宽版 .wide 放宽到
@@ -30,10 +31,11 @@
   max-width: 794px;
   margin-inline: auto;
 
-  padding: 16px 24px 40px;
+  /* 纸面留白对齐 SuperMarkdown 的阅读节奏：上 28、左右 36、下留长滚动余量 */
+  padding: 28px 36px 180px;
   font-family: var(--font-ui); /* T30：全局 CJK 字体栈（styles/theme.css） */
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.75;
   color: var(--md-fg);
   word-wrap: break-word;
 }
@@ -60,9 +62,9 @@ body[data-theme="dark"] .markdown-body {
   --md-th-bg: #2b2f33;
   --md-quote-fg: #8b949e;
   --md-task-bg: #1e1e1e;
-  --md-tr-bg: #12263a;
-  --md-tr-border: #274a68;
-  --md-tr-fg: #79b8ff;
+  --md-tr-bg: #232842;
+  --md-tr-border: #3b4675;
+  --md-tr-fg: #a9b8ff;
   /* ponytail: 代码块配色不随暗色主题——syntect span 色已按浅色主题
      (InspiredGitHub) 烘进 HTML，暗底配深字会不可读，故暗色下仍保持
      浅灰代码块。需要真暗色代码块时后端需按主题出两份 span。 */
@@ -74,15 +76,22 @@ body[data-theme="dark"] .markdown-body {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 24px 0 16px;
+  margin: 1.4em 0 0.6em;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.35;
 }
 
-.markdown-body h1 { font-size: 2em; }
-.markdown-body h2 { font-size: 1.5em; }
+/* H1 带下划分隔线（对齐 SuperMarkdown 的纸面层级） */
+.markdown-body h1 {
+  font-size: 1.85em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-border);
+}
 
-.markdown-body h5 { font-size: 0.875em; }
+.markdown-body h2 { font-size: 1.45em; }
+.markdown-body h3 { font-size: 1.2em; }
+.markdown-body h4 { font-size: 1.05em; }
+.markdown-body h5 { font-size: 0.9em; }
 .markdown-body h6 {
   font-size: 0.85em;
   color: var(--md-muted);
@@ -91,7 +100,7 @@ body[data-theme="dark"] .markdown-body {
 /* 标题不带下划线（对齐旧版参考 UI），前置折叠 caret 见 .h-toggle */
 
 .markdown-body p {
-  margin: 0 0 16px;
+  margin: 0 0 0.9em;
 }
 
 .markdown-body a {
@@ -112,18 +121,19 @@ body[data-theme="dark"] .markdown-body {
 }
 
 .markdown-body hr {
-  height: 1px;
-  margin: 24px 0;
+  height: 0;
+  margin: 1.8em 0;
   border: none;
-  background: var(--md-border);
+  border-top: 2px dashed var(--md-border);
+  background: none;
 }
 
 /* ---- 列表 / 任务勾选框 ---- */
 
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0 0 16px;
-  padding-left: 2em;
+  margin: 0 0 0.9em;
+  padding-left: 1.8em;
 }
 
 .markdown-body li + li {
@@ -135,36 +145,40 @@ body[data-theme="dark"] .markdown-body {
   list-style: none;
 }
 
-/* 方形勾选框：浮在 2em 缩进槽内；done 叠加 ✓ 并填充主色 */
+/* 圆角勾选框：浮在缩进槽内；done 叠加 ✓ 并填充主色 */
 .markdown-body li.task::before {
   content: "";
   position: absolute;
-  left: -22px;
-  top: 0.25em;
+  left: -1.6em;
+  top: 0.3em;
   box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--md-muted);
-  border-radius: 3px;
+  width: 1.05em;
+  height: 1.05em;
+  border: 2px solid var(--md-muted);
+  border-radius: 4px;
   background: var(--md-task-bg);
 }
 
 .markdown-body li.task.done::before {
   content: "✓";
-  font-size: 11px;
-  line-height: 13px;
-  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--md-check-fg);
   border-color: var(--md-link);
   background: var(--md-link);
 }
 
-/* ---- 引用块：左竖线 ---- */
+/* ---- 引用块：左竖线 + 浅底 + 右侧圆角 ---- */
 
 .markdown-body blockquote {
-  margin: 0 0 16px;
-  padding: 0 1em;
+  margin: 1.1em 0;
+  padding: 0.4em 1em;
   border-left: 4px solid var(--md-border);
+  border-radius: 0 8px 8px 0;
+  background: var(--md-stripe);
   color: var(--md-quote-fg);
 }
 
@@ -175,18 +189,18 @@ body[data-theme="dark"] .markdown-body {
 /* ---- 行内代码 / 代码块 ---- */
 
 .markdown-body code {
-  padding: 0.2em 0.4em;
+  padding: 0.15em 0.4em;
   font-family: var(--font-mono);
-  font-size: 85%;
+  font-size: 87%;
   background: var(--md-code-bg);
-  border-radius: 4px;
+  border-radius: 5px;
 }
 
 .markdown-body pre.code-block {
   position: relative;
-  margin: 12px 0 16px;
-  padding: 34px 12px 10px 10px;
-  border-radius: 8px;
+  margin: 1.2em 0;
+  padding: 38px 16px 14px;
+  border-radius: 10px;
   background: var(--md-pre-bg);
   overflow-x: auto;
 }
@@ -194,8 +208,8 @@ body[data-theme="dark"] .markdown-body {
 .markdown-body pre.code-block code {
   display: block;
   padding: 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: var(--md-pre-fg);
   white-space: pre-wrap; /* 保持缩进；高亮路径行尾 \n 即换行，mono 路径已对齐同构输出 */
   background: transparent;
@@ -213,11 +227,11 @@ body[data-theme="dark"] .markdown-body {
 
 .markdown-body pre.code-block .code-lang {
   position: absolute;
-  top: 8px;
-  left: 10px;
-  padding: 1px 8px;
+  top: 9px;
+  left: 14px;
+  padding: 1px 9px;
   font-size: 11px;
-  border-radius: 4px;
+  border-radius: 5px;
   background: rgba(26, 127, 55, 0.1); /* 浅灰 pre 底上的淡绿药丸，不随主题 */
   color: var(--md-ok-fg);
 }
@@ -242,9 +256,10 @@ body[data-theme="dark"] .markdown-body {
 /* 复制按钮：注入一次（PreviewView），图标态，成功短暂变 ✓ */
 .markdown-body .copy-btn {
   position: absolute;
-  top: 6px;
-  right: 8px;
-  padding: 2px 6px;
+  top: 8px;
+  right: 10px;
+  padding: 3px 7px;
+  border-radius: 5px;
   font: inherit;
   font-size: 14px;
   line-height: 1;
@@ -257,6 +272,7 @@ body[data-theme="dark"] .markdown-body {
 
 .markdown-body .copy-btn:hover {
   opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .markdown-body .copy-btn.ok {
@@ -267,13 +283,13 @@ body[data-theme="dark"] .markdown-body {
 /* ---- 表格：斑马纹 ---- */
 
 .markdown-body table {
-  margin: 0 0 16px;
+  margin: 1.1em 0;
   border-collapse: collapse;
 }
 
 .markdown-body th,
 .markdown-body td {
-  padding: 6px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--md-border);
 }
 
