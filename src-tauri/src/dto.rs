@@ -92,6 +92,43 @@ pub struct ProviderInfoDto {
     pub fields: Vec<ProviderFieldDto>,
 }
 
+/// 选区查词：一条双语例句（spec 2026-08-29 §5.1）。
+///
+/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LookupExample {
+    pub en: String,
+    pub zh: String,
+}
+
+/// 选区查词：一个生僻词解释。
+///
+/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LookupTerm {
+    pub word: String,
+    pub phonetic: String,
+    pub explanation: String,
+}
+
+/// 选区查词结果。`kind = "word"` 时全部字段有效；`"sentence"` 时 phonetic
+/// 及以下为 None / 空数组。serde 不改名（snake_case 线格式，ipc.ts 同名对齐）。
+///
+/// `ponytail:` unused until Task 2 wires the lookup IPC commands.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WordLookupDTO {
+    pub kind: String, // "word" | "sentence"
+    pub translation: String,
+    pub phonetic: Option<String>,
+    pub part_of_speech: Option<String>,
+    pub usage: Option<String>,
+    pub examples: Vec<LookupExample>,
+    pub terms: Vec<LookupTerm>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -33,6 +33,21 @@ pub trait HttpClient: Send + Sync {
         let _ = timeout_ms;
         self.post_json(url, body, headers)
     }
+
+    /// GET with per-request headers + timeout. Default falls back to
+    /// [`Self::get`] ignoring both (used by mocks) — mirrors post_json_timeout.
+    ///
+    /// `ponytail:` unused until Task 2 wires the lookup IPC commands.
+    #[allow(dead_code)]
+    fn get_headers_timeout(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<HttpResp, String> {
+        let _ = (headers, timeout_ms);
+        self.get(url)
+    }
 }
 
 pub struct UreqClient;
@@ -74,6 +89,19 @@ impl HttpClient for UreqClient {
             req = req.set(k, v);
         }
         map(req.send_string(body))
+    }
+
+    fn get_headers_timeout(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<HttpResp, String> {
+        let mut req = ureq::get(url).timeout(std::time::Duration::from_millis(timeout_ms));
+        for (k, v) in headers {
+            req = req.set(k, v);
+        }
+        map(req.call())
     }
 }
 
@@ -171,6 +199,12 @@ pub(crate) mod test_mock {
             r#"{"trans_result":[{"src":"hello","dst":"你好"}]}"#
         } else if url.contains("tmt.tencentcloudapi.com") {
             r#"{"Response":{"TargetText":"你好，世界"}}"#
+        } else if url.contains("/models") {
+            // llm_list_models：两模型 + 一重复项 + 一空 id（测试去重/排序/过滤）
+            r#"{"object":"list","data":[{"id":"m-b"},{"id":"m-a"},{"id":"m-b"},{"id":""}]}"#
+        } else if url.contains("lookup-mock.test") {
+            // 选区查词 happy path：content 本身是合法查词 JSON（JSON-in-JSON 转义）
+            r#"{"choices":[{"message":{"content":"{\"type\":\"word\",\"translation\":\"便利设施\",\"phonetic\":\"/əˈmenəti/\",\"partOfSpeech\":\"n.\",\"usage\":\"指提升舒适度的设施。\",\"examples\":[],\"terms\":[]}"}}]}"#
         } else if url.contains("chat/completions") {
             r#"{"choices":[{"message":{"content":"你好，世界"}}]}"#
         } else if url.contains("transmart") {
@@ -200,6 +234,16 @@ pub(crate) mod test_mock {
             headers: &[(&str, &str)],
         ) -> Result<HttpResp, String> {
             self.record(url, body, headers);
+            Ok(resp_for(url))
+        }
+
+        fn get_headers_timeout(
+            &self,
+            url: &str,
+            headers: &[(&str, &str)],
+            _timeout_ms: u64,
+        ) -> Result<HttpResp, String> {
+            self.record(url, "", headers);
             Ok(resp_for(url))
         }
     }
