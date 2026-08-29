@@ -13,6 +13,7 @@ import type {
   ProgressPayload,
   DonePayload,
   Mode,
+  WordLookupDTO,
 } from "../types/ipc";
 
 export const api = {
@@ -52,6 +53,13 @@ export const api = {
   translateDocument: (c: string, m: Mode, p: string, creds: Record<string, string>) =>
     invoke<number>("translate_document", { content: c, mode: m, provider: p, creds }),
   stopTranslation: () => invoke<void>("stop_translation"),
+
+  // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
+  lookupWord: (t: string, c: Record<string, string>) =>
+    invoke<WordLookupDTO>("lookup_word", { text: t, creds: c }),
+  // 拉取 OpenAI 兼容 /models 供设置弹窗点选（Tauri v2 默认 camelCase 参数映射）
+  llmListModels: (baseUrl: string, apiKey: string) =>
+    invoke<string[]>("llm_list_models", { baseUrl, apiKey }),
 
   // ---- 事件（事件名与 lib.rs .emit(...) 注册逐字一致）----
   listenDocumentChanged: (cb: (p: string) => void) =>

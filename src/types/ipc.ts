@@ -108,3 +108,27 @@ export interface DonePayload {
 
 export type Mode = "original" | "translation" | "bilingual";
 export type ViewKind = "source" | "preview" | "split";
+
+/** dto.rs LookupExample */
+export interface LookupExample {
+  en: string;
+  zh: string;
+}
+
+/** dto.rs LookupTerm */
+export interface LookupTerm {
+  word: string;
+  phonetic: string;
+  explanation: string;
+}
+
+/** dto.rs WordLookupDTO：kind="sentence" 时 phonetic 及以下为 null / 空数组 */
+export interface WordLookupDTO {
+  kind: "word" | "sentence";
+  translation: string;
+  phonetic: string | null;
+  part_of_speech: string | null;
+  usage: string | null;
+  examples: LookupExample[];
+  terms: LookupTerm[];
+}

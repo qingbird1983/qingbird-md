@@ -1,7 +1,7 @@
 // 翻译域：整篇翻译的 gen 时序、进度、划词翻译浮窗结果。
 // 阅读模式不在此存——唯一真源是 useDocStore.mode（plan 防双源决议）。
 import { create } from "zustand";
-import type { DonePayload, Mode, ProgressPayload } from "../types/ipc";
+import type { DonePayload, Mode, ProgressPayload, WordLookupDTO } from "../types/ipc";
 import { api } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 import { useDocStore } from "./useDocStore";
@@ -11,8 +11,10 @@ export type TranslationStatus = "idle" | "running" | "error";
 
 interface SelectionState {
   text: string;
-  result: string;
   loading: boolean;
+  plain: string | null; // 现状路径结果（未配 LLM 时走全局翻译源）
+  rich: WordLookupDTO | null; // LLM 查词富结果
+  error: string | null; // 显式失败（不静默回落，spec §9.2）
 }
 
 interface TranslationState {
@@ -143,22 +145,36 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       set({ selection: null });
       return;
     }
-    set({ selection: { text, result: "", loading: true } });
+    set({ selection: { text, loading: true, plain: null, rich: null, error: null } });
     selTimer = setTimeout(async () => {
       const sp = useSettingsStore.getState().settings;
-      try {
-        if (!sp) throw new Error("设置尚未加载");
-        const r = await api.translateText(
-          text,
-          sp.provider,
-          useSettingsStore.getState().credsFor(sp.provider),
-        );
+      const cur = () => get().selection;
+      const settle = (patch: {
+        plain: string | null;
+        rich: WordLookupDTO | null;
+        error: string | null;
+      }) => {
         // 防乱序：只有仍是本次请求在展示时才回填
-        const cur = get().selection;
-        if (cur?.text === text) set({ selection: { text, result: r, loading: false } });
+        if (cur()?.text === text) set({ selection: { text, loading: false, ...patch } });
+      };
+      if (!sp) {
+        settle({ plain: null, rich: null, error: "设置尚未加载" });
+        return;
+      }
+      // R1 分流：LLM 凭据齐全（baseUrl + model 均非空）→ 查词；否则现状全局源。
+      // 与全局翻译源选择无关——划词只认 LLM 是否配置（spec §8.1）。
+      const llmCreds = useSettingsStore.getState().credsFor("llm");
+      const llmReady = Boolean(llmCreds.baseUrl?.trim() && llmCreds.model?.trim());
+      try {
+        if (llmReady) {
+          const rich = await api.lookupWord(text, llmCreds);
+          settle({ plain: null, rich, error: null });
+        } else {
+          const r = await api.translateText(text, sp.provider, useSettingsStore.getState().credsFor(sp.provider));
+          settle({ plain: r, rich: null, error: null });
+        }
       } catch (e) {
-        const cur = get().selection;
-        if (cur?.text === text) set({ selection: { text, result: errText(e), loading: false } });
+        settle({ plain: null, rich: null, error: errText(e) });
       }
     }, 300);
   },
