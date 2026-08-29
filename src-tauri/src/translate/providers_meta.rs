@@ -78,7 +78,7 @@ const LLM_FIELDS: &[FieldDef] = &[
         key: "baseUrl",
         label: "API 地址 (Base URL)",
         secret: false,
-        placeholder: "https://api.deepseek.com/v1 或 http://127.0.0.1:11434/v1",
+        placeholder: "https://api.deepseek.com 或 http://127.0.0.1:11434/v1",
     },
     FieldDef {
         key: "apiKey",
@@ -90,7 +90,13 @@ const LLM_FIELDS: &[FieldDef] = &[
         key: "model",
         label: "模型名",
         secret: false,
-        placeholder: "如 deepseek-chat、qwen2.5:7b",
+        placeholder: "如 deepseek-v4-flash、qwen2.5:7b",
+    },
+    FieldDef {
+        key: "lookup_model",
+        label: "查词模型（可选，留空同翻译模型）",
+        secret: false,
+        placeholder: "如 deepseek-v4-flash；划词查词走这个模型",
     },
 ];
 
@@ -100,7 +106,7 @@ const LLM: ProviderMeta = ProviderMeta {
     max_len: 3000,
     max_concurrency: 3,
     fields: LLM_FIELDS,
-    note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。更换模型后建议清除翻译缓存。",
+    note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。更换模型后建议清除翻译缓存。划词查词复用此凭据，可用「查词模型」单独指定轻量模型。",
 };
 
 const TRANSMART: ProviderMeta = ProviderMeta {
@@ -194,7 +200,7 @@ mod tests {
         // 平铺序 = REGISTRY 序；字段转换无损（label/fields 完整搬出）
         assert_eq!(v[0].key, "mymemory");
         let llm = info("llm").unwrap();
-        assert_eq!(llm.fields.len(), 3);
+        assert_eq!(llm.fields.len(), 4);
         assert!(info("nope").is_none());
     }
 }

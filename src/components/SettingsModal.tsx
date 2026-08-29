@@ -3,7 +3,7 @@
 // 都不会打翻编辑中的表单（store 监听端本就只收敛 theme）；取消/失败全弃，
 // 保存经 settingsStore.save（乐观写 + 失败回滚 + toast），成功后关闭。
 // 安全：凭据输入框一律 password 型（secret 字段），绝不打印/toast 任何载荷。
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Modal from "./Modal";
 import { api } from "../lib/ipc";
 import type { ProviderInfo, Settings } from "../types/ipc";
@@ -17,6 +17,16 @@ const HOTKEY_MODES: Array<[string, string]> = [
 ];
 
 const TEST_TEXT = "Hello, this is a translation test.";
+
+/** LLM 厂商预设（spec §7；数据核验 2026-08-29）：选中即覆盖 baseUrl 字段；
+ *  models 为未拉取时的静态 datalist 建议。 */
+const LLM_PRESETS: Array<{ name: string; baseUrl: string; models: string[] }> = [
+  { name: "DeepSeek", baseUrl: "https://api.deepseek.com", models: ["deepseek-v4-flash", "deepseek-v4-pro"] },
+  { name: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: ["qwen-flash", "qwen-plus", "qwen-max"] },
+  { name: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", models: ["glm-5.3-flash", "glm-4.7-flash", "glm-5.3"] },
+  { name: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/", models: ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-pro"] },
+  { name: "豆包（火山方舟）", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", models: [] },
+];
 
 /** 旧版 key_name 的 web 等价：白名单只收字母/数字/空格（与 egui 版一致）。 */
 function keyName(e: KeyboardEvent): string | null {
@@ -44,6 +54,8 @@ export default function SettingsModal() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [recording, setRecording] = useState<string | null>(null);
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+  const [fetching, setFetching] = useState(false);
 
   // 理论竞态兜底：设置尚未加载完就打开弹窗（live 到达后补种草稿一次）
   useEffect(() => {
@@ -106,6 +118,7 @@ export default function SettingsModal() {
     setFormProvider(k);
     setFormCreds(draft?.providers[k] ?? {});
     setTestResult("");
+    setLlmModels([]); // 换源清拉取结果
   };
 
   const testConn = async () => {
@@ -120,6 +133,25 @@ export default function SettingsModal() {
       setTesting(false);
     }
   };
+
+  /** 拉取 OpenAI 兼容 /models 填充 datalist（spec §7：点选为主路径，手填兜底）。 */
+  const fetchModels = useCallback(async () => {
+    const baseUrl = (formCreds.baseUrl ?? "").trim();
+    if (!baseUrl) {
+      setTestResult("请先填写 API 地址 (Base URL)");
+      return;
+    }
+    setFetching(true);
+    try {
+      const list = await api.llmListModels(baseUrl, formCreds.apiKey ?? "");
+      setLlmModels(list);
+      setTestResult(`已拉取 ${list.length} 个模型，点击模型名输入框从下拉选择。`);
+    } catch (e) {
+      setTestResult(`拉取失败：${errText(e)}（仍可手动填写模型名）`);
+    } finally {
+      setFetching(false);
+    }
+  }, [formCreds]);
 
   const clearCache = async () => {
     try {
@@ -177,20 +209,63 @@ export default function SettingsModal() {
               {meta.fields.length === 0 ? (
                 <div className="modal-note">该翻译源无需密钥，可直接使用。</div>
               ) : (
-                meta.fields.map((f) => (
-                  <div className="modal-row" key={f.key}>
-                    <label htmlFor={`set-f-${f.key}`}>{f.label}</label>
-                    <input
-                      id={`set-f-${f.key}`}
-                      type={f.secret ? "password" : "text"}
-                      value={formCreds[f.key] ?? ""}
-                      placeholder={f.placeholder}
-                      title={f.placeholder}
-                      autoComplete="off"
-                      onChange={(e) => setFormCreds((c) => ({ ...c, [f.key]: e.target.value }))}
-                    />
+                <>
+                  {formProvider === "llm" && (
+                  <div className="modal-row">
+                    <label htmlFor="set-llm-preset">厂商预设</label>
+                    <select
+                      id="set-llm-preset"
+                      value=""
+                      onChange={(e) => {
+                        const url = e.target.value;
+                        if (url) setFormCreds((c) => ({ ...c, baseUrl: url }));
+                      }}
+                    >
+                      <option value="">自定义（不动当前 Base URL）…</option>
+                      {LLM_PRESETS.map((p) => (
+                        <option key={p.baseUrl} value={p.baseUrl}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ))
+                )}
+                {meta.fields.map((f) => {
+                  const isModelField = formProvider === "llm" && (f.key === "model" || f.key === "lookup_model");
+                  return (
+                    <div className="modal-row" key={f.key}>
+                      <label htmlFor={`set-f-${f.key}`}>{f.label}</label>
+                      <input
+                        id={`set-f-${f.key}`}
+                        type={f.secret ? "password" : "text"}
+                        value={formCreds[f.key] ?? ""}
+                        placeholder={f.placeholder}
+                        title={f.placeholder}
+                        autoComplete="off"
+                        list={isModelField ? "llm-model-list" : undefined}
+                        onChange={(e) => setFormCreds((c) => ({ ...c, [f.key]: e.target.value }))}
+                      />
+                      {isModelField && (
+                        <button type="button" className="modal-btn" disabled={fetching} onClick={fetchModels}>
+                          {fetching ? "拉取中…" : "拉取模型"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {formProvider === "llm" && (
+                  <datalist id="llm-model-list">
+                    {(() => {
+                      const preset = LLM_PRESETS.find(
+                        (p) => p.baseUrl.replace(/\/+$/, "") === (formCreds.baseUrl ?? "").trim().replace(/\/+$/, ""),
+                      );
+                      return (llmModels.length > 0 ? llmModels : (preset?.models ?? [])).map((m) => (
+                        <option key={m} value={m} />
+                      ));
+                    })()}
+                  </datalist>
+                )}
+                </>
               )}
 
               <div className="modal-sep" />
