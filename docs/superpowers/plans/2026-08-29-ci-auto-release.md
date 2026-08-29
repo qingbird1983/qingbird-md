@@ -181,8 +181,10 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-python -m unittest .github/scripts/test_extract_notes.py -v 2>&1
+python .github/scripts/test_extract_notes.py -v 2>&1
 ```
+
+> 不要用 `python -m unittest .github/scripts/test_extract_notes.py`——unittest 把路径转 module 名 `.github.scripts.test_extract_notes`，首段 `.` 开头非法，加载阶段抛 `ValueError: Empty module name`（与平台无关）。直接执行走 `if __name__ == "__main__"` 是更稳的写法。
 
 Expected: FAIL — `FileNotFoundError` 因为 `extract-notes.py` 还不存在。
 
@@ -262,8 +264,10 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-python -m unittest .github/scripts/test_extract_notes.py -v
+python .github/scripts/test_extract_notes.py -v
 ```
+
+> 同 1.2：直接执行优先；如需用 unittest discover，等价命令是 `python -m unittest discover -s .github/scripts -p "test_*.py"`。
 
 Expected: 7 tests, all PASS。
 
