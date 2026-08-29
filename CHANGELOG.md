@@ -4,6 +4,44 @@ All notable changes to qingbird-md are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-08-29
+
+Title bar / hamburger menu / toolbar refinements plus true dark-mode code
+blocks. Adds four Tauri window permissions (minimize / maximize /
+unmaximize / close) that the custom title bar was silently missing.
+
+### Added
+
+- **Title bar rework**: app name "青鸟 Markdown" now sits before the
+  hamburger button; the title bar centre shows the active document name.
+- **Two-level hamburger menu**: first level is 文件 / 视图 / 翻译 /
+  设置 / 关于 / 退出. 文件 / 视图 / 翻译 expand a second-level flyout to
+  the right on hover (180 ms dwell) or click; hovering 设置 / 关于 / 退出
+  collapses any open flyout; leaving the panel for 300 ms auto-closes it.
+  The panel is edge-aligned with the ☰ button.
+- **Toolbar additions**: reading-mode buttons (原文 / 译文 / 中英对照 as
+  `Type` / `Languages` / `Rows2` icons), new-tab button after Save,
+  wide/narrow content toggle (`StretchHorizontal` / `FoldHorizontal`),
+  and a light/dark theme toggle (`Moon` / `Sun`). Everything from the
+  source-view button onwards is right-aligned. Sidebar / outline toggles
+  no longer keep a persistent active highlight.
+- **Theme switch in the menu**: "切换明暗主题" lives in the 视图 submenu.
+
+### Fixed
+
+- **Dark-mode code blocks are now truly dark**: syntax highlighting runs
+  twice (InspiredGitHub for light, base16-ocean.dark for dark) and each
+  token span carries both colors as CSS custom properties `--cl` / `--cd`,
+  selected by `body[data-theme]`. Previously dark mode kept the light-gray
+  code blocks with harsh contrast. Code-block background, line numbers,
+  default text and the code-lang pill all gain dark variants. Rendered
+  HTML stays theme-independent, so parse / translation caches are
+  unaffected.
+- **Window control buttons (minimize / maximize / close) now work**: the
+  custom title bar invoked `core:window` setters that were not in the
+  capability list; added `core:window:allow-minimize` / `allow-maximize` /
+  `allow-unmaximize` / `allow-close`.
+
 ## [0.1.1] - 2026-08-28
 
 Multi-tab editing plus a UI layout shift to match the in-app reference.

@@ -9,3 +9,4 @@ Cargo.lock.orig
 /src-tauri/gen
 node_modules/
 dist/
+/.workbuddy/

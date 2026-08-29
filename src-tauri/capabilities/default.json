@@ -6,6 +6,10 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-close",
     "dialog:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister"

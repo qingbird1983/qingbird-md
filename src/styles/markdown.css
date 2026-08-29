@@ -1,7 +1,8 @@
 /* 预览排版（Task 20）：GitHub 风格的类，覆盖 markdown/html.rs 的元素契约 ——
    h1-h6（id="h-N"）、p、ul/ol、li.task done|todo、table/thead/tbody、
    blockquote、行内 code、pre.code-block（.code-lang 标签 + span.ln 行号 +
-   syntect 彩色 span，theme 固定 InspiredGitHub 浅色主题，底色由这里给淡灰）、
+   syntect 双主题彩色 span：--cl=InspiredGitHub 浅色 / --cd=base16-ocean.dark
+   暗色，由这里按 body[data-theme] 选边，底色走 --md-pre-bg）、
    del、a、hr、.tr-box（双语对照浮出块）。颜色经变量集中在文件头部，暗色主题仅换一组值。 */
 
 .markdown-body {
@@ -15,8 +16,11 @@
   --md-quote-fg: #59636e;
   --md-task-bg: #fff;
   --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
-  --md-ok-fg: #1a7f37;      /* 复制成功态/code-lang 药丸：恒在浅灰 pre 底上，不随主题 */
-  --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（syntect 为 InspiredGitHub 浅色 span） */
+  --md-ok-fg: #1a7f37;      /* 复制成功态/code-lang 药丸：浅灰 pre 底上用深绿（暗色档在下方换浅绿） */
+  /* 双主题 span 配色：后端把 InspiredGitHub（浅）/base16-ocean.dark（暗）
+     两套前景色按 token 一一配对，烘进 span 内联 style 的 --cl/--cd；
+     这里按主题选边（.ln 行号与 mono 块不受影响，走 --md-pre-* 变量）。 */
+  --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（浅色 span 同源） */
   --md-pre-fg: #1f2328;
   --md-pre-muted: #6e778e; /* 行号 */
   /* 双语对照块走主色系，与全局 accent 同源 */
@@ -65,9 +69,13 @@ body[data-theme="dark"] .markdown-body {
   --md-tr-bg: #232842;
   --md-tr-border: #3b4675;
   --md-tr-fg: #a9b8ff;
-  /* ponytail: 代码块配色不随暗色主题——syntect span 色已按浅色主题
-     (InspiredGitHub) 烘进 HTML，暗底配深字会不可读，故暗色下仍保持
-     浅灰代码块。需要真暗色代码块时后端需按主题出两份 span。 */
+  /* 代码块真暗色：底色与 base16-ocean.dark 同源（#2b303b），span 前景色由
+     后端烘进每 token 的 --cd 变量（见下方选择器），行号/默认字换暗色档。 */
+  --md-pre-bg: #2b303b;
+  --md-pre-fg: #c0c5ce;
+  --md-pre-muted: #65737e;
+  /* code-lang 药丸/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
+  --md-ok-fg: #8fce9f;
 }
 
 .markdown-body h1,
@@ -223,6 +231,17 @@ body[data-theme="dark"] .markdown-body {
   text-align: right;
   color: var(--md-pre-muted);
   user-select: none;
+}
+
+/* syntect 双主题 token span：亮/暗两色由后端配对烘进内联 --cl/--cd，
+   这里按 body[data-theme] 选边。:not(.ln) 保住行号自身的 muted 色
+   （其选择器特异性更低，且 .ln 无变量，否则暗色下会被 inherit 覆盖）。 */
+.markdown-body pre.code-block code span:not(.ln) {
+  color: var(--cl, inherit);
+}
+
+body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
+  color: var(--cd, inherit);
 }
 
 .markdown-body pre.code-block .code-lang {

@@ -1,9 +1,9 @@
-// 格式工具栏（Task 22 增强版）：常驻显示。
+// 格式工具栏（常驻显示）。
 //
-// 按钮分组与顺序参考 SuperMarkdown：
-//   ① 撤销/重做  →  ② 文件操作(新建/打开/保存)  →  ③ 格式(B/I/S/标题/列表/引用/代码/链接/图片/表格/分隔线)  →  ④ 视图切换  →  ⑤ 面板开关(侧栏/大纲)
+// 布局：左侧 = ① 撤销/重做 → ② 文件操作(新建/打开/保存/新建标签) → ③ 格式(B/I/S/标题/列表/引用/代码/链接/图片/表格/分隔线) → ④ 阅读模式(原文/译文/中英对照)；
+// 右对齐（tb-gap 弹性占位之后）= ⑤ 视图切换(源码/预览/分栏) → ⑥ 正文宽版 → ⑦ 明暗主题 → ⑧ 面板开关(侧栏/大纲，仅切换无高亮)。
 //
-// 所有按钮 disabled=doc==null（无文档时禁用编辑类按钮；文件/视图/面板按钮不受文档状态影响）。
+// 编辑类按钮 disabled=doc==null；文件/视图/阅读/主题/面板按钮不受文档状态影响（阅读模式按 TranslateMenu 语义在无文档时禁用）。
 import {
   Bold,
   Code,
@@ -17,9 +17,12 @@ import {
   ListOrdered,
   ListTodo,
   Minus,
+  Moon,
+  Plus,
   Redo2,
   SquareCode,
   Strikethrough,
+  Sun,
   Table,
   TextQuote,
   Undo2,
@@ -29,12 +32,19 @@ import {
   Eye,
   Code2,
   Columns,
+  Type,
+  Languages,
+  Rows2,
+  StretchHorizontal,
+  FoldHorizontal,
   PanelLeftClose,
   PanelRightClose,
 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import { useUiStore } from "../stores/useUiStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
 import { api } from "../lib/ipc";
 
 // ── 分隔线 ──
@@ -47,14 +57,31 @@ export default function EditorToolbar() {
   const disabled = doc === null;
   const view = useDocStore((s) => s.view);
   const switchView = useDocStore((s) => s.switchView);
+  const mode = useDocStore((s) => s.mode);
+  const switchMode = useDocStore((s) => s.switchMode);
   const hasRoot = useWorkspaceStore((s) => !!s.root);
   const createFile = useWorkspaceStore((s) => s.createFile);
   const openTab = useDocStore((s) => s.openTab);
   const saveDoc = useDocStore((s) => s.saveDoc);
+  const newTab = useDocStore((s) => s.newTab);
   const showNav = useUiStore((s) => s.showNav);
   const showOutline = useUiStore((s) => s.showOutline);
   const toggleNav = useUiStore((s) => s.toggleNav);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
+  const wideContent = useUiStore((s) => s.wideContent);
+  const toggleWideContent = useUiStore((s) => s.toggleWideContent);
+
+  // 解析后的明暗态（auto 档跟随系统）：仅用于切换按钮的图标/提示，逻辑与
+  // 命令面板「切换明暗主题」同源（isDarkTheme 统一口径）。
+  const theme = useSettingsStore((s) => s.theme);
+  const sysDark = useMemo(() => matchMedia("(prefers-color-scheme: dark)"), []);
+  const [sysMatches, setSysMatches] = useState(sysDark.matches);
+  useEffect(() => {
+    const f = () => setSysMatches(sysDark.matches);
+    sysDark.addEventListener("change", f);
+    return () => sysDark.removeEventListener("change", f);
+  }, [sysDark]);
+  const dark = theme === "dark" || (theme !== "light" && sysMatches);
 
   const pickOpen = async () => {
     const p = await api.pickFile();
@@ -86,6 +113,10 @@ export default function EditorToolbar() {
       <button type="button" className="menu-btn tool-btn" title="保存（Ctrl+S）" disabled={disabled}
         onClick={() => void saveDoc(false)}>
         <Save size={15} />
+      </button>
+      <button type="button" className="menu-btn tool-btn" title="新建标签"
+        onClick={() => newTab()}>
+        <Plus size={15} />
       </button>
       <Sep />
 
@@ -157,7 +188,24 @@ export default function EditorToolbar() {
       </button>
       <Sep />
 
-      {/* ── ④ 视图切换 ── */}
+      {/* ── ④ 阅读模式（翻译）── 图标语义：Type=原文字符 / Languages=翻译 / Rows2=逐行对照 */}
+      <button type="button" className={`menu-btn tool-btn${mode === "original" ? " active" : ""}`} title="阅读模式：原文" disabled={disabled}
+        onClick={() => switchMode("original")}>
+        <Type size={15} />
+      </button>
+      <button type="button" className={`menu-btn tool-btn${mode === "translation" ? " active" : ""}`} title="阅读模式：译文" disabled={disabled}
+        onClick={() => switchMode("translation")}>
+        <Languages size={15} />
+      </button>
+      <button type="button" className={`menu-btn tool-btn${mode === "bilingual" ? " active" : ""}`} title="阅读模式：中英对照" disabled={disabled}
+        onClick={() => switchMode("bilingual")}>
+        <Rows2 size={15} />
+      </button>
+
+      {/* 弹性占位：从此处之后的按钮全部右对齐（源码视图起） */}
+      <span className="tb-gap" />
+
+      {/* ── ⑤ 视图切换 ── */}
       <button type="button" className={`menu-btn tool-btn${view === "source" ? " active" : ""}`} title="源码视图"
         onClick={() => switchView("source")}>
         <Code2 size={15} />
@@ -172,18 +220,31 @@ export default function EditorToolbar() {
       </button>
       <Sep />
 
-      {/* ── ⑤ 面板开关 ── */}
-      <button type="button" className={`menu-btn tool-btn${showNav ? " active" : ""}`} title={showNav ? "隐藏侧栏" : "显示侧栏"}
+      {/* ── ⑥ 正文宽版/窄版 ── 图标语义：StretchHorizontal=可放宽 / FoldHorizontal=可收窄 */}
+      <button type="button" className={`menu-btn tool-btn${wideContent ? " active" : ""}`}
+        title={wideContent ? "正文宽版（点击切换窄版）" : "正文窄版（点击切换宽版）"}
+        onClick={() => toggleWideContent()}>
+        {wideContent ? <FoldHorizontal size={15} /> : <StretchHorizontal size={15} />}
+      </button>
+      <Sep />
+
+      {/* ── ⑦ 明暗主题 ── */}
+      <button type="button" className="menu-btn tool-btn"
+        title={`切换明暗主题（当前${dark ? "暗色" : "亮色"}）`}
+        onClick={() => useSettingsStore.getState().setTheme(dark ? "light" : "dark")}>
+        {dark ? <Sun size={15} /> : <Moon size={15} />}
+      </button>
+      <Sep />
+
+      {/* ── ⑧ 面板开关（仅切换显示/隐藏，无持续高亮态）── */}
+      <button type="button" className="menu-btn tool-btn" title={showNav ? "隐藏侧栏" : "显示侧栏"}
         onClick={() => toggleNav()}>
         <PanelLeftClose size={15} />
       </button>
-      <button type="button" className={`menu-btn tool-btn${showOutline ? " active" : ""}`} title={showOutline ? "隐藏大纲" : "显示大纲"}
+      <button type="button" className="menu-btn tool-btn" title={showOutline ? "隐藏大纲" : "显示大纲"}
         onClick={() => toggleOutline()}>
         <PanelRightClose size={15} />
       </button>
-
-      {/* 弹性占位，把按钮推到左边 */}
-      <span className="tb-gap" />
     </div>
   );
 }

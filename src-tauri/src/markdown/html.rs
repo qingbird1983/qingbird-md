@@ -251,15 +251,15 @@ impl<'t> Ctx<'t> {
             Some(spans) => {
                 // Regroup spans into per-line token lists. Spans may carry
                 // trailing "\n" (LinesWithEndings), close/reopen around it.
-                let mut lines: Vec<Vec<(Color, String)>> = vec![Vec::new()];
-                for (c, t) in spans {
+                let mut lines: Vec<Vec<(Color, Color, String)>> = vec![Vec::new()];
+                for (c, d, t) in spans {
                     let mut rest = t.as_str();
                     while let Some(p) = rest.find('\n') {
-                        push_tok(&mut lines, c, &rest[..p]);
+                        push_tok(&mut lines, (c, d), &rest[..p]);
                         lines.push(Vec::new());
                         rest = &rest[p + 1..];
                     }
-                    push_tok(&mut lines, c, rest);
+                    push_tok(&mut lines, (c, d), rest);
                 }
                 // Drop only the trailing artifact of a final "\n".
                 while lines.len() > 1 && lines.last().unwrap().is_empty() {
@@ -272,13 +272,13 @@ impl<'t> Ctx<'t> {
                         out.push('\n');
                     }
                     let _ = write!(out, "<span class=\"ln\">{}</span>", i + 1);
-                    for (c, piece) in toks {
+                    for (cl, cd, piece) in toks {
+                        // 双主题颜色对烘进 CSS 变量：亮色取 --cl，暗色取 --cd
+                        // （选择逻辑在 markdown.css，按 body[data-theme] 切换）。
                         let _ = write!(
                             out,
-                            "<span style=\"color:#{:02x}{:02x}{:02x}\">{}</span>",
-                            c.r,
-                            c.g,
-                            c.b,
+                            "<span style=\"--cl:#{:02x}{:02x}{:02x};--cd:#{:02x}{:02x}{:02x}\">{}</span>",
+                            cl.r, cl.g, cl.b, cd.r, cd.g, cd.b,
                             escape_html(piece)
                         );
                     }
@@ -303,9 +303,9 @@ impl<'t> Ctx<'t> {
     }
 }
 
-fn push_tok(lines: &mut Vec<Vec<(Color, String)>>, c: Color, piece: &str) {
+fn push_tok(lines: &mut Vec<Vec<(Color, Color, String)>>, c: (Color, Color), piece: &str) {
     if !piece.is_empty() {
-        lines.last_mut().unwrap().push((c, piece.to_string()));
+        lines.last_mut().unwrap().push((c.0, c.1, piece.to_string()));
     }
 }
 
@@ -392,8 +392,9 @@ mod tests {
         let r = render_html(md, &HashMap::new(), false);
         assert!(r.html.contains("class=\"code-block\""));
         assert!(r.html.contains("class=\"ln\">1</span>"));
-        // Should contain colored spans (syntect)
-        assert!(r.html.contains("style=\"color:#"));
+        // Should contain dual-theme colored spans (syntect --cl/--cd pair)
+        assert!(r.html.contains("--cl:#"), "light color var");
+        assert!(r.html.contains("--cd:#"), "dark color var");
     }
 
     #[test]
@@ -401,7 +402,7 @@ mod tests {
         // 高亮路径与 mono 路径同构：每个行边界恰好一个 '\n'，否则高亮块
         // 所有行连成一段，CSS（white-space: pre-wrap + .ln 行号）无法断行。
         let r = render_html("```rust\nfn a() {}\nfn b() {}\n```", &HashMap::new(), false);
-        assert!(r.html.contains("style=\"color:#"), "must take highlight path");
+        assert!(r.html.contains("--cl:#"), "must take highlight path");
         assert!(r.html.contains(r#"<span class="ln">1</span>"#));
         assert!(
             r.html.contains("\n<span class=\"ln\">2</span>"),

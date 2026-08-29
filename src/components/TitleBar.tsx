@@ -1,15 +1,19 @@
 // 自定义标题栏（替代 Tauri 原生标题栏）。
 //
-// 布局：左侧汉堡菜单按钮 ☰ | 中间拖拽区域（data-tauri-drag-region） | 右侧窗控按钮组（最小化/最大化/关闭）。
-// 汉堡菜单点击后由 TopBar 的 AppMenu 弹出面板覆盖在下层。
+// 布局：左侧应用名 + 汉堡菜单按钮 ☰ | 中间显示当前文档名（拖拽区域 data-tauri-drag-region）| 右侧窗控按钮组（最小化/最大化/关闭）。
+// 汉堡菜单点击后由 AppMenu 弹出二级分类面板覆盖在下层。
 import { useState, useEffect } from "react";
 import { Minus, Square, X, Maximize2 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useDocStore } from "../stores/useDocStore";
 
 const appWindow = getCurrentWindow();
 
 export default function TitleBar() {
   const [maximized, setMaximized] = useState(false);
+  const tabs = useDocStore((s) => s.tabs);
+  const activeId = useDocStore((s) => s.activeId);
+  const activeTab = tabs.find((t) => t.id === activeId) ?? null;
 
   useEffect(() => {
     void appWindow.isMaximized().then(setMaximized);
@@ -21,8 +25,9 @@ export default function TitleBar() {
 
   return (
     <header className="titlebar" data-tauri-drag-region>
-      {/* 左侧：汉堡菜单按钮 —— 由外部 AppMenu 组件在此绝对定位弹出 */}
+      {/* 左侧：应用名 + 汉堡菜单按钮 —— AppMenu 在此绝对定位弹出 */}
       <div className="titlebar-left">
+        <span className="titlebar-brand">青鸟 Markdown</span>
         <button
           type="button"
           className="menu-btn hamburger-btn"
@@ -37,8 +42,8 @@ export default function TitleBar() {
         </button>
       </div>
 
-      {/* 中间拖拽区域 —— data-tauri-drag-region 已在 header 上 */}
-      <span className="titlebar-title">青鸟 Markdown</span>
+      {/* 中间：当前文档名（无文档时留空保持拖拽区域） */}
+      <span className="titlebar-title">{activeTab?.name ?? ""}</span>
 
       {/* 右侧窗控按钮 */}
       <div className="window-controls">

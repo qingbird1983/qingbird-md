@@ -49,6 +49,18 @@ body {
   flex-shrink: 0;
 }
 
+/* 应用名（标题栏左侧，位于汉堡按钮之前）；pointer-events:none 让拖拽穿透 */
+.titlebar-brand {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 8px 0 4px;
+  white-space: nowrap;
+  color: var(--fg);
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .hamburger-btn {
   display: flex;
   align-items: center;
@@ -108,30 +120,62 @@ body {
   color: #fff !important;
 }
 
-/* ── 汉堡菜单弹出面板 ── */
+/* ── 汉堡菜单弹出面板（二级分类结构：左一级分类 + 右二级菜单）── */
 .app-menu {
   position: fixed;
   top: var(--h-topbar, 38px); /* 标题栏高度 */
   left: 8px;
   z-index: 1100;
-  min-width: 200px;
-  max-height: calc(100vh - 70px);
-  overflow-y: auto;
-  padding: 6px 0;
+  display: flex;
+  align-items: stretch;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow-strong);
+  overflow: visible;
 }
 
-.app-menu-group {
-  padding: 2px 8px;
+/* 一级分类列 */
+.app-menu-root {
+  flex-shrink: 0;
+  width: 136px;
+  padding: 6px 0;
+  border-right: 1px solid var(--sep-bg);
 }
 
-.app-menu-group + .app-menu-group {
-  border-top: 1px solid var(--sep-bg);
-  margin-top: 4px;
-  padding-top: 6px;
+/* 分类条目：横向布局（文字居左 + 箭头居右） */
+.app-menu .app-menu-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 0;
+}
+
+.app-menu .app-menu-cat.active {
+  background: var(--item-hover-bg);
+  color: var(--accent);
+}
+
+.app-menu-chev {
+  flex-shrink: 0;
+  color: var(--muted-fg);
+}
+
+/* 一级菜单内：带二级的分类与直接动作（设置/关于/退出）之间的分隔线 */
+.app-menu-root-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--sep-bg);
+}
+
+/* 二级菜单列（随激活分类向右展开） */
+.app-menu-sub {
+  width: 208px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  padding: 6px 8px;
 }
 
 .app-menu-label {
