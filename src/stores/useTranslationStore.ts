@@ -164,7 +164,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       // R1 分流：LLM 凭据齐全（baseUrl + model 均非空）→ 查词；否则现状全局源。
       // 与全局翻译源选择无关——划词只认 LLM 是否配置（spec §8.1）。
       const llmCreds = useSettingsStore.getState().credsFor("llm");
-      const llmReady = Boolean(llmCreds.baseUrl.trim() && llmCreds.model.trim());
+      const llmReady = Boolean(llmCreds.baseUrl?.trim() && llmCreds.model?.trim());
       try {
         if (llmReady) {
           const rich = await api.lookupWord(text, llmCreds);
