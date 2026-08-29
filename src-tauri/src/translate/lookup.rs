@@ -1,10 +1,6 @@
 //! LLM 选区查词（spec 2026-08-29-selection-word-lookup）：词/句分流 +
 //! 富结果。与 providers.rs 的整篇 `llm()` 共用 HttpClient 抽象，但 prompt、
 //! 解析容错与缓存独立演进；模型选择按 B1（lookup_model 优先，空回落 model）。
-//!
-//! `ponytail:` dead_code 允许到 Task 2 接线 IPC 命令为止，届时移除。
-
-#![allow(dead_code)]
 
 use serde_json::Value;
 
@@ -269,7 +265,7 @@ mod tests {
         // lookup-mock happy path 之外的内容可能失败，这里只验错误分支即可。
     }
 
-    // ---- happy path（走 MockClient 的 lookup-mook.test 分支）----
+    // ---- happy path（走 MockClient 的 lookup-mock.test 分支）----
 
     #[test]
     fn end_to_end_happy_path_maps_keys() {

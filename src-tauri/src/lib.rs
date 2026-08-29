@@ -402,6 +402,42 @@ fn translate_text(
     .and_then(|r| r)
 }
 
+/// 选区查词（spec 2026-08-29）：LLM 词/句分流 + 富结果；结果进翻译缓存
+/// （provider 名 "llm-lookup"），命中零网络。async 同 translate_text 先例：
+/// 阻塞网络离开主线程。缓存锁纪律：短锁读 → 网络（不持锁）→ 短锁写 + 落盘。
+#[tauri::command(async)]
+fn lookup_word(
+    text: String,
+    creds: HashMap<String, String>,
+    st: tauri::State<AppTxn>,
+) -> Result<dto::WordLookupDTO, String> {
+    // 1. 短锁命中检查（缓存坏 JSON 自愈为未命中，见 cache_get_lookup）
+    {
+        let c = st.cache.lock().expect("cache mutex poisoned");
+        if let Some(dto) = translate::lookup::cache_get_lookup(&c, &text) {
+            return Ok(dto);
+        }
+    }
+    // 2. 网络调用绝不持锁
+    let http = translate::http::UreqClient;
+    let dto = translate::lookup::llm_lookup(&text, &translate::providers::Creds(creds), &http)?;
+    // 3. 短锁回写 + 落盘；落盘失败仅丢持久性（内存已有），不向用户报错
+    {
+        let mut c = st.cache.lock().expect("cache mutex poisoned");
+        translate::lookup::cache_put_lookup(&mut c, &text, &dto);
+        let _ = c.save(&storage::cache_path());
+    }
+    Ok(dto)
+}
+
+/// 拉取 LLM 厂商可用模型列表（OpenAI 兼容 GET /models），供设置弹窗点选，
+/// 消除模型 ID 手填错误。编排已在 lookup::fetch_models（可测），此处薄壳。
+#[tauri::command(async)]
+fn llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
+    let http = translate::http::UreqClient;
+    translate::lookup::fetch_models(&base_url, &api_key, &http)
+}
+
 /// 停止当前后台批次：worker 里每个 HTTP 请求出发前经 CancelableClient 检查旗标，
 /// 置位后未发请求全部 fail-fast、已排队批次在边界处排空。
 #[tauri::command]
@@ -625,6 +661,9 @@ pub fn run() {
             get_providers,
             get_provider_meta,
             translate_text,
+            // 选区查词（2026-08-29 spec）
+            lookup_word,
+            llm_list_models,
             translate_document,
             stop_translation,
             // Task 9: 对话框
