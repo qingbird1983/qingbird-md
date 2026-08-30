@@ -21,6 +21,8 @@ import {
   Plus,
   Redo2,
   SquareCode,
+  Workflow,
+  Sigma,
   Strikethrough,
   Sun,
   Table,
@@ -47,6 +49,41 @@ import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import { useUiStore } from "../stores/useUiStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { api } from "../lib/ipc";
+
+// ── 插入工具：mermaid 围栏 / $...$ 公式 ──
+function insertMermaid() {
+  const v = useDocStore.getState().cmRef.current;
+  if (!v) return;
+  const from = v.state.selection.main.from;
+  // 模板：\n```mermaid\n\n```\n（光标落在中间空行开头）
+  const template = "\n```mermaid\n\n```\n";
+  v.dispatch({
+    changes: { from, insert: template },
+    selection: { anchor: from + "\n```mermaid\n".length },
+  });
+  v.focus();
+}
+
+function insertFormula() {
+  const v = useDocStore.getState().cmRef.current;
+  if (!v) return;
+  const { from, to } = v.state.selection.main;
+  const sel = v.state.sliceDoc(from, to);
+  if (sel) {
+    // wrap 选区为 $...$；新光标落在 $ 之后（即 sel 末尾 + 1）
+    v.dispatch({
+      changes: { from, to, insert: `$${sel}$` },
+      selection: { anchor: from + sel.length + 1 },
+    });
+  } else {
+    // 无选区：插入 $$$ 光标留中间
+    v.dispatch({
+      changes: { from, insert: "$$$" },
+      selection: { anchor: from + 1 },
+    });
+  }
+  v.focus();
+}
 
 // ── 分隔线 ──
 function Sep() {
@@ -179,6 +216,14 @@ export default function EditorToolbar() {
       <button type="button" className="menu-btn tool-btn" title="代码块" disabled={disabled}
         onClick={() => void useDocStore.getState().applyFormat("codeblock")}>
         <SquareCode size={15} />
+      </button>
+      <button type="button" className="menu-btn tool-btn" title="Mermaid 图表（插入 ```mermaid 围栏）" disabled={disabled}
+        onClick={insertMermaid}>
+        <Workflow size={15} />
+      </button>
+      <button type="button" className="menu-btn tool-btn" title="公式（$…$ 包裹选区或插入空占位）" disabled={disabled}
+        onClick={insertFormula}>
+        <Sigma size={15} />
       </button>
       <button type="button" className="menu-btn tool-btn" title="链接" disabled={disabled}
         onClick={() => void useDocStore.getState().applyFormat("link")}>
