@@ -172,6 +172,7 @@ impl<'t> Ctx<'t> {
                 }
                 out.push_str("</tbody></table>");
             }
+            Block::Math { .. } => {} // placeholder emitted in a later task
         }
     }
 
@@ -234,6 +235,7 @@ impl<'t> Ctx<'t> {
                         write!(out, r#"<img src="{}" alt="{}">"#, escape_html(src), escape_html(alt));
                 }
                 Inline::LineBreak => out.push_str("<br>"),
+                Inline::Math(_) => {} // placeholder emitted in a later task
             }
         }
     }

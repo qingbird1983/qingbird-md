@@ -17,6 +17,7 @@ pub enum Inline {
     Link { text: Vec<Inline>, href: String },
     Image { alt: String, src: String },
     LineBreak,
+    Math(String),
 }
 
 /// One item in a list, with optional task-list marker.
@@ -37,6 +38,7 @@ pub enum Block {
     Rule,
     Image { alt: String, src: String },
     Table { headers: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
+    Math { display: bool, tex: String },
 }
 
 /// Parse Markdown into a list of top-level block elements.
@@ -54,13 +56,16 @@ pub fn parse_blocks(md: &str) -> Vec<Block> {
             Event::Start(tag) => blocks.push(consume_block(&tag, &mut it)),
             Event::End(_) => {}
             Event::Rule => blocks.push(Block::Rule),
+            Event::DisplayMath(tex) => blocks.push(Block::Math {
+                display: true,
+                tex: tex.into_string(),
+            }),
             Event::SoftBreak
             | Event::HardBreak
             | Event::Html(_)
             | Event::InlineHtml(_)
             | Event::FootnoteReference(_)
             | Event::InlineMath(_)
-            | Event::DisplayMath(_)
             | Event::TaskListMarker(_)
             | Event::Text(_)
             | Event::Code(_) => {
@@ -158,6 +163,10 @@ fn push_inline<'a>(
         }
         Event::Code(c) => {
             out.push(Inline::Code(c.into_string()));
+            true
+        }
+        Event::InlineMath(tex) => {
+            out.push(Inline::Math(tex.into_string()));
             true
         }
         Event::SoftBreak | Event::HardBreak => {

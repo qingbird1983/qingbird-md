@@ -12,6 +12,7 @@ pub fn inline_plain_text(inlines: &[Inline]) -> String {
             Inline::Link { text, .. } => s.push_str(&inline_plain_text(text)),
             Inline::Image { alt, .. } => s.push_str(alt),
             Inline::LineBreak => s.push(' '),
+            Inline::Math(_) => {} // LaTeX 不进翻译 plain text
         }
     }
     s
@@ -50,6 +51,7 @@ fn walk_run_collect(blocks: &[Block], counter: &mut usize, out: &mut Vec<(usize,
                     }
                 }
             }
+            Block::Math { .. } => {}
             _ => {}
         }
     }
@@ -67,6 +69,7 @@ fn collect_runs_inline(inlines: &[Inline], counter: &mut usize, out: &mut Vec<(u
             }
             Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) => collect_runs_inline(x, counter, out),
             Inline::Link { text, .. } => collect_runs_inline(text, counter, out),
+            Inline::Math(_) => {}
             _ => {}
         }
     }
@@ -121,6 +124,7 @@ fn walk_collect(
                     }
                 }
             }
+            Block::Math { .. } => {}
             _ => {}
         }
     }
