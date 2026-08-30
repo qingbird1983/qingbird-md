@@ -13,6 +13,7 @@ pub fn inline_plain_text(inlines: &[Inline]) -> String {
             Inline::Image { alt, .. } => s.push_str(alt),
             Inline::LineBreak => s.push(' '),
             Inline::Math(_) => {} // LaTeX 不进翻译 plain text
+            Inline::DisplayMath(_) => {}
         }
     }
     s

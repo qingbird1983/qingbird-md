@@ -262,6 +262,15 @@ impl<'t> Ctx<'t> {
                         escape_html(tex)
                     );
                 }
+                // 行文中段出现的 $$...$$：行内 span（<div> 不能嵌 <p>）；
+                // 独立成段的已由 model 层升级为 Block::Math{display:true}。
+                Inline::DisplayMath(tex) => {
+                    let _ = write!(
+                        out,
+                        r#"<span class="math inline" data-source="{}"></span>"#,
+                        escape_html(tex)
+                    );
+                }
             }
         }
     }
@@ -450,5 +459,77 @@ mod tests {
         assert!(r.html.contains("\n<span class=\"ln\">2</span>beta"));
         let code = r.html.split("</code>").next().unwrap();
         assert_eq!(code.matches("<span class=\"ln\">").count(), 2);
+    }
+
+    #[test]
+    fn code_block_mermaid_emits_placeholder() {
+        let r = render_html("```mermaid\ngraph TD\nA-->B\n```", &HashMap::new(), false);
+        assert!(
+            r.html.contains(r#"<div class="mermaid" data-source="graph TD
+A--&gt;B
+"></div>"#),
+            "mermaid block must emit data-source placeholder: {}",
+            r.html
+        );
+    }
+
+    #[test]
+    fn inline_dollar_math_emits_placeholder() {
+        let r = render_html("Hello $x^2$ world", &HashMap::new(), false);
+        assert!(
+            r.html.contains(r#"<span class="math inline" data-source="x^2"></span>"#),
+            "inline math must emit inline placeholder: {}",
+            r.html
+        );
+    }
+
+    #[test]
+    fn block_math_fenced_or_dollar_pair() {
+        let r1 = render_html("```math\n\\sum_i\n```", &HashMap::new(), false);
+        assert!(
+            r1.html.contains(r#"<div class="math block" data-source="\sum_i
+"></div>"#),
+            "math fenced must emit block placeholder: {}",
+            r1.html
+        );
+        let r2 = render_html("$$\n\\sum_i\n$$", &HashMap::new(), false);
+        assert!(
+            // pulldown 0.13 的 DisplayMath tex 保留 $$ 内侧的首尾换行
+            r2.html.contains(r#"<div class="math block" data-source="
+\sum_i
+"></div>"#),
+            "math dollar-pair must emit block placeholder: {}",
+            r2.html
+        );
+    }
+
+    #[test]
+    fn mermaid_data_source_escapes_html() {
+        let r = render_html(
+            "```mermaid\n<script>alert(1)</script>\n```",
+            &HashMap::new(),
+            false,
+        );
+        // XSS：<script> 必须转义为 &lt;script&gt;
+        assert!(
+            r.html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "mermaid source must escape HTML: {}",
+            r.html
+        );
+        // 整段 HTML 不能含裸 <script>
+        assert!(!r.html.contains("<script>"), "raw <script> must not appear");
+    }
+
+    #[test]
+    fn mermaid_block_does_not_consume_sub_counter() {
+        // 双语模式下 mermaid 块不消耗 sub_counter，Hello 段仍翻译
+        let mut m = HashMap::new();
+        m.insert(0usize, "你好".into());
+        let r = render_html("```mermaid\ngraph TD\nA-->B\n```\n\nHello", &m, false);
+        assert!(
+            r.html.contains("你好"),
+            "substituted translation must apply to Hello: {}",
+            r.html
+        );
     }
 }

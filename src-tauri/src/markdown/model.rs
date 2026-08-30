@@ -18,6 +18,10 @@ pub enum Inline {
     Image { alt: String, src: String },
     LineBreak,
     Math(String),
+    /// pulldown 0.13 把 DisplayMath 也包在 Paragraph 里 emit（实测探针），
+    /// 单独成段时由 paragraph_block 升级为 Block::Math{display:true}；
+    /// 夹在行文中间时保持行内 span 渲染。
+    DisplayMath(String),
 }
 
 /// One item in a list, with optional task-list marker.
@@ -47,6 +51,9 @@ pub fn parse_blocks(md: &str) -> Vec<Block> {
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_TASKLISTS);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
+    // 计划 Task 1 假设 0.13 默认 emit InlineMath/DisplayMath——实测需要此开关，
+    // 否则 $...$ / $$...$$ 停留为字面 Text，math 相关测试无法通过。
+    opts.insert(Options::ENABLE_MATH);
 
     let parser = Parser::new_ext(md, opts);
     let mut it = parser;
@@ -110,8 +117,15 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>) ->
 
 fn paragraph_block(text: Vec<Inline>) -> Block {
     if text.len() == 1 {
-        if let Inline::Image { alt, src } = &text[0] {
-            return Block::Image { alt: alt.clone(), src: src.clone() };
+        match &text[0] {
+            Inline::Image { alt, src } => {
+                return Block::Image { alt: alt.clone(), src: src.clone() };
+            }
+            Inline::DisplayMath(tex) => {
+                // $$...$$ 独立成段（pulldown 实测总是 Paragraph 包裹）
+                return Block::Math { display: true, tex: tex.clone() };
+            }
+            _ => {}
         }
     }
     Block::Paragraph { text }
@@ -167,6 +181,10 @@ fn push_inline<'a>(
         }
         Event::InlineMath(tex) => {
             out.push(Inline::Math(tex.into_string()));
+            true
+        }
+        Event::DisplayMath(tex) => {
+            out.push(Inline::DisplayMath(tex.into_string()));
             true
         }
         Event::SoftBreak | Event::HardBreak => {
