@@ -352,3 +352,32 @@ body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
 .markdown-body li > .tr-box:last-child {
   margin-bottom: 0;
 }
+
+/* mermaid / KaTeX 占位符样式（spec 2026-08-30 §7.5） */
+.markdown-body .mermaid {
+  text-align: center;
+  margin: 1em 0;
+}
+.markdown-body .mermaid-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 0.5em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  text-align: left;
+}
+[data-theme="dark"] .markdown-body .mermaid-error {
+  background: #450a0a;
+  color: #fecaca;
+}
+.markdown-body .math.inline {
+  display: inline-block;
+}
+.markdown-body .math.block {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}

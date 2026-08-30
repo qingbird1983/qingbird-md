@@ -15,9 +15,10 @@ import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
-import { useSettingsStore } from "../stores/useSettingsStore";
+import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
+import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
 /** img src 只在 DOM 层改写：resolve 失败/null（http/data 等）保持原样由浏览器加载。 */
@@ -134,6 +135,8 @@ export default function PreviewView() {
     void rewriteImages(el, baseDir);
     addCopyButtons(el);
     addHeadingToggles(el);
+    renderMathPlaceholders(el);
+    void renderMermaidPlaceholders(el);
   }, [html, baseDir]);
 
   // 划词翻译（选区查词）预览侧捕获：编辑器侧由 App.tsx 的 CM cursorSel 订阅
@@ -153,6 +156,37 @@ export default function PreviewView() {
     };
     document.addEventListener("selectionchange", onSelChange);
     return () => document.removeEventListener("selectionchange", onSelChange);
+  }, []);
+
+  // mermaid 主题切换：清缓存 + 重渲当前 scope 的 mermaid 占位符。
+  // KaTeX 主题跟随 CSS 变量（markdown.css `[data-theme="dark"]` 选择器），
+  // 不需重渲。订阅方式与 EditorView.tsx 同款（settings + matchMedia）。
+  useEffect(() => {
+    let lastDark = isDarkTheme();
+    const apply = () => {
+      const dark = isDarkTheme();
+      if (dark === lastDark) return;
+      lastDark = dark;
+      reconfigureMermaidTheme();
+      clearMermaidCache();
+      const el = ref.current;
+      if (el) {
+        // 抹掉 dataset.rendered 强制重渲（renderMermaidPlaceholders 的幂等
+        // 短路先于缓存查询，不清 rendered 旧主题 SVG 会残留）
+        el.querySelectorAll<HTMLElement>(".mermaid[data-source]").forEach((node) => {
+          delete node.dataset.rendered;
+          node.replaceChildren(); // 清空旧 SVG
+        });
+        void renderMermaidPlaceholders(el);
+      }
+    };
+    const unsub = useSettingsStore.subscribe(apply);
+    const mq = matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", apply);
+    return () => {
+      unsub();
+      mq.removeEventListener("change", apply);
+    };
   }, []);
 
   if (content === null) return <div className="preview-empty">未打开文档</div>;
