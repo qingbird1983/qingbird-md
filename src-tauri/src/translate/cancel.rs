@@ -58,6 +58,17 @@ impl HttpClient for CancelableClient<'_> {
         self.guard()
             .and_then(|_| self.inner.post_json_timeout(url, body, headers, timeout_ms))
     }
+
+    fn post_json_stream(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<super::http::StreamResp, String> {
+        self.guard()
+            .and_then(|_| self.inner.post_json_stream(url, body, headers, timeout_ms))
+    }
 }
 
 #[test]

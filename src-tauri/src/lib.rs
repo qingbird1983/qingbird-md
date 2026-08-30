@@ -319,6 +319,15 @@ struct TranslationDoneEvt {
     outline: Option<Vec<markdown::html::OutlineItem>>,
 }
 
+/// Wire contract for the `lookup-delta` event（划词查词流式渐进渲染）：
+/// `{text, content}`——text 是归一（trim）后的查词原文供前端乱序匹配，
+/// content 是截止当前的累积 LLM 输出（每次 delta 全量覆盖，非增量）。
+#[derive(Clone, serde::Serialize)]
+struct LookupDeltaEvt {
+    text: String,
+    content: String,
+}
+
 /// Pure core of the done-payload assembly (unit-testable without threads):
 /// successes become `[index, text]` pairs sorted ascending; the first error wins.
 fn done_payload_parts(
@@ -410,6 +419,7 @@ fn translate_text(
 fn lookup_word(
     text: String,
     creds: HashMap<String, String>,
+    app: tauri::AppHandle,
     st: tauri::State<AppTxn>,
 ) -> Result<dto::WordLookupDTO, String> {
     // spec §5.2：用户消息 = text.trim()，入口先归一（缓存键与 prompt 消息随之统一）
@@ -423,12 +433,24 @@ fn lookup_word(
         }
     }
     // 2. 网络调用绝不持锁：独立线程上跑，join 处只短暂等待；
-    //    text 克隆一份进线程（回写仍需原值），creds move 不再外用
+    //    流式 delta 经 lookup-delta 事件推送（text 供前端乱序匹配）
     let dto = {
         let net_text = text.clone();
+        let app = app.clone();
         std::thread::spawn(move || {
             let http = translate::http::UreqClient;
-            translate::lookup::llm_lookup(&net_text, &translate::providers::Creds(creds), &http)
+            let mut emit = |acc: &str| {
+                let _ = app.emit(
+                    "lookup-delta",
+                    LookupDeltaEvt { text: net_text.clone(), content: acc.to_string() },
+                );
+            };
+            translate::lookup::llm_lookup_stream(
+                &net_text,
+                &translate::providers::Creds(creds),
+                &http,
+                &mut emit,
+            )
         })
         .join()
         .map_err(|_| "查词线程崩溃".to_string())

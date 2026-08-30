@@ -1,7 +1,7 @@
 // 翻译域：整篇翻译的 gen 时序、进度、划词翻译浮窗结果。
 // 阅读模式不在此存——唯一真源是 useDocStore.mode（plan 防双源决议）。
 import { create } from "zustand";
-import type { DonePayload, Mode, ProgressPayload, WordLookupDTO } from "../types/ipc";
+import type { DonePayload, Mode, ProgressPayload, WordLookupDTO, LookupDeltaPayload } from "../types/ipc";
 import { api } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 import { useDocStore } from "./useDocStore";
@@ -12,8 +12,9 @@ export type TranslationStatus = "idle" | "running" | "error";
 interface SelectionState {
   text: string;
   loading: boolean;
+  streaming: boolean; // 查词请求在途且 delta 仍可刷新（最终 DTO 到达即置 false）
   plain: string | null; // 现状路径结果（未配 LLM 时走全局翻译源）
-  rich: WordLookupDTO | null; // LLM 查词富结果
+  rich: WordLookupDTO | null; // LLM 查词富结果（流式期间为部分 DTO）
   error: string | null; // 显式失败（不静默回落，spec §9.2）
 }
 
@@ -30,6 +31,7 @@ interface TranslationState {
   startIfFresh(): void;
   listenProgress(): void;
   listenDone(): void;
+  listenLookupDelta(): void;
   stop(): void;
   translateSelection(text: string): void;
   clearSelection(): void;
@@ -38,7 +40,81 @@ interface TranslationState {
 // 同步哨兵防 StrictMode 双跑重复注册；句柄无处清理（应用级单例监听）
 let progressRegistered = false;
 let doneRegistered = false;
+let deltaRegistered = false;
 let selTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * 截断 JSON 的渐进字段提取（流式渲染用）：从可能中途截断的 LLM 输出里
+ * 抠出已完成/生成中的字符串字段。只解析渐进卡片用到的键（type/translation/
+ * phonetic/partOfSpeech）；usage 及以下等完整 DTO 到了再整体替换。
+ * 返回 null = 尚无可见字段（继续转圈）。
+ */
+export function parsePartialLookup(raw: string): WordLookupDTO | null {
+  const s = raw.trim();
+  if (s.startsWith("```")) {
+    const inner = s.slice(3).split("\n").slice(1).join("\n");
+    const fenced = inner.lastIndexOf("```") >= 0 ? inner.slice(0, inner.lastIndexOf("```")) : inner;
+    if (fenced.trim()) return parsePartialLookup(fenced);
+  }
+  // 字符串值读取：处理转义（含截断在转义/\\uXXX 中间的情况），未闭合也返回已生成部分
+  const strVal = (key: string): string | null => {
+    const ki = s.indexOf(`"${key}"`);
+    if (ki === -1) return null;
+    let i = s.indexOf(":", ki + key.length + 2);
+    if (i === -1) return null;
+    i++;
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (s[i] !== '"') return null;
+    i++;
+    let out = "";
+    while (i < s.length) {
+      const c = s[i];
+      if (c === "\\") {
+        const n = s[i + 1];
+        if (n === undefined) break;
+        if (n === "u") {
+          const hex = s.slice(i + 2, i + 6);
+          if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+            out += String.fromCharCode(parseInt(hex, 16));
+            i += 6;
+            continue;
+          }
+          break;
+        }
+        out += { n: "\n", t: "\t", r: "\r" }[n] ?? n;
+        i += 2;
+        continue;
+      }
+      if (c === '"') return out; // 已闭合
+      out += c;
+      i++;
+    }
+    return out; // 截断中：返回已生成部分
+  };
+  const translation = strVal("translation");
+  if (translation === null) return null;
+  return {
+    kind: s.includes('"type":"sentence"') ? "sentence" : "word",
+    translation,
+    phonetic: strVal("phonetic"),
+    part_of_speech: strVal("partOfSpeech"),
+    usage: null,
+    examples: [],
+    terms: [],
+  };
+}
+
+function handleLookupDelta(p: LookupDeltaPayload) {
+  const st = useTranslationStore.getState();
+  const sel = st.selection;
+  // 防乱序：事件按归一（trim）文本匹配当前浮窗，且仅流式在途时刷新；
+  // 最终 DTO（settle，streaming=false）到达后的迟到 delta 不再覆盖
+  if (!sel || !sel.streaming || sel.text.trim() !== p.text) return;
+  const partial = parsePartialLookup(p.content);
+  if (partial) {
+    useTranslationStore.setState({ selection: { ...sel, loading: false, rich: partial } });
+  }
+}
 
 function handleProgress(p: ProgressPayload) {
   const st = useTranslationStore.getState();
@@ -133,6 +209,12 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     void api.listenDone(handleDone);
   },
 
+  listenLookupDelta: () => {
+    if (deltaRegistered) return;
+    deltaRegistered = true;
+    void api.listenLookupDelta(handleLookupDelta);
+  },
+
   stop: () => {
     // gen 前跳使同轮迟到的 done 失配而被丢弃（后端取消会丢弃部分产物）
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null }));
@@ -145,7 +227,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       set({ selection: null });
       return;
     }
-    set({ selection: { text, loading: true, plain: null, rich: null, error: null } });
+    set({ selection: { text, loading: true, streaming: false, plain: null, rich: null, error: null } });
     selTimer = setTimeout(async () => {
       const sp = useSettingsStore.getState().settings;
       const cur = () => get().selection;
@@ -154,8 +236,8 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         rich: WordLookupDTO | null;
         error: string | null;
       }) => {
-        // 防乱序：只有仍是本次请求在展示时才回填
-        if (cur()?.text === text) set({ selection: { text, loading: false, ...patch } });
+        // 防乱序：只有仍是本次请求在展示时才回填；streaming 同时收口
+        if (cur()?.text === text) set({ selection: { text, loading: false, streaming: false, ...patch } });
       };
       if (!sp) {
         settle({ plain: null, rich: null, error: "设置尚未加载" });
@@ -166,6 +248,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       const llmCreds = useSettingsStore.getState().credsFor("llm");
       // 运行时缺键时 baseUrl 为 undefined（credsFor 返回 {}），?. 是真实守卫而非冗余——勿“清理”（曾致全新安装卡死，commit cc8a4c9）
       const llmReady = Boolean(llmCreds.baseUrl?.trim() && llmCreds.model?.trim());
+      if (cur()?.text === text) set((s0) => ({ selection: s0.selection ? { ...s0.selection, streaming: true } : null }));
       try {
         if (llmReady) {
           const rich = await api.lookupWord(text, llmCreds);

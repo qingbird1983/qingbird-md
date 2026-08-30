@@ -132,3 +132,9 @@ export interface WordLookupDTO {
   examples: LookupExample[];
   terms: LookupTerm[];
 }
+
+/** lib.rs LookupDeltaEvt：划词查词流式 delta，content 为截止当前的累积输出 */
+export interface LookupDeltaPayload {
+  text: string;
+  content: string;
+}

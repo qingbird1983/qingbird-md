@@ -1,11 +1,20 @@
 //! Minimal HTTP abstraction so providers can be tested offline with a mock.
 //! The real client wraps `ureq` (blocking, ring + webpki-roots).
 
+use std::io::{BufRead, BufReader, Cursor};
+
 /// A finished HTTP response: status code + response body text.
 #[derive(Debug, Clone)]
 pub struct HttpResp {
     pub status: u16,
     pub body: String,
+}
+
+/// 流式 POST 响应：状态码 + 可逐行读的响应体（SSE 用）。错误状态码时
+/// reader 内是错误体文本，由调用方 read_to_string 后报错。
+pub struct StreamResp {
+    pub status: u16,
+    pub reader: Box<dyn BufRead + Send>,
 }
 
 /// Small HTTP surface used by providers. Tests provide a `MockClient`.
@@ -48,6 +57,15 @@ pub trait HttpClient: Send + Sync {
         let _ = (headers, timeout_ms);
         self.get(url)
     }
+
+    /// POST JSON 并返回可流式读取的响应体（选区查词 SSE 渐进渲染用）。
+    fn post_json_stream(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<StreamResp, String>;
 }
 
 pub struct UreqClient;
@@ -103,6 +121,33 @@ impl HttpClient for UreqClient {
         }
         map(req.call())
     }
+
+    fn post_json_stream(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        timeout_ms: u64,
+    ) -> Result<StreamResp, String> {
+        let mut req = ureq::post(url)
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_millis(timeout_ms));
+        for (k, v) in headers {
+            req = req.set(k, v);
+        }
+        match req.send_string(body) {
+            Ok(r) => {
+                let status = r.status();
+                Ok(StreamResp { status, reader: Box::new(BufReader::new(r.into_reader())) })
+            }
+            Err(ureq::Error::Status(code, r)) => {
+                // 错误响应体整体读入后以 Cursor 兜底，调用方按 status 报错
+                let text = r.into_string().unwrap_or_default();
+                Ok(StreamResp { status: code, reader: Box::new(Cursor::new(text.into_bytes())) })
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
 }
 
 fn map(res: Result<ureq::Response, ureq::Error>) -> Result<HttpResp, String> {
@@ -151,7 +196,7 @@ fn form_escape(s: &str) -> String {
 /// Each `MockClient` owns its own record store so tests don't interfere.
 #[cfg(test)]
 pub(crate) mod test_mock {
-    use super::{HttpClient, HttpResp};
+    use super::{Cursor, HttpClient, HttpResp};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Clone)]
@@ -235,6 +280,35 @@ pub(crate) mod test_mock {
         ) -> Result<HttpResp, String> {
             self.record(url, body, headers);
             Ok(resp_for(url))
+        }
+
+        fn post_json_stream(
+            &self,
+            url: &str,
+            body: &str,
+            headers: &[(&str, &str)],
+            _timeout_ms: u64,
+        ) -> Result<super::StreamResp, String> {
+            self.record(url, body, headers);
+            let resp = resp_for(url);
+            // chat/completions 形态 → SSE delta 帧包装；其余原样一行（非 SSE 回落路径）
+            let frame = if url.contains("chat/completions") {
+                let content = serde_json::from_str::<serde_json::Value>(&resp.body)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("choices")?.get(0)?.get("message")?.get("content")?.as_str().map(String::from)
+                    })
+                    .unwrap_or_default();
+                let payload =
+                    serde_json::json!({"choices":[{"delta":{"content":content}}]}).to_string();
+                format!("data: {payload}\n\ndata: [DONE]\n\n")
+            } else {
+                format!("{}\n", resp.body)
+            };
+            Ok(super::StreamResp {
+                status: resp.status,
+                reader: Box::new(Cursor::new(frame.into_bytes())),
+            })
         }
 
         fn get_headers_timeout(

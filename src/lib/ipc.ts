@@ -14,6 +14,7 @@ import type {
   DonePayload,
   Mode,
   WordLookupDTO,
+  LookupDeltaPayload,
 } from "../types/ipc";
 
 export const api = {
@@ -57,6 +58,9 @@ export const api = {
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
   lookupWord: (t: string, c: Record<string, string>) =>
     invoke<WordLookupDTO>("lookup_word", { text: t, creds: c }),
+  // 查词流式 delta（SSE 渐进渲染）：content 为截止当前的累积 LLM 输出
+  listenLookupDelta: (cb: (p: LookupDeltaPayload) => void) =>
+    listen<LookupDeltaPayload>("lookup-delta", (e) => cb(e.payload)),
   // 拉取 OpenAI 兼容 /models 供设置弹窗点选（Tauri v2 默认 camelCase 参数映射）
   llmListModels: (baseUrl: string, apiKey: string) =>
     invoke<string[]>("llm_list_models", { baseUrl, apiKey }),

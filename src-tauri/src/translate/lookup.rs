@@ -2,6 +2,7 @@
 //! 富结果。与 providers.rs 的整篇 `llm()` 共用 HttpClient 抽象，但 prompt、
 //! 解析容错与缓存独立演进；模型选择按 B1（lookup_model 优先，空回落 model）。
 
+use std::io::BufRead;
 use serde_json::Value;
 
 use super::cache::Cache;
@@ -13,10 +14,68 @@ pub const CACHE_PROVIDER: &str = "llm-lookup";
 const LOOKUP_TIMEOUT_MS: u64 = 30_000;
 const MODELS_TIMEOUT_MS: u64 = 15_000;
 
-const LOOKUP_SYSTEM_PROMPT: &str = "你是一个中英翻译助手。用户会输入一个词/短语，或一句话/一段话。\n\n只输出一个 JSON 对象，不要输出任何额外文字，不要用代码块包裹。JSON 结构：\n{\"type\":\"word\"|\"sentence\",\"translation\":\"翻译结果\",\"phonetic\":\"音标或null\",\"partOfSpeech\":\"词性或null\",\"usage\":\"用法说明或null\",\"examples\":[{\"en\":\"英文例句\",\"zh\":\"中文翻译\"}],\"terms\":[{\"word\":\"英文词\",\"phonetic\":\"音标\",\"explanation\":\"中文解释\"}]}\n\n规则：\n1. 自动判断输入是中文还是英文，做中英互译（中→英、英→中）。\n2. 自动判断输入是「词/短语」还是「句子/段落」，填入 type。\n3. type 为 word 时（输入是词/短语）：\n   - translation：核心翻译，简洁\n   - phonetic：英文那一侧单词的 IPA 音标（带斜杠），无法给出为 null\n   - partOfSpeech：词性，如 n./v./adj./adv.，无法确定为 null\n   - usage：2-4 句简明中文，讲常见搭配、使用语境、易混淆点或近义辨析\n   - examples：2-3 个例句，例句要自然、能体现该词的典型用法\n   - terms：空数组 []\n4. type 为 sentence 时：\n   - translation：整句翻译\n   - phonetic、partOfSpeech、usage 为 null，examples 为空数组 []\n   - terms：从英文那一侧（输入英文则原文、输入中文则译文）挑出的较生僻、较难的单词，每个给 word、IPA 音标 phonetic、简洁中文 explanation；常见简单词不挑，没有则空数组\n5. 音标只针对英文单词，使用 IPA；中文不需要音标。";
+const LOOKUP_SYSTEM_PROMPT: &str = "你是一个中英翻译助手。用户会输入一个词/短语，或一句话/一段话。\n\n只输出一个 JSON 对象，不要输出任何额外文字，不要用代码块包裹。JSON 结构：\n{\"type\":\"word\"|\"sentence\",\"translation\":\"翻译结果\",\"phonetic\":\"音标或null\",\"partOfSpeech\":\"词性或null\",\"usage\":\"用法说明或null\",\"examples\":[{\"en\":\"英文例句\",\"zh\":\"中文翻译\"}],\"terms\":[{\"word\":\"英文词\",\"phonetic\":\"音标\",\"explanation\":\"中文解释\"}]}\n\n规则：\n1. 自动判断输入是中文还是英文，做中英互译（中→英、英→中）。\n2. 自动判断输入是「词/短语」还是「句子/段落」，填入 type。\n3. type 为 word 时（输入是词/短语）：\n   - translation：核心翻译，简洁\n   - phonetic：英文那一侧单词的 IPA 音标（带斜杠），无法给出为 null\n   - partOfSpeech：词性，如 n./v./adj./adv.，无法确定为 null\n   - usage：1-2 句简明中文，只讲最典型的搭配或语境（输出务必精简，首译速度优先）\n   - examples：至多 2 个例句，例句要自然、能体现该词的典型用法\n   - terms：空数组 []\n4. type 为 sentence 时：\n   - translation：整句翻译\n   - phonetic、partOfSpeech、usage 为 null，examples 为空数组 []\n   - terms：从英文那一侧（输入英文则原文、输入中文则译文）挑出的较生僻、较难的单词，每个给 word、IPA 音标 phonetic、简洁中文 explanation；常见简单词不挑，没有则空数组\n5. 音标只针对英文单词，使用 IPA；中文不需要音标。";
 
 /// 选区查词主入口：POST {base}/chat/completions（B1 模型回落），30s 超时。
-pub fn llm_lookup(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<crate::dto::WordLookupDTO, String> {
+/// 流式（stream: true）：每收到 delta 就以累积后的完整 content 回调 on_delta
+/// （前端据此渐进渲染），结束后整包 parse。兼容两种帧：
+/// SSE `data: {...}` 与厂商忽略 stream 时的单帧非 SSE JSON。
+pub fn llm_lookup_stream(
+    text: &str,
+    creds: &Creds,
+    http: &dyn HttpClient,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<crate::dto::WordLookupDTO, String> {
+    let (url, body, headers) = build_lookup_request(text, creds)?;
+    let hdr_refs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let mut resp = http.post_json_stream(&url, &body, &hdr_refs, LOOKUP_TIMEOUT_MS)?;
+    if resp.status >= 400 {
+        let mut err_body = String::new();
+        let _ = resp.reader.read_to_string(&mut err_body);
+        let mut detail = String::new();
+        if let Ok(v) = serde_json::from_str::<Value>(&err_body) {
+            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
+                detail = format!("：{msg}");
+            }
+        }
+        return Err(format!("查词请求返回 {}{detail}", resp.status));
+    }
+
+    let mut content = String::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if resp.reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
+            break;
+        }
+        let l = line.trim_end();
+        let frame = match l.strip_prefix("data:") {
+            Some(d) => d.trim(),
+            None => l,
+        };
+        if frame.is_empty() || frame == "[DONE]" {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(frame) else { continue };
+        if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
+            return Err(format!("查词请求失败：{msg}"));
+        }
+        // SSE delta 帧与整包非 SSE 帧取 content 的路径不同，统一累积
+        let delta = v
+            .pointer("/choices/0/delta/content")
+            .or_else(|| v.pointer("/choices/0/message/content"))
+            .and_then(|x| x.as_str());
+        if let Some(d) = delta {
+            content.push_str(d);
+            on_delta(&content);
+        }
+    }
+    parse_lookup_json(&content)
+}
+
+/// 请求三件套（url/body/headers）构造。纯函数供测试断言 model 优先级、
+/// Bearer 头与 URL 规整。
+fn build_lookup_request(text: &str, creds: &Creds) -> Result<(String, String, Vec<(&'static str, String)>), String> {
     let base = creds
         .get("baseUrl")
         .map(|s| s.trim().trim_end_matches('/').to_string())
@@ -35,14 +94,9 @@ pub fn llm_lookup(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<cr
     }
     let url = format!("{base}/chat/completions");
     let api_key = creds.get("apiKey").map(|s| s.trim()).unwrap_or("").to_string();
-    let mut headers: Vec<(&str, &str)> = Vec::new();
-    let auth_owned = if api_key.is_empty() {
-        String::new()
-    } else {
-        format!("Bearer {api_key}")
-    };
+    let mut headers: Vec<(&str, String)> = Vec::new();
     if !api_key.is_empty() {
-        headers.push(("Authorization", auth_owned.as_str()));
+        headers.push(("Authorization", format!("Bearer {api_key}")));
     }
     let body = serde_json::json!({
         "model": model,
@@ -51,28 +105,10 @@ pub fn llm_lookup(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<cr
             { "role": "user", "content": text },
         ],
         "temperature": 0.2,
+        "stream": true,
     })
     .to_string();
-
-    let r = http.post_json_timeout(&url, &body, &headers, LOOKUP_TIMEOUT_MS)?;
-    if r.status >= 400 {
-        let mut detail = String::new();
-        if let Ok(v) = serde_json::from_str::<Value>(&r.body) {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
-                detail = format!("：{msg}");
-            }
-        }
-        return Err(format!("查词请求返回 {}{detail}", r.status));
-    }
-    let v = serde_json::from_str::<Value>(&r.body).map_err(|e| format!("查词响应解析失败：{e}"))?;
-    let content = v
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|x| x.as_str())
-        .ok_or("查词响应无内容")?;
-    parse_lookup_json(content)
+    Ok((url, body, headers))
 }
 
 /// 模型回复 → DTO。容错顺序：剥 ``` 围栏 → 截取首 `{` 至末 `}` → serde →
@@ -226,66 +262,72 @@ mod tests {
 
     #[test]
     fn builds_request_with_lookup_model_priority() {
-        let http = MockClient::new();
-        let _ = llm_lookup("amenity", &creds("https://api.deepseek.com", "main-model", "fast-model"), &http);
-        let r = &http.take_records()[0];
-        assert_eq!(r.url, "https://api.deepseek.com/chat/completions");
-        assert!(r.body.contains("\"model\":\"fast-model\""), "lookup_model 优先: {}", r.body);
-        assert!(r.body.contains("0.2"), "temperature 0.2: {}", r.body);
-        assert!(r.body.contains("中英翻译助手"), "system prompt 在场");
+        let (url, body, headers) = build_lookup_request(
+            "amenity",
+            &creds("https://api.deepseek.com", "main-model", "fast-model"),
+        )
+        .unwrap();
+        assert_eq!(url, "https://api.deepseek.com/chat/completions");
+        assert!(body.contains("\"model\":\"fast-model\""), "lookup_model 优先: {body}");
+        assert!(body.contains("0.2"), "temperature 0.2: {body}");
+        assert!(body.contains("中英翻译助手"), "system prompt 在场");
+        assert!(body.contains("\"stream\":true"), "流式开: {body}");
+        assert!(headers.is_empty());
     }
 
     #[test]
     fn falls_back_to_model_and_normalizes_trailing_slash() {
-        let http = MockClient::new();
-        let _ = llm_lookup("hi", &creds("https://x.io/", "main-model", ""), &http);
-        let r = &http.take_records()[0];
-        assert_eq!(r.url, "https://x.io/chat/completions");
-        assert!(r.body.contains("\"model\":\"main-model\""));
+        let (url, body, _) =
+            build_lookup_request("hi", &creds("https://x.io/", "main-model", "")).unwrap();
+        assert_eq!(url, "https://x.io/chat/completions");
+        assert!(body.contains("\"model\":\"main-model\""));
     }
 
     #[test]
     fn sends_bearer_only_when_key_present() {
         let mut c = creds("https://x.io", "m", "");
         c.0.insert("apiKey".to_string(), "sk-1".to_string());
-        let http = MockClient::new();
-        let _ = llm_lookup("hi", &c, &http);
+        let (_, _, headers) = build_lookup_request("hi", &c).unwrap();
         assert_eq!(
-            http.take_records()[0].headers,
-            vec![("Authorization".to_string(), "Bearer sk-1".to_string())]
+            headers,
+            vec![("Authorization", "Bearer sk-1".to_string())]
         );
-        let c2 = creds("https://x.io", "m", "");
-        let http2 = MockClient::new();
-        let _ = llm_lookup("hi", &c2, &http2);
-        assert!(http2.take_records()[0].headers.is_empty(), "无 key 不带 Authorization");
+        let (_, _, headers2) = build_lookup_request("hi", &creds("https://x.io", "m", "")).unwrap();
+        assert!(headers2.is_empty(), "无 key 不带 Authorization");
     }
 
     #[test]
     fn missing_base_or_model_is_actionable_error() {
-        let http = MockClient::new();
-        let e = llm_lookup("hi", &creds("", "m", ""), &http).unwrap_err();
+        let e = build_lookup_request("hi", &creds("", "m", "")).unwrap_err();
         assert!(e.contains("API 地址"), "{e}");
-        let e = llm_lookup("hi", &creds("https://x.io", "", ""), &http).unwrap_err();
+        let e = build_lookup_request("hi", &creds("https://x.io", "", "")).unwrap_err();
         assert!(e.contains("模型名"), "{e}");
-        // lookup_model 为空但 model 有值 → 不报错（回落），MockClient 返回
-        // lookup-mock happy path 之外的内容可能失败，这里只验错误分支即可。
     }
 
-    // ---- happy path（走 MockClient 的 lookup-mock.test 分支）----
+    // ---- happy path（走 MockClient 的 lookup-mock.test SSE 分支）----
 
     #[test]
-    fn end_to_end_happy_path_maps_keys() {
+    fn end_to_end_happy_path_maps_keys_and_streams_deltas() {
         let http = MockClient::new();
-        let dto = llm_lookup("amenity", &creds("https://lookup-mock.test/v1", "m", ""), &http).unwrap();
+        let mut deltas: Vec<String> = Vec::new();
+        let dto = llm_lookup_stream(
+            "amenity",
+            &creds("https://lookup-mock.test/v1", "m", ""),
+            &http,
+            &mut |acc| deltas.push(acc.to_string()),
+        )
+        .unwrap();
         assert_eq!(dto.kind, "word");
         assert_eq!(dto.translation, "便利设施");
         assert_eq!(dto.part_of_speech.as_deref(), Some("n."));
+        assert_eq!(deltas, vec!["{\"type\":\"word\",\"translation\":\"便利设施\",\"phonetic\":\"/əˈmenəti/\",\"partOfSpeech\":\"n.\",\"usage\":\"指提升舒适度的设施。\",\"examples\":[],\"terms\":[]}"]);
     }
 
     #[test]
     fn non_json_content_is_explicit_error() {
         let http = MockClient::new();
-        let e = llm_lookup("hi", &creds("https://x.io", "m", ""), &http).unwrap_err();
+        let mut noop = |_: &str| {};
+        let e = llm_lookup_stream("hi", &creds("https://x.io", "m", ""), &http, &mut noop).unwrap_err();
         assert!(e.contains("不是有效 JSON"), "{e}");
     }
 

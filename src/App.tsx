@@ -57,6 +57,7 @@ function App() {
     void useDocStore.getState().openDocFromArgs();
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
+    void useTranslationStore.getState().listenLookupDelta();
   }, []);
 
   useEffect(
