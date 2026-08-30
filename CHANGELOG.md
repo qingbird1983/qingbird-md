@@ -4,6 +4,19 @@ All notable changes to qingbird-md are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **预览渲染：Mermaid 图表与 KaTeX 数学公式**：预览视图新增 ```mermaid 围
+  栏渲染（SVG）、行内 `$...$` 与块状 `$$...$$` / ```math 围栏的 KaTeX 排版
+  ；mermaid 通过 `securityLevel: 'strict'` 拒绝执行源码脚本，KaTeX 走
+  `throwOnError: false` 错误降级；math / mermaid 块不进双语 `sub_counter`，
+  翻译管线零变化。工具栏新增两个插入按钮（Workflow 图标插入空 mermaid 围
+  栏、Sigma 图标 wrap 选区或插入空 `$|$` 占位），后端走
+  `Options::ENABLE_MATH` 识别，识别不到的 `$$…$$` 在行文中间按 inline
+  span 渲染避免非法 HTML。
+
 ## [0.1.3] - 2026-08-29
 
 选区查词（Selection word lookup）端到端打通 — 从 Rust 核心查词流水线，
