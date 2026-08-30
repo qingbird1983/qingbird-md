@@ -39,6 +39,7 @@ import {
   FoldHorizontal,
   PanelLeftClose,
   PanelRightClose,
+  TextSelect,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useDocStore } from "../stores/useDocStore";
@@ -70,6 +71,15 @@ export default function EditorToolbar() {
   const toggleOutline = useUiStore((s) => s.toggleOutline);
   const wideContent = useUiStore((s) => s.wideContent);
   const toggleWideContent = useUiStore((s) => s.toggleWideContent);
+
+  // 划词翻译开关：与设置弹窗同一持久化通道（settings.selection_translate）。
+  // 关闭时 SelectionPopup 的 on 订阅失效会自动清浮窗 + 防抖定时器。
+  const selTranslate = useSettingsStore((s) => s.settings?.selection_translate ?? false);
+  const toggleSelTranslate = () => {
+    const cur = useSettingsStore.getState().settings;
+    if (!cur) return;
+    void useSettingsStore.getState().save({ ...cur, selection_translate: !cur.selection_translate });
+  };
 
   // 解析后的明暗态（auto 档跟随系统）：仅用于切换按钮的图标/提示，逻辑与
   // 命令面板「切换明暗主题」同源（isDarkTheme 统一口径）。
@@ -217,6 +227,14 @@ export default function EditorToolbar() {
       <button type="button" className={`menu-btn tool-btn${view === "split" ? " active" : ""}`} title="分栏视图"
         onClick={() => switchView("split")}>
         <Columns size={15} />
+      </button>
+      <Sep />
+
+      {/* ── ⑤b 划词翻译开关（选中即译；复制文字前先关掉，省 token）── */}
+      <button type="button" className={`menu-btn tool-btn${selTranslate ? " active" : ""}`}
+        title={selTranslate ? "划词翻译：开（点击关闭，复制选区不触发查词）" : "划词翻译：关（点击开启，选中即译）"}
+        onClick={toggleSelTranslate}>
+        <TextSelect size={15} />
       </button>
       <Sep />
 
