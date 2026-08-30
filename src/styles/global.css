@@ -96,6 +96,7 @@ body {
   align-items: center;
   gap: 0;
   flex-shrink: 0;
+  align-self: stretch; /* 撑满标题栏高度，让 win-btn 的 hover 高亮上下铺满 */
 }
 
 .win-btn {
