@@ -76,9 +76,9 @@ function insertFormula() {
       selection: { anchor: from + sel.length + 1 },
     });
   } else {
-    // 无选区：插入 $$$ 光标留中间
+    // 无选区：插入 $$ 光标留中间（$$$ 会留下一个字面 $，渲染为 $x$ + $）
     v.dispatch({
-      changes: { from, insert: "$$$" },
+      changes: { from, insert: "$$" },
       selection: { anchor: from + 1 },
     });
   }
