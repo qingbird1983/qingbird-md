@@ -532,4 +532,41 @@ A--&gt;B
             r.html
         );
     }
+
+    /// Whole-branch review (Task 3 in-flight spec deviation): DisplayMath 的两
+    /// 条 emit 路径此前无测试覆盖——独立成段走 paragraph_block 升级到
+    /// `Block::Math { display: true }`，行文中段按 inline span 渲染（避免
+    /// `<div>` 嵌 `<p>` 非法 HTML）。
+    #[test]
+    fn display_math_standalone_and_inline_both_emit_placeholders() {
+        // (a) 独立成段：pulldown 实测总是 Paragraph 包裹，paragraph_block
+        // 把单 Inline::DisplayMath 升级为 Block::Math{display:true}，emit div。
+        // pulldown 保留 $$ 内侧首尾换行，KaTeX/mermaid 对首尾空白不敏感。
+        let r1 = render_html("$$\n\\sum_i\n$$", &HashMap::new(), false);
+        // pulldown 保留 $$ 内侧首尾换行到 data-source："\n\sum_i\n"
+        assert!(
+            r1.html.contains("<div class=\"math block\" data-source=\"\n\\sum_i\n\"></div>"),
+            "standalone $$...$$ must upgrade to Block::Math and emit div: {}",
+            r1.html
+        );
+        assert!(!r1.html.contains("<p>"), "must not wrap in <p>: {}", r1.html);
+
+        // (b) 行文中段：保留 paragraph 包裹，$$...$$ 部分按 inline span 渲染。
+        let r2 = render_html("see $$x^2$$ here", &HashMap::new(), false);
+        assert!(
+            r2.html.contains(r#"<span class="math inline" data-source="x^2"></span>"#),
+            "mid-paragraph $$...$$ must render as inline span: {}",
+            r2.html
+        );
+        assert!(
+            r2.html.contains("see "),
+            "preceding text preserved: {}",
+            r2.html
+        );
+        assert!(
+            r2.html.contains(" here"),
+            "trailing text preserved: {}",
+            r2.html
+        );
+    }
 }
