@@ -116,7 +116,19 @@ impl<'t> Ctx<'t> {
                 // translatable, exactly like units::walk_collect.
                 self.maybe_tr_box(out, &inline_plain_text(text));
             }
-            Block::Code { lang, code } => self.push_code_block(out, lang.as_deref(), code),
+            Block::Code { lang, code } => match lang.as_deref() {
+                Some("mermaid") => {
+                    out.push_str(r#"<div class="mermaid" data-source=""#);
+                    out.push_str(&escape_html(code));
+                    out.push_str(r#""></div>"#);
+                }
+                Some("math") => {
+                    out.push_str(r#"<div class="math block" data-source=""#);
+                    out.push_str(&escape_html(code));
+                    out.push_str(r#""></div>"#);
+                }
+                _ => self.push_code_block(out, lang.as_deref(), code),
+            },
             Block::Quote { blocks } => {
                 out.push_str("<blockquote>");
                 self.render_blocks(out, blocks);
@@ -172,7 +184,15 @@ impl<'t> Ctx<'t> {
                 }
                 out.push_str("</tbody></table>");
             }
-            Block::Math { .. } => {} // placeholder emitted in a later task
+            Block::Math { display, tex } => {
+                let cls = if *display { "math block" } else { "math inline" };
+                let _ = write!(
+                    out,
+                    r#"<div class="{}" data-source="{}"></div>"#,
+                    cls,
+                    escape_html(tex)
+                );
+            }
         }
     }
 
@@ -235,7 +255,13 @@ impl<'t> Ctx<'t> {
                         write!(out, r#"<img src="{}" alt="{}">"#, escape_html(src), escape_html(alt));
                 }
                 Inline::LineBreak => out.push_str("<br>"),
-                Inline::Math(_) => {} // placeholder emitted in a later task
+                Inline::Math(tex) => {
+                    let _ = write!(
+                        out,
+                        r#"<span class="math inline" data-source="{}"></span>"#,
+                        escape_html(tex)
+                    );
+                }
             }
         }
     }
