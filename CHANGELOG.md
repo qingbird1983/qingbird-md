@@ -4,7 +4,12 @@ All notable changes to qingbird-md are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.4] - 2026-09-01
+
+品牌换新 + 标题栏交互整理。全新应用图标（`qingniao-md.png` 一源生成全套
+ico/icns/PNG/Appx/iOS/Android）、标题栏品牌「青鸟」文字换成 logo 图；
+工作区切换按钮从工具栏搬到标题栏；隐藏工作区后主内容区零留白；修复主题
+切换不持久。
 
 ### Added
 
@@ -16,6 +21,33 @@ adheres to [Semantic Versioning](https://semver.org/).
   栏、Sigma 图标 wrap 选区或插入空 `$|$` 占位），后端走
   `Options::ENABLE_MATH` 识别，识别不到的 `$$…$$` 在行文中间按 inline
   span 渲染避免非法 HTML。
+
+### Changed
+
+- **应用图标全面换新**：以 `qingniao-md.png`（2000×2000）为源经
+  `tauri icon` 重新生成 `src-tauri/icons/` 全套（icon.ico / icon.icns /
+  各尺寸 PNG / Appx Square Logo / StoreLogo / iOS / Android mipmap），
+  Windows 任务栏、安装器、文件关联图标随之更新。
+- **标题栏品牌 logo 化**：「青鸟 Markdown」中的「青鸟」文字换成品牌小图
+  （`src/assets/qingniao-logo.png`，源 `qingniao.png` 缩至 128×128），
+  「Markdown」文字保留；logo 容器继承 `pointer-events: none`，标题栏拖拽
+  行为不变。
+- **工作区切换按钮搬到标题栏**：TitleBar 新增 PanelLeft 图标按钮（汉堡
+  按钮左侧），隐藏工作区后按钮仍留在标题栏作视觉锚点；EditorToolbar 的
+  PanelLeftClose 开关移除，只留大纲开关。
+- **隐藏工作区零留白**：工作区隐藏时主内容区左缘直接顶到第一列
+  （`--col-main` / `--main-span` CSS 变量切换），TabBar / EditorToolbar /
+  MainArea 一起左移，不再出现「左侧两列空白、右侧才有内容」的撕裂。
+- **正文宽版加宽**：`.markdown-body.wide` 由 1000px 提至 1200px。
+- **标签条并入标题栏**：TabBar 由 App shell 独立行移入 TitleBar 内渲染，
+  标题栏中部即标签条，文档名不再重复占位。
+
+### Fixed
+
+- **主题切换不持久**：`setTheme` 先 `applyTheme`（其内部同步写
+  `settings.theme`）导致 `cur.theme !== t` 守卫永远为 false、
+  `saveSettings` 永不发出，盘上无落痕，重启后回退旧值；调整为先守卫后
+  落盘，并补设置未加载（load 未 resolve）时的本地翻转分支。
 
 ## [0.1.3] - 2026-08-29
 
