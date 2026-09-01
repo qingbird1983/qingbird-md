@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "青鸟 Markdown 阅读�?,
+        "title": "青鸟 Markdown 阅读器",
         "width": 1280,
         "height": 860,
         "minWidth": 800,
