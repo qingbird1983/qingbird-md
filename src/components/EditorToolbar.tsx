@@ -39,7 +39,6 @@ import {
   Rows2,
   StretchHorizontal,
   FoldHorizontal,
-  PanelLeftClose,
   PanelRightClose,
   TextSelect,
 } from "lucide-react";
@@ -102,9 +101,8 @@ export default function EditorToolbar() {
   const openTab = useDocStore((s) => s.openTab);
   const saveDoc = useDocStore((s) => s.saveDoc);
   const newTab = useDocStore((s) => s.newTab);
-  const showNav = useUiStore((s) => s.showNav);
+  // 工作区切换已搬到 TitleBar（PanelLeft），这里只剩大纲切换 + 宽版 + 主题。
   const showOutline = useUiStore((s) => s.showOutline);
-  const toggleNav = useUiStore((s) => s.toggleNav);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
   const wideContent = useUiStore((s) => s.wideContent);
   const toggleWideContent = useUiStore((s) => s.toggleWideContent);
@@ -299,11 +297,8 @@ export default function EditorToolbar() {
       </button>
       <Sep />
 
-      {/* ── ⑧ 面板开关（仅切换显示/隐藏，无持续高亮态）── */}
-      <button type="button" className="menu-btn tool-btn" title={showNav ? "隐藏侧栏" : "显示侧栏"}
-        onClick={() => toggleNav()}>
-        <PanelLeftClose size={15} />
-      </button>
+      {/* ── ⑧ 面板开关（仅切换显示/隐藏，无持续高亮态）──
+           工作区切换已搬到 TitleBar（PanelLeft 图标），这里只留大纲开关。 */}
       <button type="button" className="menu-btn tool-btn" title={showOutline ? "隐藏大纲" : "显示大纲"}
         onClick={() => toggleOutline()}>
         <PanelRightClose size={15} />

@@ -81,9 +81,18 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   setTheme: (t) => {
-    applyTheme(t);
+    // 不能先 applyTheme：它会把 settings.theme 同步改成 t，导致下面的
+    // cur.theme !== t 守卫永远为 false，api.saveSettings 永不发出，盘上无落痕，
+    // 下次启动读回旧值（或默认空串→auto）→ "主题切了不持久"。
+    // save 自身先 set 再 await 写盘，本地点亮 + 落盘一次完成。
     const cur = get().settings;
-    if (cur && cur.theme !== t) void get().save({ ...cur, theme: t });
+    if (!cur) {
+      // 设置尚未加载（load 还没 resolve）：仅本地翻转，等 load 完成再覆盖。
+      useSettingsStore.setState({ theme: t });
+      return;
+    }
+    if (cur.theme === t) return;
+    void get().save({ ...cur, theme: t });
   },
 
   credsFor: (provider) => get().settings?.providers[provider] ?? {},

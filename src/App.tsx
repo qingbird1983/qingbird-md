@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useEffect } from "react";
+import { type PointerEvent as ReactPointerEvent, type CSSProperties, useEffect } from "react";
 import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
@@ -6,7 +6,6 @@ import { useUiStore } from "./stores/useUiStore";
 import StatusBar from "./components/StatusBar";
 import TitleBar from "./components/TitleBar";
 import AppMenu from "./components/AppMenu";
-import TabBar from "./components/TabBar";
 import EditorToolbar from "./components/EditorToolbar";
 import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
@@ -171,11 +170,21 @@ function App() {
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
 
+  // 工作区隐藏时主内容区左缘直接顶到 col1；这样 TabBar/EditorToolbar/MainArea
+  // 一起左移，不会出现「左侧 2 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
+  // 与 --main-span：--main-span=1 时 main-area 占 col 3 一列（1fr）；
+  // --main-span=3 时 main-area 占 col 1-3（吸收掉隐藏的侧栏与左 resizer 两列）。
+  const mainColStart = showNav ? 3 : 1;
+  const mainSpan = showNav ? 1 : 3;
+  const mainStyle = {
+    ["--col-main" as string]: String(mainColStart),
+    ["--main-span" as string]: String(mainSpan),
+  } as CSSProperties;
+
   return (
-    <div id="app-shell">
+    <div id="app-shell" style={mainStyle}>
       <TitleBar />
       <AppMenu />
-      <TabBar />
       {/* EditorToolbar 常驻显示（源/预览/分栏均渲染，MainArea 不再渲染）。
           撤销/重做依赖 cmRef，preview 时为 no-op；格式按钮读 store.cursorSel，
           preview 时用上次切走前的选区位置——点击行为视为已知约束。 */}

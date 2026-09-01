@@ -74,9 +74,9 @@
   --r-lg: 12px; /* 浮层、弹窗、搜索条 */
 
   /* ---- 尺寸节奏 ---- */
-  --h-topbar: 38px;
-  --h-tabbar: 36px;
-  --h-toolbar: 44px;
+  --h-topbar: 36px;
+  --h-tabbar: 30px;
+  --h-toolbar: 36px;
   --h-statusbar: 26px;
 
   --resizer-hover: #c3c3cc;

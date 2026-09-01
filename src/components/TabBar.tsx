@@ -41,7 +41,11 @@ export default function TabBar() {
   };
 
   return (
-    <div className="tabbar" role="tablist" aria-label="打开的文档">
+    <div
+      className="tabbar"
+      role="tablist"
+      aria-label="打开的文档"
+    >
       {tabs.map((t) => {
         const isActive = t.id === activeId;
         const isDirty = t.content !== t.savedContent;

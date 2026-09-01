@@ -21,7 +21,7 @@ interface UiState {
   sidebarWidth: number;
   outlineWidth: number;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
-  wideContent: boolean; // 正文宽版（markdown.css .markdown-body.wide 1000px；窄版恒 A4 794px）
+  wideContent: boolean; // 正文宽版（markdown.css .markdown-body.wide 1200px；窄版恒 A4 794px）
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;

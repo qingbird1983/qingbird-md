@@ -30,7 +30,7 @@
 
   /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
      窗口/split 分栏窄于该值时自然收缩回流式排版。宽版 .wide 放宽到
-     1000px（视图菜单「正文宽版」切换，偏好存 uiStore/localStorage）。 */
+     1200px（视图菜单「正文宽版」切换，偏好存 uiStore/localStorage）。 */
   box-sizing: border-box;
   max-width: 794px;
   margin-inline: auto;
@@ -50,7 +50,7 @@
 
 /* 正文宽版（视图菜单切换） */
 .markdown-body.wide {
-  max-width: 1000px;
+  max-width: 1200px;
 }
 
 /* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
