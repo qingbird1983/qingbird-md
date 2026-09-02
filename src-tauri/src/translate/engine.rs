@@ -426,56 +426,55 @@ fn llm_once(req: &EngineRequest, text: &str) -> Result<String, String> {
     chat_stream(&chat, req.http, &mut noop).map(|c| strip_fence(&c))
 }
 
-/// Split `text` into chunks of at most `max_len`, preferring a sentence
-/// boundary, then a word boundary, then a hard cut.
+/// Split `text` into chunks of at most `max_len` **characters**, preferring a
+/// sentence boundary, then a word boundary, then a hard cut.
+///
+/// All math is in char units, not bytes: byte-offset slicing on CJK text
+/// would panic on non-boundaries and silently mis-split otherwise.
 pub fn split_long(text: &str, max_len: usize) -> Vec<String> {
-    if text.chars().count() <= max_len {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max_len {
         return vec![text.to_string()];
     }
-    let mut chunks = Vec::new();
-    let mut rest = text.trim().to_string();
+    let n = chars.len();
     let min = max_len / 2;
-    while rest.chars().count() > max_len {
-        let window: String = rest.chars().take(max_len).collect();
-        let mut cut: isize = -1;
-        for p in sentence_boundaries(&window) {
-            if p >= min {
-                cut = p as isize; // keep advancing: take the last viable one
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+    while n - start > max_len {
+        let window_end = start + max_len;
+        // Last sentence boundary within [start+min, window_end], in char units.
+        let mut cut: Option<usize> = None;
+        for p in (start + min)..=window_end {
+            if matches!(chars[p - 1], '。' | '！' | '？' | '!' | '?' | '.')
+                && chars.get(p).map(|c| c.is_whitespace()).unwrap_or(true)
+            {
+                cut = Some(p);
             }
         }
-        if cut < 0 {
-            if let Some(w) = window.rfind(' ').filter(|&w| w >= min) {
-                cut = w as isize;
+        // Then the last word boundary.
+        if cut.is_none() {
+            for p in ((start + min)..=window_end).rev() {
+                if chars[p - 1] == ' ' {
+                    cut = Some(p);
+                    break;
+                }
             }
         }
-        if cut < 0 {
-            cut = max_len as isize;
+        let cut = cut.unwrap_or(window_end);
+        chunks.push(chars[start..cut].iter().collect::<String>().trim_end().to_string());
+        let mut next = cut;
+        while next < n && chars[next].is_whitespace() {
+            next += 1;
         }
-        let cut = cut as usize;
-        chunks.push(rest[..cut].to_string());
-        rest = rest[cut..].trim_start().to_string();
+        start = next;
     }
-    if !rest.is_empty() {
-        chunks.push(rest);
+    if start < n {
+        chunks.push(chars[start..].iter().collect());
     }
     if chunks.is_empty() {
         chunks.push(text.to_string());
     }
     chunks
-}
-
-/// Byte indices just after a sentence-ending punctuation followed by whitespace.
-fn sentence_boundaries(window: &str) -> Vec<usize> {
-    let mut v = Vec::new();
-    for (i, c) in window.char_indices() {
-        if matches!(c, '。' | '！' | '？' | '!' | '?' | '.') {
-            let after = window[i + c.len_utf8()..].chars().next();
-            if after.map(|a| a.is_whitespace()).unwrap_or(true) {
-                v.push(i + c.len_utf8());
-            }
-        }
-    }
-    v
 }
 
 #[cfg(test)]
@@ -516,7 +515,9 @@ mod tests {
     fn oversized_unit_goes_alone() {
         let u = units(&[2, 500, 2]);
         let b = pack_batches(&u, 10, 100);
-        assert_eq!(b, vec![vec![0, 1], vec![2]]);
+        // 超限单元必须独占一批：process_batch 只对单单元批做分片，
+        // 混进多单元批就会绕过分片直接走批处理协议。
+        assert_eq!(b, vec![vec![0], vec![1], vec![2]]);
     }
 
     #[test]

@@ -478,7 +478,9 @@ mod tests {
         assert_eq!(body["model"], "deepseek-chat");
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["content"], "hello world");
-        assert_eq!(body["temperature"], 0.1);
+        // f32 经 JSON 是 0.10000000149011612，按数值近似比较
+        let t = body["temperature"].as_f64().unwrap();
+        assert!((t - 0.1).abs() < 1e-6);
     }
 
     #[test]

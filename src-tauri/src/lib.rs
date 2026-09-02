@@ -500,7 +500,7 @@ fn translate_text(
     }
     std::thread::spawn(move || {
         let http = translate::http::UreqClient::shared();
-        translate::providers::provider(&provider, &text, &translate::providers::Creds(creds), &http)
+        translate::providers::provider(&provider, &text, &translate::providers::Creds(creds), http)
     })
     .join()
     .map_err(|_| "翻译线程崩溃".to_string())
@@ -545,7 +545,7 @@ fn lookup_word(
                     LookupDeltaEvt { text: net_text.clone(), content: acc.to_string() },
                 );
             };
-            translate::lookup::lookup(&net_text, &creds, &http, &mut emit)
+            translate::lookup::lookup(&net_text, &creds, http, &mut emit)
         })
         .join()
         .map_err(|_| "查词线程崩溃".to_string())
@@ -567,7 +567,7 @@ fn lookup_word(
 fn llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
     std::thread::spawn(move || {
         let http = translate::http::UreqClient::shared();
-        translate::lookup::fetch_models(&base_url, &api_key, &http)
+        translate::lookup::fetch_models(&base_url, &api_key, http)
     })
     .join()
     .map_err(|_| "模型列表线程崩溃".to_string())

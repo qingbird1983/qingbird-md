@@ -115,10 +115,10 @@ pub fn chat_stream(
 
 /// Endpoints observed to reject `response_format` (keyed by normalized base
 /// URL). In-process only: forgetting on restart costs one 400, once.
-fn json_mode_registry() -> &'static Mutex<std::collections::HashSet<String>> {
-    static REGISTRY: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> =
+fn json_mode_registry() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
         std::sync::OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
 fn normalize_base(base_url: &str) -> String {

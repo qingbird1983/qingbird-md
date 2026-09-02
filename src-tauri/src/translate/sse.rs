@@ -149,7 +149,7 @@ mod tests {
         // A delta arrives split across three TCP reads, including inside the
         // `data:` prefix itself.
         assert!(p.feed("data: {\"choices\":[{\"delta\":{\"content\":\"hel").is_empty());
-        assert!(p.feed("lo\"}]}").is_empty());
+        assert!(p.feed("lo\"}}]}").is_empty());
         let f = p.feed("\n\n");
         assert_eq!(f.len(), 1);
         assert_eq!(delta_content(&json_of(&f[0])).unwrap(), "hello");
@@ -192,7 +192,7 @@ mod tests {
     fn bare_json_split_across_reads_waits_for_completeness() {
         let mut p = SseParser::new();
         assert!(p.feed("{\"choices\":[").is_empty());
-        assert!(p.feed("{\"message\":{\"content\":\"hi\"}}]\n").len() == 1);
+        assert!(p.feed("{\"message\":{\"content\":\"hi\"}}]}\n").len() == 1);
     }
 
     #[test]

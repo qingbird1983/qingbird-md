@@ -159,7 +159,7 @@ fn merge(
     let mut out = match stage2 {
         Some(d) => d,
         None => {
-            let s1 = stage1?;
+            let s1 = stage1.clone()?;
             crate::dto::WordLookupDTO {
                 kind: kind_for(text).to_string(),
                 translation: s1.translation,
@@ -186,9 +186,11 @@ fn merge(
     Some(out)
 }
 
-/// 阶段二缺席时的兜底判定：多词或较长按句子展示，否则按词。
+/// 阶段二缺席时的兜底判定：多词、较长文本或超长单词按句子展示，否则按词。
 fn kind_for(text: &str) -> &'static str {
-    if text.split_whitespace().count() >= 3 || text.chars().count() > 24 {
+    let words = text.split_whitespace().count();
+    let chars = text.chars().count();
+    if words >= 3 || chars > 24 || (words == 1 && chars > 12) {
         "sentence"
     } else {
         "word"
@@ -499,16 +501,19 @@ mod tests {
 
     // ---- 端到端（mock）----
 
+    /// 同时含阶段一短字段与阶段二全字段：并发线程按 FIFO 抢流，顺序不定，
+    /// 任一线程拿到任一条都必须可解析。
+    const BOTH_JSON: &str = r#"{"t":"便利设施","p":"/əˈmenəti/","pos":"n.","translation":"便利设施","type":"word","usage":"指提升舒适度的设施。","examples":[{"en":"The hotel has amenities.","zh":"酒店有设施。"}],"terms":[{"word":"lavish","phonetic":"/ˈlævɪʃ/","explanation":"奢华的"}]}"#;
+
     #[test]
     fn lookup_runs_both_stages_concurrently() {
         let http = MockClient::new();
-        // 两条脚本：先到先服务无法保证，故两条内容都可被任一段解析。
-        http.script_stream(sse(S2_JSON));
-        http.script_stream(sse(S1_JSON));
+        http.script_stream(sse(BOTH_JSON));
+        http.script_stream(sse(BOTH_JSON));
         let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
         let mut deltas: Vec<String> = Vec::new();
         let dto = lookup("amenity", &c, &http, &mut |acc| deltas.push(acc.to_string()));
-        // 两阶段内容相同，任序均能得到完整卡片
+        // 两条流任序均可得到完整卡片
         assert!(dto.is_ok(), "{dto:?}");
         let d = dto.unwrap();
         assert_eq!(d.translation, "便利设施");
@@ -520,8 +525,8 @@ mod tests {
         let http = MockClient::new();
         // 阶段一先返回（脚本按 FIFO 弹出，但两条并发请求顺序不定，故都用
         // 同一份可解析内容；这里只断言 delta 至少被回调一次）
-        http.script_stream(sse(S1_JSON));
-        http.script_stream(sse(S2_JSON));
+        http.script_stream(sse(BOTH_JSON));
+        http.script_stream(sse(BOTH_JSON));
         let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
         let mut deltas: Vec<String> = Vec::new();
         let _ = lookup("amenity", &c, &http, &mut |acc| deltas.push(acc.to_string()));
