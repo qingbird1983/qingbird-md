@@ -173,12 +173,14 @@ fn merge(
     };
     if let Some(s1) = stage1 {
         // 阶段一是权威译文：它先到、更短、更不容易跑偏。
-        out.translation = s1.translation;
-        if s1.phonetic.is_some() {
-            out.phonetic = s1.phonetic;
+        // 解构避免部分移动后再读字段。
+        let Stage1 { translation, phonetic, part_of_speech } = s1;
+        out.translation = translation;
+        if phonetic.is_some() {
+            out.phonetic = phonetic;
         }
-        if s1.part_of_speech.is_some() {
-            out.part_of_speech = s1.part_of_speech;
+        if part_of_speech.is_some() {
+            out.part_of_speech = part_of_speech;
         }
     }
     Some(out)
@@ -366,7 +368,6 @@ pub fn parse_models_body(body: &str) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use crate::translate::http::test_mock::MockClient;
-    use std::collections::HashMap;
 
     fn creds(pairs: &[(&str, &str)]) -> Creds {
         let m = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();

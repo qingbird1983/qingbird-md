@@ -165,7 +165,8 @@ fn consume(mut resp: StreamResp, on_delta: &mut dyn FnMut(&str)) -> Result<Strin
             break;
         }
         let chunk = String::from_utf8_lossy(&line);
-        apply(&mut parser, parser_feed(&mut parser, &chunk), &mut content, on_delta)?;
+        let frames = parser.feed(&chunk);
+        apply(&mut parser, frames, &mut content, on_delta)?;
     }
     let tail = parser.finish();
     apply(&mut parser, tail, &mut content, on_delta)?;
@@ -174,11 +175,6 @@ fn consume(mut resp: StreamResp, on_delta: &mut dyn FnMut(&str)) -> Result<Strin
         return Err("模型返回内容为空".to_string());
     }
     Ok(content)
-}
-
-/// Feed a chunk and collect the frames (split out to keep `consume` linear).
-fn parser_feed(parser: &mut SseParser, chunk: &str) -> Vec<Frame> {
-    parser.feed(chunk)
 }
 
 fn apply(

@@ -269,7 +269,7 @@ fn process_batch(
     req: &EngineRequest,
     units: &[(usize, String)],
     batch: &[usize],
-    commit: &dyn Fn(usize, Result<String, String>) + Sync,
+    commit: &(dyn Fn(usize, Result<String, String>) + Sync),
 ) {
     if req.provider != "llm" {
         // Traditional engines have no batch protocol and no streaming: send
@@ -552,14 +552,14 @@ mod tests {
             config: EngineConfig::for_provider("llm", 3000, 6),
             cache_variant: "m@v1",
         };
-        let mut events: Vec<usize> = Vec::new();
+        let events = Mutex::new(Vec::new());
         let out = run(&req, &mut cache, &|e| {
             if let EngineEvent::Unit { index, .. } = e {
-                events.push(index)
+                events.lock().unwrap().push(index)
             }
         });
         assert_eq!(out, vec![Ok("你好".to_string())]);
-        assert_eq!(events, vec![0]);
+        assert_eq!(events.into_inner().unwrap(), vec![0]);
         assert!(http.take_records().is_empty(), "cache hit must not hit the network");
     }
 
@@ -617,14 +617,14 @@ mod tests {
             config: EngineConfig::for_provider("llm", 3000, 6),
             cache_variant: "m@v1",
         };
-        let mut got: Vec<(usize, String)> = Vec::new();
+        let got = Mutex::new(Vec::<(usize, String)>::new());
         let out = run(&req, &mut cache, &|e| {
             if let EngineEvent::Unit { index, text } = e {
-                got.push((index, text))
+                got.lock().unwrap().push((index, text))
             }
         });
         assert_eq!(out, vec![Ok("AAA".to_string()), Ok("BBB".to_string())]);
-        assert_eq!(got.len(), 2);
+        assert_eq!(got.into_inner().unwrap().len(), 2);
         assert_eq!(
             http.take_records().len(),
             1,
