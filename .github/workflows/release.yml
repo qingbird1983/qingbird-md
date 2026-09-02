@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to rebuild (e.g. v0.1.3)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate version sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          TAURI="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          CARGO="$(python -c "import re,pathlib; t=pathlib.Path('src-tauri/Cargo.toml').read_text(encoding='utf-8'); m=re.search(r'^version\s*=\s*\"([^\"]+)\"', t, re.MULTILINE); print(m.group(1) if m else (_ for _ in ()).throw(SystemExit('no version in Cargo.toml')))")"
+          echo "tag=${TAG}"
+          echo "package.json=${PKG}"
+          echo "tauri.conf.json=${TAURI}"
+          echo "Cargo.toml=${CARGO}"
+          [ "${PKG}" = "${VERSION}" ]
+          [ "${TAURI}" = "${VERSION}" ]
+          [ "${CARGO}" = "${VERSION}" ]
+
+      - name: Extract release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          python .github/scripts/extract-notes.py \
+            --version "${{ steps.tag.outputs.tag }}" \
+            --changelog CHANGELOG.md \
+            --output "${{ runner.temp }}/release-notes.md"
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        with:
+          tauriScript: npx tauri
+
+      - name: Rename installer to ASCII filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          cd src-tauri/target/release/bundle/nsis
+          for f in *.exe; do
+            [ -f "$f" ] || continue
+            mv "$f" "qingbird-md-setup-${VERSION}-x64.exe"
+          done
+          ls -la
+
+      - name: Create release and upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          files: |
+            src-tauri/target/release/bundle/nsis/qingbird-md-setup-*.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: false

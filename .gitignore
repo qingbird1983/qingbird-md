@@ -1,0 +1,14 @@
+/target
+/release
+/tools
+Cargo.lock.orig
+*.log
+
+/.worktrees
+/.superpowers
+/src-tauri/gen
+node_modules/
+dist/
+/.workbuddy/
+/package-lock.json
+.git.broken-20260902/

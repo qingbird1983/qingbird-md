@@ -1,0 +1,24 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+# panic "abort"：移除 unwind 表；业务代码未使用 catch_unwind（已核），安全。
+# 注意：panic 即闪退，代码路径不得依赖 unwind 捕获，错误一律走 Result。
+
+# 调试构建截图提速：Glance 实测 BitBlt 473ms→50-100ms。
+# profile 仅在 workspace 根生效（src-tauri 内声明会被忽略并告警）。
+[profile.dev.package.screenshots]
+opt-level = 2
+
+[profile.dev.package.image]
+opt-level = 2
+
+[profile.dev.package.softbuffer]
+opt-level = 2
+
+[profile.dev.package.winit]
+opt-level = 2

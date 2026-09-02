@@ -1,0 +1,1660 @@
+/* 全局视觉层。视觉语言借鉴 SuperMarkdown：三层灰阶铺面、单一蓝紫主色、
+   三档圆角（6/8/12）、大范围柔光投影、宽松留白。布局骨架（#app-shell 网格）
+   与全部类名保持原样——本次只换皮，不动交互契约。 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* AppShell 网格骨架：行 = TitleBar(auto，内嵌标签条) / EditorToolbar auto /
+   中部 1fr / StatusBar auto，
+   列 = sidebar auto / 拖宽条 auto / main 1fr / 拖宽条 auto / outline auto */
+#app-shell {
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto auto;
+}
+
+/* ── 自定义标题栏（替代 Tauri 原生标题栏）── */
+.titlebar {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: var(--h-topbar, 38px);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  user-select: none;
+  -webkit-user-select: none;
+  /* 让标题栏右侧（标题栏中部原本给拖拽用，现在不放文档名了）也响应拖拽；
+     BUTTON 类（工作区切换/汉堡/窗控）依旧自动豁免走自身点击。 */
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  align-self: stretch; /* 撑满标题栏高度，让内部按钮 hover 高亮上下到边（同 win-btn） */
+  flex-shrink: 0;
+}
+
+/* 标题栏内「菜单/窗控区」与「标签条」之间的竖向分割线（在三杠按钮之后）
+   纯装饰：一条 1px 短竖线，垂直居中、左右留边距；非 BUTTON、不阻断拖拽。 */
+.titlebar-divider {
+  align-self: center;
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 8px 0 4px;
+  background: var(--border);
+}
+
+/* 应用名（标题栏左侧，位于汉堡按钮之前）；pointer-events:none 让拖拽穿透 */
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 8px 0 4px;
+  white-space: nowrap;
+  color: var(--fg);
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 应用 logo（青鸟小图，替代原“青鸟”文字）；继承父级 pe:none 保证拖拽穿透。
+   亮/暗主题各一张（-light/-dark），随 body[data-theme] 显隐切换。 */
+.titlebar-logo {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+.logo-dark { display: none; }
+body[data-theme="dark"] .logo-light { display: none; }
+body[data-theme="dark"] .logo-dark { display: block; }
+
+/* 汉堡按钮：与 win-btn 同规格（宽 40、撑满标题栏高、直角），高亮风格统一 */
+.hamburger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hamburger-btn:hover,
+.ws-toggle-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+/* 工作区切换按钮：与汉堡按钮同尺寸同 hover，仅换图标；位置固定在汉堡左侧 */
+.ws-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.titlebar-title {
+  /* 旧居中显示当前文档名已移除；保留空选择器以防遗漏，置 0 占地 */
+  display: none;
+}
+
+/* ── 窗口控制按钮（右侧）── */
+/* 标签条 flex:1 占满中部，窗控组被推到右缘；再以 margin-left:auto 双保险
+   保证空标签/异常态下端控件也绝对右对齐（issue 1）。 */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  margin-left: auto; /* 右对齐：占满剩余水平空间后紧贴右缘 */
+  align-self: stretch; /* 撑满标题栏高度，让 win-btn 的 hover 高亮上下铺满 */
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.win-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+.win-close:hover {
+  background: #e81123 !important;
+  color: #fff !important;
+}
+
+/* ── 汉堡菜单弹出面板（二级分类结构：左一级分类 + 右二级菜单）── */
+.app-menu {
+  position: fixed;
+  top: var(--h-topbar, 38px); /* 标题栏高度 */
+  left: 8px;
+  z-index: 1100;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
+  overflow: visible;
+}
+
+/* 一级分类列 */
+.app-menu-root {
+  flex-shrink: 0;
+  width: 136px;
+  padding: 6px 0;
+  border-right: 1px solid var(--sep-bg);
+}
+
+/* 分类条目：横向布局（文字居左 + 箭头居右） */
+.app-menu .app-menu-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 0;
+}
+
+.app-menu .app-menu-cat.active {
+  background: var(--item-hover-bg);
+  color: var(--accent);
+}
+
+.app-menu-chev {
+  flex-shrink: 0;
+  color: var(--muted-fg);
+}
+
+/* 一级菜单内：带二级的分类与直接动作（设置/关于/退出）之间的分隔线 */
+.app-menu-root-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--sep-bg);
+}
+
+/* 二级菜单列（随激活分类向右展开） */
+.app-menu-sub {
+  width: 208px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.app-menu-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-fg);
+  padding: 2px 8px;
+  margin-bottom: 2px;
+}
+
+.app-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-menu button:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+}
+
+.app-menu button.active::before {
+  content: "✓";
+  float: left;
+  margin-left: -14px;
+  color: var(--accent);
+}
+
+.app-menu button.active {
+  padding-left: 20px;
+  position: relative;
+}
+
+.app-menu button:disabled {
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+/* 旧 topbar 已被 TitleBar + AppMenu 替代，保留选择器防遗漏 */
+.topbar {
+  display: none;
+}
+
+/* TopBar 下拉菜单组（button + absolute ul 轻实现） */
+.menu-btn,
+.menu-item {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu {
+  position: relative;
+}
+
+.topbar .menu-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
+}
+
+.topbar .menu-btn:hover,
+.topbar .menu-btn[aria-expanded="true"] {
+  background: var(--btn-hover-bg);
+  color: var(--fg);
+}
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 1000;
+  min-width: 128px;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: pop-in 0.12s ease;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px 6px 26px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* ✓ 前缀（::before absolute left 9px）依赖 26px 缩进；带图标的动作项
+   没有 ✓，图标顶格 + 文字紧随，视觉左对齐 */
+.menu-item.has-icon {
+  padding-left: 10px;
+}
+
+/* 工具栏下拉弹层在 .editor-toolbar 内，.editor-toolbar button 的工具钮样式
+   （居中/24px 高/内边距）会漏进菜单项——这里按菜单语义恢复 */
+.editor-toolbar .menu-pop .menu-item {
+  display: flex;
+  justify-content: flex-start;
+  height: auto;
+  min-width: 0;
+  padding: 6px 10px 6px 26px;
+}
+
+.editor-toolbar .menu-pop .menu-item.has-icon {
+  padding-left: 10px;
+}
+
+.menu-item-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-fg);
+}
+
+.menu-item:hover:not(:disabled) .menu-item-icon {
+  color: var(--accent);
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.menu-item:disabled {
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+.menu-item[aria-checked="true"]::before {
+  content: "✓";
+  position: absolute;
+  left: 9px;
+  color: var(--accent);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--sep-bg);
+}
+
+/* ============ 标签条（已并入标题栏）============ */
+/* 标题栏为 flex：左侧控制组 + 中部标签条(flex:1) + 右侧窗控。标签条占据
+   中部剩余宽度、横向滚动；+ 按钮紧跟最后一个标签（无 margin-left:auto），
+   每新建一个标签就随之后移一个、始终贴在最右标签之后（issue 4）。
+   标签条空白处归入标题栏 data-tauri-drag-region="deep" 的拖拽区（可拖动窗口），
+   而 tab/关闭/新建按钮为 clickable 元素自动豁免走自身点击。 */
+.tabbar {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 6px 0 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 200px;
+  min-width: 80px;
+  /* 高亮形状：顶边保持在原 24px 居中位的上缘（(37-24)/2=6.5px，37=标题栏38px
+     -1px 底线），底边直通底线、底部直角——hover 背景因此上圆下直贴线。 */
+  align-self: flex-end;
+  height: calc(100% - 6.5px);
+  padding: 0 6px 6.5px 10px; /* 底部让位：内容仍居中于原 24px 视觉带 */
+  border: 1px solid transparent;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  font-size: 12.5px;
+  color: var(--fg2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.tab.active {
+  border-color: var(--border);
+  border-bottom-color: transparent; /* 底边已贴标题栏底线，透明化避免叠成 2px；surface 背景直通底线 */
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.tab-close:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.tab-close:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 新建标签按钮：上下到边、直角（同标题栏其余图标钮），但宽度单独收窄——
+   「+」是次要动作，40px 与标签同宽显得笨重 */
+.tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+}
+
+.tab-add:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+/* ============ 工具栏 ============ */
+/* 标签条已并入标题栏，工具栏紧随其后占 row 2。仍对齐主区右缘：从
+   var(--col-main) 起（默认 3 = 工作区右侧）；showNav=false 时同样左移。 */
+.editor-toolbar {
+  grid-row: 2;
+  grid-column: var(--col-main, 3) / -1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--h-toolbar);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  /* 必须 visible：工具栏下拉（标题/列表/插入）的 .menu-pop 从按钮下方展开，
+     滚动容器（overflow-x:auto）会整层裁掉弹层。
+     ponytail: 按钮下拉化后总量已收敛，极窄窗口下按钮溢出而非横向滚动——
+     若以后需要窄窗滚动，弹层需改 fixed 定位再恢复 overflow-x:auto。 */
+  overflow: visible;
+}
+
+.editor-toolbar .tb-gap {
+  flex: 1;
+}
+
+/* 分组竖线（对齐 SuperMarkdown 的 .tb-sep） */
+.editor-toolbar .tb-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: var(--border);
+  flex: none;
+}
+
+/* 下拉触发钮：主图标 + 弱化小箭头（标题/列表/插入） */
+.editor-toolbar .tb-dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.editor-toolbar .tb-dd svg:last-child {
+  opacity: 0.55;
+}
+
+.editor-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.editor-toolbar button:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.editor-toolbar button:active:not(:disabled) {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.editor-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 工具栏按钮持续激活态（视图切换/面板开关，active class 由组件加） */
+.editor-toolbar button.active {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ============ 主区 ============ */
+.main-area {
+  grid-row: 3;
+  grid-column-start: var(--col-main, 3);
+  /* --main-span: 侧栏显示时=1（占 col 3 一列），侧栏隐藏时=3（占 col 1-3 吸掉空列） */
+  grid-column-end: span var(--main-span, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
+.main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
+.main-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-body > .resizer {
+  flex: 0 0 7px;
+}
+
+.split-half {
+  overflow: hidden;
+}
+
+/* ============ 侧边栏 ============ */
+/* 左列灰底从菜单栏（row 2 = 工具栏）之下铺到状态栏之上（row 4 / 4，即
+   rows 2-3）。分隔线由 .resizer::before 绘制并与本列同起同止：不再超入
+   标题栏，也不延伸到状态栏底部——页脚横线整宽，与左分隔线无重叠（issue 2）。 */
+.sidebar {
+  grid-row: 2 / 4;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-right——会双线 */
+}
+
+/* 分区小标题（对齐 SuperMarkdown 的 .sb-section-title） */
+.sb-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 12px 14px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.sb-action {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.sb-action:hover {
+  background: var(--accent-weak);
+}
+
+/* T18：侧栏工具行（过滤输入 + 新建/刷新） */
+.ws-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 4px 10px 8px;
+  background: var(--bg2);
+}
+
+.ws-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field-bg);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ws-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+.ws-tools .tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ws-tools .tool-btn:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+button.menu-btn:disabled,
+.ws-filter:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 树列表：占据剩余高度自成滚动容器 */
+.tree-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
+.tree-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.tree-row:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.tree-row[aria-selected="true"] {
+  background: var(--tree-selected-bg);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.tree-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--caret-fg);
+}
+
+/* 展开时箭头顺时针转 90°（lucide ChevronRight 的 className 直接落在 svg 上） */
+.tree-caret .caret-open {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.tree-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--fg3);
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 空态 */
+.ws-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 16px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.ws-empty .modal-btn {
+  padding: 5px 14px;
+}
+
+/* ============ 大纲 ============ */
+.outline-panel {
+  grid-row: 3;
+  grid-column: 5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
+}
+
+/* T19：大纲面板 —— 标题 + 缩进列表（对齐 SuperMarkdown 的 .ol-title/.ol-item） */
+.outline-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 12px 14px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
+.outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outline-item:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* H1-H6 级别徽章 —— 已按要求从大纲移除，display:none 防回退 */
+.outline-badge {
+  display: none;
+  flex: none;
+  min-width: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--muted-fg);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.outline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+}
+
+/* ============ 状态栏 ============ */
+/* 整宽（col 1 / -1）：顶部横线从窗口左缘一路到右缘，与左侧栏/右大纲
+   两竖分隔线上下错开，不再出现「页脚横线超出工作区分割线」的 7px 刺出
+   （issue 2/3 的页脚部分）。 */
+.status-bar {
+  grid-row: 4;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: var(--h-statusbar);
+  padding: 0 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  /* 页脚底色与工作区(侧栏灰底)一致，避免底部一条突兀的白条 */
+  background: var(--bg2);
+  color: var(--status-fg);
+  user-select: none;
+}
+
+.status-bar > .status-left,
+.status-bar > .status-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* 路径段可收缩出省略号，其余段保持完整不缩 */
+.status-bar .status-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-bar .status-right > span {
+  flex: none;
+}
+
+.status-dot {
+  color: var(--accent);
+}
+
+/* ============ 分隔线 / 拖宽条 ============ */
+/* 1px 发丝线居中于 7px 热区，既是分隔也是拖柄；悬停/拖拽中加深提示
+   （.dragging 由 lib/colDrag 开关——capture 下指针会漂出热区，:hover 不可靠）。 */
+.resizer {
+  position: relative;
+  cursor: col-resize;
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.resizer:hover::before,
+.resizer.dragging::before {
+  background: var(--accent);
+}
+
+/* 面板拖宽条（App 壳层左右栏与主区之间）
+   • 左侧 .res-left：行向 2 / 4（从工具栏顶到状态栏顶，与左侧栏灰底同起同止）
+     ——不再超入标题栏，也不下探到页脚（issue 2）。
+   • 右侧 .res-right：仅占 row 3（主区行）——上不越工具栏、下不越页脚，
+     与大纲面板同高（issue 3）。
+   • 隐藏工作区/大纲时整个 .app-resizer 跟着不被渲染。
+   • 中间编辑器/预览那条 resizer（.main-body > .resizer）不走这条规则。
+   • 分线由各自 ::before 沿内缘绘制：左条线贴右缘（col 2 / col 3 边 —— 正好
+     是工具栏底部分割线与主区左缘的交汇位，使工具栏分割线「顶到」工作区分割线）；
+     右条线贴左缘（col 3 / col 4 边）。
+   • res-left 拖拽条涂 --bg2，与侧栏灰底(col1)连成一体 —— 既让「底色与分割线
+     对齐」（线贴在灰底右缘、无 7px 留白），又不影响拖拽热区。 */
+.app-resizer {
+  width: 7px;
+  background: transparent;
+}
+
+.app-resizer.res-left {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  /* 把 7px 拖拽条涂成与左侧栏相同灰底 —— 侧栏灰底(col1)+此条(col2)连成一体，
+     右缘即工作区分割线，既「底色与分割线对齐」又让线贴在灰底右缘（消除留白）。 */
+  background: var(--bg2);
+}
+
+.app-resizer.res-right {
+  grid-column: 4;
+  grid-row: 3;
+}
+
+/* 左条线贴右缘（col 2 / col 3 边）——正好是工具栏底部分割线与主区左缘的
+   交汇位，让工具栏分割线「顶到」工作区分割线；右条线贴左缘（col 3 / col 4 边）。 */
+.app-resizer.res-left::before {
+  left: auto;
+  right: 0;
+}
+
+.app-resizer.res-right::before {
+  left: 0;
+}
+
+/* ============ 编辑器 ============ */
+.editor-cm {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor {
+  height: 100%;
+  font-size: 15px;
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor.cm-focused {
+  outline: none; /* 焦点态由 caret 与选区表达，去掉默认蓝框 */
+}
+
+.editor-cm .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.75;
+  padding: 10px 0 30vh;
+}
+
+.editor-cm .cm-content {
+  padding: 0 24px 0 8px;
+  caret-color: var(--accent);
+}
+
+/* 明暗由 oneDark compartment 接管暗色；亮色下把行号槽融进纸面 */
+.editor-cm .cm-gutters {
+  border-right: none;
+  background: transparent;
+  color: var(--fg3);
+}
+
+.editor-cm .cm-activeLineGutter {
+  background: transparent;
+  color: var(--fg2);
+}
+
+/* ============ 预览 ============ */
+.preview-scroll {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+/* ============ 整篇翻译进度条 ============ */
+.translation-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--tr-box-bg);
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.translation-bar .tb-label {
+  flex: none;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.translation-bar .tb-track {
+  flex: 1;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 3px;
+  background: var(--tr-track-bg);
+  overflow: hidden;
+}
+
+.translation-bar .tb-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.translation-bar .tb-pct {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-count {
+  color: var(--note-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-stop {
+  padding: 2px 12px;
+  border: 1px solid var(--btn-border);
+  border-radius: var(--r-sm);
+  background: var(--btn-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.translation-bar .tb-stop:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ============ 划词翻译浮窗 ============ */
+/* 旧版 egui CENTER_TOP [0,44] 锚点的 web 等价：fixed 顶部居中；
+   max-width/height 即视口钳制，结果超高滚动。 */
+.sel-pop {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  /* 居中用独立 translate 属性而非 transform：pop-in/modal-in 关键帧声明的
+     transform 播放期间会覆盖 translateX(-50%)，导致浮窗先右偏半宽再跳回居中。 */
+  translate: -50% 0;
+  z-index: 1100;
+  max-width: min(480px, calc(100vw - 24px));
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: pop-in 0.14s ease;
+}
+
+.sel-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.sel-pop-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.04em;
+}
+
+.sel-pop-clear {
+  background: none;
+  border: none;
+  color: var(--fg3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sel-pop-clear:hover {
+  color: var(--accent);
+}
+
+.sel-pop-src {
+  max-height: 8em;
+  overflow-y: auto;
+  color: var(--note-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-sep {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--sep-bg);
+}
+
+.sel-pop-res {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-spin {
+  width: 16px;
+  height: 16px;
+  margin: 4px 0;
+  border: 2px solid var(--tr-track-bg);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sel-pop-rot 0.8s linear infinite;
+}
+
+@keyframes sel-pop-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- 选区查词富卡片（spec 2026-08-29 §8.2，卡片 A 纵向层级）---- */
+.sel-pop-err {
+  color: #e06c75; /* 亮暗主题均可读的错误红，不依赖主题变量 */
+}
+
+.sel-pop-wordhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sel-pop-term {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.sel-pop-phon {
+  color: var(--fg3);
+}
+
+.sel-pop-pos {
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+.sel-pop-main {
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.sel-pop-usage {
+  margin-top: 8px;
+  color: var(--note-fg);
+}
+
+.sel-pop-block {
+  margin-top: 10px;
+}
+
+.sel-pop-terms {
+  border-top: 1px dashed var(--sep-bg);
+  padding-top: 8px;
+}
+
+.sel-pop-label {
+  font-size: 11px;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.sel-pop-example {
+  margin-top: 5px;
+}
+
+.sel-pop-en em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.sel-pop-zh {
+  color: var(--fg3);
+}
+
+.sel-pop-termrow {
+  margin-top: 4px;
+}
+
+.sel-pop-termexp {
+  color: var(--fg3);
+}
+
+/* ============ 模态框 ============ */
+/* 三段式：head（标题）/ body（内容）/ foot（.modal-actions 负边距贴底） */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--backdrop);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  min-width: 460px;
+  max-width: min(580px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: modal-in 0.16s ease;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal:focus {
+  outline: none;
+}
+
+.modal-title {
+  flex: none;
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+
+.modal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.modal-row > label {
+  flex-shrink: 0;
+  min-width: 80px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.modal-row > select,
+.modal-row > input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field-bg);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.modal-row > select:focus,
+.modal-row > input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+.modal-check > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.modal-row > .modal-btn {
+  flex: none;
+}
+
+.modal-note {
+  margin: 8px 0;
+  color: var(--note-fg);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.modal-sep {
+  height: 1px;
+  margin: 14px 0;
+  background: var(--sep-bg);
+}
+
+.modal-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--btn-border);
+  border-radius: 7px;
+  background: var(--btn-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.modal-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.modal-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.modal-btn-primary:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.modal-test {
+  margin: 8px 0;
+  color: var(--test-fg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 负边距把操作区拉成贴底 foot（不占用 body 内边距） */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 16px -18px -16px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+/* ============ 命令面板 ============ */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  background: var(--backdrop-weak);
+}
+
+.palette {
+  position: absolute;
+  top: 14vh;
+  left: 50%;
+  /* 居中用独立 translate 属性而非 transform：modal-in 关键帧的 transform
+     播放期间覆盖 translateX(-50%)，面板会先右偏半宽、0.14s 后跳回居中。 */
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 160px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: modal-in 0.14s ease;
+}
+
+.palette-input {
+  flex: none;
+  margin: 0;
+  padding: 14px 18px;
+  font: inherit;
+  font-size: 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+
+.palette-input::placeholder {
+  color: var(--placeholder-fg);
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-item[aria-selected="true"] {
+  background: var(--palette-selected-bg);
+  color: var(--accent);
+}
+
+.palette-empty {
+  padding: 20px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* ============ Toast ============ */
+/* 底部居中堆叠（对齐 SuperMarkdown 的 .toast），kind 以左侧色条区分 */
+.toast-stack {
+  position: fixed;
+  left: 50%;
+  bottom: 48px; /* StatusBar 之上 */
+  transform: translateX(-50%);
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  word-break: break-word;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast-info {
+  border-left-color: var(--accent);
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- 滚动条淡显淡出：静止时完全隐形，滚动中渐显，停止渐隐 ----
+   --sb-thumb 注册为可过渡的 <color>（@property，WebView2/Chromium 85+），
+   滚动条伪元素继承宿主的该变量；.scrolling 由 main.tsx 的全局 scroll 委托
+   在滚动开始时加上、停止约 900ms 后摘除，过渡随宿主 transition 渐变。 */
+@property --sb-thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+.tree-root,
+.outline-list,
+.preview-scroll,
+.editor-cm .cm-scroller,
+.modal-body,
+.palette-list {
+  --sb-thumb: transparent;
+  transition: --sb-thumb 0.5s;
+}
+
+.tree-root.scrolling,
+.outline-list.scrolling,
+.preview-scroll.scrolling,
+.editor-cm .cm-scroller.scrolling,
+.modal-body.scrolling,
+.palette-list.scrolling {
+  --sb-thumb: var(--scrollbar-thumb);
+}
+
+.tree-root::-webkit-scrollbar,
+.outline-list::-webkit-scrollbar,
+.preview-scroll::-webkit-scrollbar,
+.editor-cm .cm-scroller::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar,
+.palette-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.tree-root::-webkit-scrollbar-thumb,
+.outline-list::-webkit-scrollbar-thumb,
+.preview-scroll::-webkit-scrollbar-thumb,
+.editor-cm .cm-scroller::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb,
+.palette-list::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+.tree-root::-webkit-scrollbar-track,
+.outline-list::-webkit-scrollbar-track,
+.preview-scroll::-webkit-scrollbar-track,
+.editor-cm .cm-scroller::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track,
+.palette-list::-webkit-scrollbar-track {
+  background: transparent;
+}

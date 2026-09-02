@@ -1,0 +1,55 @@
+// 整篇翻译进度条（Task 23）：仅 status==="running" 时渲染，否则完全不占位。
+// 内容：批次模式与 provider 标签、进度条(done/total)、百分比、取消按钮——
+// stop 使 gen 前跳，同轮迟到的 done/progress 事件因子代失配而被丢弃。
+import { useEffect, useState } from "react";
+import { api } from "../lib/ipc";
+import { useDocStore } from "../stores/useDocStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { useTranslationStore } from "../stores/useTranslationStore";
+
+const MODE_LABEL: Record<string, string> = { translation: "译文", bilingual: "中英对照" };
+
+export default function TranslationBar() {
+  const running = useTranslationStore((s) => s.status === "running");
+  const progress = useTranslationStore((s) => s.progress);
+  const stop = useTranslationStore((s) => s.stop);
+  const mode = useDocStore((s) => s.mode);
+  const providerKey = useSettingsStore((s) => s.settings?.provider ?? "—");
+  // T23 评审清理：显示翻译源 label 而非 key；元数据缺失时回退 key
+  const [providerLabel, setProviderLabel] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api
+      .getProviders()
+      .then((m) => {
+        if (alive) setProviderLabel(m.find((p) => p.key === providerKey)?.label ?? "");
+      })
+      .catch(() => {
+        /* 拉取失败即回退 key，不打断进度条 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [providerKey]);
+  const provider = providerLabel || providerKey;
+
+  if (!running) return null;
+  const pct =
+    progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
+
+  return (
+    <div className="translation-bar" role="status">
+      <span className="tb-label">
+        {MODE_LABEL[mode] ?? "翻译"} · {provider}
+      </span>
+      <div className="tb-track" aria-hidden="true">
+        <div className="tb-fill" style={{ width: `${pct ?? 0}%` }} />
+      </div>
+      <span className="tb-pct">{pct === null ? "…" : `${pct}%`}</span>
+      <span className="tb-count">{progress ? `${progress.done}/${progress.total}` : ""}</span>
+      <button type="button" className="tb-stop" onClick={stop}>
+        取消
+      </button>
+    </div>
+  );
+}

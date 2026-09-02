@@ -1,0 +1,45 @@
+[package]
+name = "qingbird-md"
+version = "0.1.4"
+edition = "2024"
+description = "Markdown editor & reader with bilingual EN↔ZH translation (Tauri 2 + Rust core + React/TypeScript UI)"
+license = "MIT"
+readme = "../../README.md"
+repository = "https://github.com/muyan1983/qingbird-md"
+homepage = "https://github.com/muyan1983/qingbird-md"
+keywords = ["markdown", "translation", "tauri", "editor", "bilingual"]
+categories = ["text-editors", "internationalization"]
+
+[lib]
+name = "qingbird_md_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "qingbird-md"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+dirs = "6.0"
+encoding_rs = "0.8"
+fs2 = "0.4"
+hmac = "0.13"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+md-5 = "0.11"
+pulldown-cmark = "0.13"
+screenshots = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
+softbuffer = "0.4"
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+ureq = "2"
+winit = { version = "0.30", features = ["rwh_06"] }

@@ -1,0 +1,455 @@
+// 文档域：标签集合 + 当前激活 id。每标签独立持有内容、视图模式、阅读模式、
+// 光标、滚动、解析/翻译缓存。doc/view/mode/cursorSel/isDirty/parseResult/
+// htmlCache/doneHtml/translations 是 active tab 的派生投影，原始真源在对应
+// OpenTab 上——所有现存的 s.doc / s.view / s.mode / s.cursorSel 订阅方零改动。
+//
+// 为什么是投影字段而不是 getter：zustand v5 的 setState 每次都用
+// Object.assign({}, state, partial) 重建 state 对象，accessor getter 会被
+// 求值成静态数据属性——第一次 setState 后 getter 全部冻结。因此改为
+// commit() 辅助：所有写路径集中在 patchActive / commit，写 tabs/activeId
+// 的同一 set 内同步重算投影，杜绝投影与真源脱节。
+import { create } from "zustand";
+import { undo, redo } from "@codemirror/commands";
+import type { EditorView } from "@codemirror/view";
+import type { DocDTO, Mode, ParseResult, ViewKind } from "../types/ipc";
+import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
+import { useUiStore, errText } from "./useUiStore";
+import { useTranslationStore } from "./useTranslationStore";
+
+interface OpenTab {
+  id: string;                // crypto.randomUUID() 或 fallback，React key
+  path: string | null;       // null = 未保存的新标签
+  name: string;              // 显示名（path basename 或 "未命名"）
+  content: string;
+  savedContent: string;
+  /** 打开/保存时的磁盘 mtime（毫秒）；外部修改检测与保存冲突检测基线 */
+  mtime: number | null;
+  /** 打开时实际解码编码（"UTF-8"/"GB18030"）；状态栏标注 */
+  encoding: string | null;
+  view: ViewKind;
+  mode: Mode;
+  cursorSel: [number, number];
+  scrollTop: number;
+  translations: Map<number, string>;
+  doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null;
+  parseResult: ParseResult | null;
+  htmlCache: { contentKey: string; result: ParseResult } | null;
+}
+
+// 应用启动时检查 randomUUID 可用性；Tauri WebView2 是 Chromium 内核通常支持，
+// 旧 WebView 才走 fallback。
+let idCounter = 0;
+function newId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${++idCounter}`;
+}
+
+interface DocState {
+  tabs: OpenTab[];
+  activeId: string | null;
+  cmRef: { current: EditorView | null };
+
+  // —— 派生投影（active tab 的即时快照，写路径集中在下方动作）——
+  doc: DocDTO | null;
+  view: ViewKind;
+  mode: Mode;
+  cursorSel: [number, number];
+  isDirty: boolean;
+  parseResult: ParseResult | null;
+  htmlCache: { contentKey: string; result: ParseResult } | null;
+  doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null;
+  translations: Map<number, string>;
+
+  // —— 动作 ——
+  openTab(path: string): Promise<void>;
+  newTab(): void;
+  closeTab(id: string): Promise<void>;
+  switchTab(id: string): void;
+
+  openDocFromArgs(): void;
+  dispatchUndo(): void;
+  dispatchRedo(): void;
+  setCursorSel(s: [number, number]): void;
+  /** 编辑器内容+选区原子写入 active tab（EditorView updateListener 用）。 */
+  applyEdit(content: string, cursorSel: [number, number]): void;
+  /** 滚动事件落库到指定 tab；切回本标签时恢复。 */
+  setScrollTop(id: string, n: number): void;
+  applyFormat(op: string): Promise<void>;
+  saveDoc(as: boolean): Promise<boolean>;     // 返回值变了：true=写盘成功，false=用户取消
+  /** 从磁盘重读指定标签（T6「重新加载」）：内容/解析/翻译态全量重置。 */
+  reloadTab(id: string): Promise<void>;
+  /** 窗口聚焦时检查当前文档是否被外部修改（T6）：变了则弹重载确认。 */
+  checkExternalChange(): Promise<void>;
+  switchView(v: ViewKind): void;
+  switchMode(m: Mode): void;
+  ensureParsed(): void;
+
+  /** 翻译完成回写入口（useTranslationStore 调用），写入当前激活标签。 */
+  applyTranslationResult(
+    translations: Map<number, string>,
+    doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null,
+  ): void;
+}
+
+function pathParts(p: string) {
+  const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  return { name: i >= 0 ? p.slice(i + 1) : p, dir: i >= 0 ? p.slice(0, i) : null };
+}
+
+function activeTab(state: DocState): OpenTab | null {
+  return state.activeId ? state.tabs.find((t) => t.id === state.activeId) ?? null : null;
+}
+
+/** 构造一份 DocDTO 形态的快照给派生投影用。 */
+function tabToDoc(t: OpenTab): DocDTO {
+  return {
+    name: t.name,
+    path: t.path,
+    base_dir: t.path ? pathParts(t.path).dir : null,
+    content: t.content,
+    char_count: [...t.content].length,
+    line_count: t.content.split("\n").length,
+    encoding: t.encoding ?? "UTF-8",
+    mtime: t.mtime,
+    parse: t.parseResult ?? { html: "", outline: [] },
+  };
+}
+
+/** active tab 的派生投影；与 tabs/activeId 在同一次 set 内联动写入。 */
+function projection(tabs: OpenTab[], activeId: string | null) {
+  const t = activeId ? tabs.find((x) => x.id === activeId) ?? null : null;
+  return {
+    doc: t ? tabToDoc(t) : null,
+    view: t?.view ?? "preview",
+    mode: t?.mode ?? "original",
+    cursorSel: t?.cursorSel ?? ([0, 0] as [number, number]),
+    isDirty: !!t && t.content !== t.savedContent,
+    parseResult: t?.parseResult ?? null,
+    htmlCache: t?.htmlCache ?? null,
+    doneHtml: t?.doneHtml ?? null,
+    translations: t?.translations ?? new Map<number, string>(),
+  };
+}
+
+/** 写 tabs/activeId 的唯一入口：同一次 set 内带上重算后的投影。 */
+function commit(tabs: OpenTab[], activeId: string | null) {
+  return { tabs, activeId, ...projection(tabs, activeId) };
+}
+
+// 防 StrictMode 双跑重复注册；句柄无处清理（应用级单例监听）
+let docChangedRegistered = false;
+let parseTimer: ReturnType<typeof setTimeout> | undefined;
+
+export const useDocStore = create<DocState>()((set, get) => {
+  // —— 派生投影集合（一个辅助函数，actions 用它一次写完 tab 与投影）——
+  function patchActive(mut: (t: OpenTab) => OpenTab): void {
+    const s = get();
+    if (!s.activeId) return;
+    const idx = s.tabs.findIndex((t) => t.id === s.activeId);
+    if (idx < 0) return;
+    const tabs = [...s.tabs];
+    tabs[idx] = mut(tabs[idx]);
+    set(commit(tabs, s.activeId));
+  }
+
+  // 按 id 定位写入：用于跨 await 后 active tab 可能已变更的场景（滚动刷新、saveDoc）。
+  // 仍走 commit()，投影在同一次 set 内重算，doc/isDirty/view 不脱节。
+  function patchTab(id: string, mut: (t: OpenTab) => OpenTab): void {
+    const s = get();
+    const idx = s.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return; // tab 已被关
+    const tabs = [...s.tabs];
+    tabs[idx] = mut(tabs[idx]);
+    const nextActiveId = s.activeId;
+    // 投影仍按当前 activeId 算（不变）。本写入不动 activeId。
+    set({ tabs, ...projection(tabs, nextActiveId) });
+  }
+
+  return {
+    tabs: [],
+    activeId: null,
+    cmRef: { current: null },
+    ...projection([], null),
+
+    // —— 动作 ——
+    openTab: async (path) => {
+      const existing = get().tabs.find((t) => t.path === path);
+      if (existing) {
+        get().switchTab(existing.id);
+        return;
+      }
+      try {
+        const d = await api.openFile(path);
+        const tab: OpenTab = {
+          id: newId(),
+          path,
+          name: d.name,
+          content: d.content,
+          savedContent: d.content,
+          mtime: d.mtime,
+          encoding: d.encoding,
+          view: "preview",
+          mode: "original",
+          cursorSel: [0, 0],
+          scrollTop: 0,
+          translations: new Map(),
+          doneHtml: null,
+          parseResult: d.parse,
+          htmlCache: { contentKey: d.content, result: d.parse },
+        };
+        set((s) => commit([...s.tabs, tab], tab.id));
+      } catch (e) {
+        useUiStore.getState().addToast("error", `打开失败：${errText(e)}`);
+      }
+    },
+
+    newTab: () => {
+      const tab: OpenTab = {
+        id: newId(),
+        path: null,
+        name: "未命名",
+        content: "",
+        savedContent: "",
+        mtime: null,
+        encoding: null,
+        view: "source",
+        mode: "original",
+        cursorSel: [0, 0],
+        scrollTop: 0,
+        translations: new Map(),
+        doneHtml: null,
+        parseResult: null,
+        htmlCache: null,
+      };
+      set((s) => commit([...s.tabs, tab], tab.id));
+    },
+
+    closeTab: async (id) => {
+      const t = get().tabs.find((x) => x.id === id);
+      if (!t) return;
+      const dirty = t.content !== t.savedContent;
+      if (dirty) {
+        // 弹出 DirtyConfirmDialog；动态 import 避免循环依赖（dialog 读 useDocStore）
+        const { showDirtyConfirm } = await import("../components/DirtyConfirmDialog");
+        const choice = await showDirtyConfirm(t.name);
+        if (choice === "cancel") return;
+        if (choice === "save") {
+          // 先切到该标签，再保存——saveDoc 永远作用于 active tab
+          get().switchTab(id);
+          const ok = await get().saveDoc(false);
+          if (!ok) return; // 用户在另存为里取消，中止关闭
+        }
+      }
+      // 真实删除 + 邻居切换
+      set((s) => {
+        const idx = s.tabs.findIndex((x) => x.id === id);
+        if (idx < 0) return {};
+        const tabs = s.tabs.filter((x) => x.id !== id);
+        let activeId = s.activeId;
+        if (s.activeId === id) {
+          activeId = tabs[idx]?.id ?? tabs[idx - 1]?.id ?? null;
+        }
+        return commit(tabs, activeId);
+      });
+    },
+
+    switchTab: (id) => {
+      if (get().activeId === id) return;
+      set((s) => commit(s.tabs, id));
+    },
+
+    openDocFromArgs: () => {
+      if (docChangedRegistered) return;
+      docChangedRegistered = true;
+      void api.listenDocumentChanged((p) => useDocStore.getState().openTab(p));
+      // T6：窗口重获焦点/切回前台时检查当前文档是否被外部修改。
+      // 标签间切换不需要查——跨应用改动必然伴随本窗口失焦→聚焦。
+      const onFocus = () => { void useDocStore.getState().checkExternalChange(); };
+      window.addEventListener("focus", onFocus);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") onFocus();
+      });
+    },
+
+    dispatchUndo: () => {
+      const v = get().cmRef.current;
+      if (v) undo(v);
+    },
+    dispatchRedo: () => {
+      const v = get().cmRef.current;
+      if (v) redo(v);
+    },
+
+    setCursorSel: (s) => {
+      patchActive((t) => ({ ...t, cursorSel: s }));
+    },
+
+    applyEdit: (content, cursorSel) => {
+      patchActive((t) => ({ ...t, content, cursorSel }));
+    },
+
+    setScrollTop: (id, n) => {
+      patchTab(id, (t) => (t.scrollTop === n ? t : { ...t, scrollTop: n }));
+    },
+
+    applyFormat: async (op) => {
+      const t = activeTab(get());
+      if (!t) return;
+      const [c0, c1] = t.cursorSel;
+      try {
+        const r = await api.applyOp({
+          content: t.content,
+          sel: [charToByteOffset(t.content, c0), charToByteOffset(t.content, c1)],
+          op,
+        });
+        // 三向陈旧守卫：activeId 变了（切走）/ tab 已被关（id 不再）/ 内容被改（打字）
+        // 任何一项命中都说明 r 是基于陈旧内容的结果，跳过覆盖。
+        const cur = activeTab(get());
+        if (!cur || cur.id !== t.id || cur.content !== t.content) {
+          useUiStore.getState().addToast("info", "文档已变化，本次格式化已取消");
+          return;
+        }
+        patchActive((cur2) => ({
+          ...cur2,
+          content: r.content,
+          cursorSel: [
+            byteToCharOffset(r.content, r.sel[0]),
+            byteToCharOffset(r.content, r.sel[1]),
+          ],
+        }));
+      } catch (e) {
+        useUiStore.getState().addToast("error", `编辑操作失败：${errText(e)}`);
+      }
+    },
+
+    saveDoc: async (as) => {
+      const t = activeTab(get());
+      if (!t) return false;
+      const myId = t.id; // 锁定目标 tab id
+      let target = t.path;
+      if (!target || as) {
+        target = await api.pickSavePath(t.name);
+        if (!target) return false; // 用户取消另存为
+      } else {
+        // T8 冲突检测：磁盘 mtime 与打开时基线不一致 → 覆盖/另存/取消。
+        // 基线缺失（mtime=null）或文件已消失（disk=null，保存即重建）时跳过。
+        const disk = await api.fileMtime(target);
+        if (disk !== null && t.mtime !== null && disk !== t.mtime) {
+          const { showConflict } = await import("../components/ConflictDialog");
+          const choice = await showConflict(t.name);
+          if (choice === "cancel") return false;
+          if (choice === "saveas") {
+            const alt = await api.pickSavePath(t.name);
+            if (!alt) return false;
+            target = alt;
+          }
+          // overwrite → 继续按原路径落盘
+        }
+      }
+      try {
+        const mtime = await api.saveFile(target, t.content);
+        const { name } = pathParts(target);
+        // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close）
+        patchTab(myId, (cur) => ({
+          ...cur,
+          path: target!,
+          name,
+          savedContent: cur.content,
+          mtime, // 新基线：下次冲突检测以此为准
+        }));
+        useUiStore.getState().addToast("success", "保存成功");
+        return true;
+      } catch (e) {
+        useUiStore.getState().addToast("error", `保存失败：${errText(e)}`);
+        return false;
+      }
+    },
+
+    reloadTab: async (id) => {
+      const t = get().tabs.find((x) => x.id === id);
+      if (!t?.path) return;
+      try {
+        const d = await api.openFile(t.path);
+        // 按 id 写：await 期间 active 可能已切走。视图/模式/滚动保留（用户语境），
+        // 内容、解析、翻译态、光标全量重置（翻译按行号索引，旧内容下已失效）。
+        patchTab(id, (cur) => ({
+          ...cur,
+          name: d.name,
+          content: d.content,
+          savedContent: d.content,
+          mtime: d.mtime,
+          encoding: d.encoding,
+          parseResult: d.parse,
+          htmlCache: { contentKey: d.content, result: d.parse },
+          translations: new Map(),
+          doneHtml: null,
+          cursorSel: [0, 0],
+        }));
+      } catch (e) {
+        useUiStore.getState().addToast("error", `重新加载失败：${errText(e)}`);
+      }
+    },
+
+    checkExternalChange: async () => {
+      const t = activeTab(get());
+      if (!t?.path || t.mtime === null) return; // 新标签/基线缺失：无从比对
+      const disk = await api.fileMtime(t.path);
+      if (disk === null || disk === t.mtime) return; // 文件消失或未变
+      const { showReloadConfirm } = await import("../components/ReloadDialog");
+      const choice = await showReloadConfirm(t.name, t.content !== t.savedContent);
+      if (choice === "reload") {
+        void get().reloadTab(t.id);
+      } else {
+        // 保留我的版本：记下磁盘 mtime 作为新基线——用户已知情并选择保留，
+        // 之后保存不再重复弹冲突（一次外部修改只打扰一次）。
+        patchTab(t.id, (cur) => ({ ...cur, mtime: disk }));
+      }
+    },
+
+    switchView: (v) => {
+      patchActive((t) => ({ ...t, view: v }));
+    },
+
+    switchMode: (m) => {
+      const t = activeTab(get());
+      if (!t || t.mode === m) return;
+      patchActive((cur) => ({
+        ...cur,
+        mode: m,
+        translations: m === "original" ? new Map() : cur.translations,
+      }));
+      if (m !== "original") useTranslationStore.getState().startIfFresh();
+    },
+
+    ensureParsed: () => {
+      const t = activeTab(get());
+      if (!t) return;
+      if (t.htmlCache?.contentKey === t.content) return;
+      clearTimeout(parseTimer);
+      const myId = t.id;
+      parseTimer = setTimeout(async () => {
+        const cur = activeTab(get());
+        if (!cur || cur.id !== myId) return;
+        const key = cur.content;
+        try {
+          const r = await api.parse(key);
+          const cur2 = activeTab(get());
+          if (!cur2 || cur2.id !== myId || cur2.content !== key) return; // 切走/关掉/内容被改 = 过期
+          patchActive((c) => ({
+            ...c,
+            parseResult: r,
+            htmlCache: { contentKey: key, result: r },
+          }));
+        } catch (e) {
+          useUiStore.getState().addToast("error", `解析失败：${errText(e)}`);
+        }
+      }, 150);
+    },
+
+    applyTranslationResult: (translations, doneHtml) => {
+      patchActive((t) => ({ ...t, translations, doneHtml }));
+    },
+  };
+});

@@ -1,0 +1,387 @@
+/* 预览排版（Task 20）：GitHub 风格的类，覆盖 markdown/html.rs 的元素契约 ——
+   h1-h6（id="h-N"）、p、ul/ol、li.task done|todo、table/thead/tbody、
+   blockquote、行内 code、pre.code-block（.code-lang 标签 + span.ln 行号 +
+   syntect 双主题彩色 span：--cl=InspiredGitHub 浅色 / --cd=base16-ocean.dark
+   暗色，由这里按 body[data-theme] 选边，底色走 --md-pre-bg）、
+   del、a、hr、.tr-box（双语对照浮出块）。颜色经变量集中在文件头部，暗色主题仅换一组值。 */
+
+.markdown-body {
+  --md-fg: #1f2328;
+  --md-muted: #59636e;
+  --md-border: #d0d7de;
+  --md-link: #0969da;
+  --md-code-bg: #eff1f3;
+  --md-stripe: #f6f8fa;
+  --md-th-bg: #f6f8fa;
+  --md-quote-fg: #59636e;
+  --md-task-bg: #fff;
+  --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
+  --md-ok-fg: #1a7f37;      /* 复制成功态/code-lang 药丸：浅灰 pre 底上用深绿（暗色档在下方换浅绿） */
+  /* 双主题 span 配色：后端把 InspiredGitHub（浅）/base16-ocean.dark（暗）
+     两套前景色按 token 一一配对，烘进 span 内联 style 的 --cl/--cd；
+     这里按主题选边（.ln 行号与 mono 块不受影响，走 --md-pre-* 变量）。 */
+  --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（浅色 span 同源） */
+  --md-pre-fg: #1f2328;
+  --md-pre-muted: #6e778e; /* 行号 */
+  /* 双语对照块走主色系，与全局 accent 同源 */
+  --md-tr-bg: #eef1fe;
+  --md-tr-border: #c3ccfa;
+  --md-tr-fg: #2c3f8f;
+
+  /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
+     窗口/split 分栏窄于该值时自然收缩回流式排版。宽度四档由 uiStore
+     contentWidth 驱动（标准档不挂类；紧凑 640 / 宽 1000 / 全宽 1200）。 */
+  box-sizing: border-box;
+  max-width: 794px;
+  margin-inline: auto;
+
+  /* 纸面留白对齐 SuperMarkdown 的阅读节奏：上 28、左右 36、下留长滚动余量 */
+  padding: 28px 36px 180px;
+  font-family: var(--font-ui); /* T30：全局 CJK 字体栈（styles/theme.css） */
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--md-fg);
+  word-wrap: break-word;
+}
+
+/* 首尾元素的边距贴边 */
+.markdown-body > :first-child { margin-top: 0 !important; }
+.markdown-body > :last-child { margin-bottom: 0 !important; }
+
+/* 正文宽度非标准档（视图菜单四选一；工具栏按钮循环切换） */
+.markdown-body.w-compact { max-width: 640px; }
+.markdown-body.w-wide    { max-width: 1000px; }
+.markdown-body.w-full    { max-width: 1200px; }
+
+/* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
+   light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
+   覆盖路径，不再依赖 prefers-color-scheme。 */
+body[data-theme="dark"] .markdown-body {
+  --md-fg: #ddd;
+  --md-muted: #999;
+  --md-border: #444;
+  --md-link: #58a6ff;
+  --md-code-bg: #33383d;
+  --md-stripe: #26292c;
+  --md-th-bg: #2b2f33;
+  --md-quote-fg: #8b949e;
+  --md-task-bg: #1e1e1e;
+  --md-tr-bg: #232842;
+  --md-tr-border: #3b4675;
+  --md-tr-fg: #a9b8ff;
+  /* 代码块真暗色：底色与 base16-ocean.dark 同源（#2b303b），span 前景色由
+     后端烘进每 token 的 --cd 变量（见下方选择器），行号/默认字换暗色档。 */
+  --md-pre-bg: #2b303b;
+  --md-pre-fg: #c0c5ce;
+  --md-pre-muted: #65737e;
+  /* code-lang 药丸/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
+  --md-ok-fg: #8fce9f;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.4em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* H1 带下划分隔线（对齐 SuperMarkdown 的纸面层级） */
+.markdown-body h1 {
+  font-size: 1.85em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.markdown-body h2 { font-size: 1.45em; }
+.markdown-body h3 { font-size: 1.2em; }
+.markdown-body h4 { font-size: 1.05em; }
+.markdown-body h5 { font-size: 0.9em; }
+.markdown-body h6 {
+  font-size: 0.85em;
+  color: var(--md-muted);
+}
+
+/* 标题不带下划线（对齐旧版参考 UI），前置折叠 caret 见 .h-toggle */
+
+.markdown-body p {
+  margin: 0 0 0.9em;
+}
+
+.markdown-body a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body img {
+  max-width: 100%;
+}
+
+.markdown-body del {
+  color: var(--md-muted);
+}
+
+.markdown-body hr {
+  height: 0;
+  margin: 1.8em 0;
+  border: none;
+  border-top: 2px dashed var(--md-border);
+  background: none;
+}
+
+/* ---- 列表 / 任务勾选框 ---- */
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.8em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.25em;
+}
+
+.markdown-body li.task {
+  position: relative;
+  list-style: none;
+}
+
+/* 圆角勾选框：浮在缩进槽内；done 叠加 ✓ 并填充主色 */
+.markdown-body li.task::before {
+  content: "";
+  position: absolute;
+  left: -1.6em;
+  top: 0.3em;
+  box-sizing: border-box;
+  width: 1.05em;
+  height: 1.05em;
+  border: 2px solid var(--md-muted);
+  border-radius: 4px;
+  background: var(--md-task-bg);
+}
+
+.markdown-body li.task.done::before {
+  content: "✓";
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-check-fg);
+  border-color: var(--md-link);
+  background: var(--md-link);
+}
+
+/* ---- 引用块：左竖线 + 浅底 + 右侧圆角 ---- */
+
+.markdown-body blockquote {
+  margin: 1.1em 0;
+  padding: 0.4em 1em;
+  border-left: 4px solid var(--md-border);
+  border-radius: 0 8px 8px 0;
+  background: var(--md-stripe);
+  color: var(--md-quote-fg);
+}
+
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---- 行内代码 / 代码块 ---- */
+
+.markdown-body code {
+  padding: 0.15em 0.4em;
+  font-family: var(--font-mono);
+  font-size: 87%;
+  background: var(--md-code-bg);
+  border-radius: 5px;
+}
+
+.markdown-body pre.code-block {
+  position: relative;
+  margin: 1.2em 0;
+  padding: 38px 16px 14px;
+  border-radius: 10px;
+  background: var(--md-pre-bg);
+  overflow-x: auto;
+}
+
+.markdown-body pre.code-block code {
+  display: block;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--md-pre-fg);
+  white-space: pre-wrap; /* 保持缩进；高亮路径行尾 \n 即换行，mono 路径已对齐同构输出 */
+  background: transparent;
+  border-radius: 0;
+}
+
+.markdown-body pre.code-block .ln {
+  display: inline-block;
+  min-width: 2ch;
+  margin-right: 12px;
+  text-align: right;
+  color: var(--md-pre-muted);
+  user-select: none;
+}
+
+/* syntect 双主题 token span：亮/暗两色由后端配对烘进内联 --cl/--cd，
+   这里按 body[data-theme] 选边。:not(.ln) 保住行号自身的 muted 色
+   （其选择器特异性更低，且 .ln 无变量，否则暗色下会被 inherit 覆盖）。 */
+.markdown-body pre.code-block code span:not(.ln) {
+  color: var(--cl, inherit);
+}
+
+body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
+  color: var(--cd, inherit);
+}
+
+.markdown-body pre.code-block .code-lang {
+  position: absolute;
+  top: 9px;
+  left: 14px;
+  padding: 1px 9px;
+  font-size: 11px;
+  border-radius: 5px;
+  background: rgba(26, 127, 55, 0.1); /* 浅灰 pre 底上的淡绿药丸，不随主题 */
+  color: var(--md-ok-fg);
+}
+
+/* 折叠 caret：标题前置按钮（PreviewView 注入），折叠时由 JS 换 ▶ */
+.markdown-body .h-toggle {
+  padding: 0;
+  margin-right: 8px;
+  border: none;
+  background: none;
+  color: var(--md-muted);
+  font-size: 0.6em;
+  line-height: 1;
+  vertical-align: 0.15em;
+  cursor: pointer;
+}
+
+.markdown-body .h-toggle:hover {
+  color: var(--md-fg);
+}
+
+/* 复制按钮：注入一次（PreviewView），图标态，成功短暂变 ✓ */
+.markdown-body .copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--md-pre-muted);
+  opacity: 0.85;
+}
+
+.markdown-body .copy-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.markdown-body .copy-btn.ok {
+  opacity: 1;
+  color: var(--md-ok-fg);
+}
+
+/* ---- 表格：斑马纹 ---- */
+
+.markdown-body table {
+  /* 跟满正文宽度（对齐 InkNote 观感）：列宽仍由内容 auto 分配，
+     超长单元格靠 word-wrap 在 th/td 内折行而非横向溢出。 */
+  width: 100%;
+  margin: 1.1em 0;
+  border-collapse: collapse;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 8px 14px;
+  border: 1px solid var(--md-border);
+  text-align: left;
+}
+
+.markdown-body thead th {
+  font-weight: 600;
+  background: var(--md-th-bg);
+}
+
+.markdown-body tbody tr:nth-child(2n) {
+  background: var(--md-stripe);
+}
+
+/* ---- 双语对照浮出块：浅蓝底圆角，缀在原文块后 ---- */
+
+.markdown-body .tr-box {
+  display: inline-block;
+  margin-top: 4px;
+  margin-bottom: 16px;
+  padding: 4px 10px;
+  font-weight: 500;
+  color: var(--md-tr-fg);
+  border: 1px solid var(--md-tr-border);
+  border-radius: 6px;
+  background: var(--md-tr-bg);
+}
+
+.markdown-body h1 + .tr-box,
+.markdown-body h2 + .tr-box,
+.markdown-body h3 + .tr-box,
+.markdown-body h4 + .tr-box,
+.markdown-body h5 + .tr-box,
+.markdown-body h6 + .tr-box {
+  margin-bottom: 0; /* 后随 p 自带下边距，避免双倍 */
+}
+
+/* html.rs 把 tr-box 也塞进 th/td 与 li（cells/list-item 内始终为末位）：
+   单元格 padding 已提供间距，16px 下边距只会撑高每一行；li 的末位盒子
+   下边距会塌陷出 li，把项间距从 0.25em 撑到 16px，节奏失衡。 */
+.markdown-body th .tr-box,
+.markdown-body td .tr-box,
+.markdown-body li > .tr-box:last-child {
+  margin-bottom: 0;
+}
+
+/* mermaid / KaTeX 占位符样式（spec 2026-08-30 §7.5） */
+.markdown-body .mermaid {
+  text-align: center;
+  margin: 1em 0;
+}
+.markdown-body .mermaid-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 0.5em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  text-align: left;
+}
+[data-theme="dark"] .markdown-body .mermaid-error {
+  background: #450a0a;
+  color: #fecaca;
+}
+.markdown-body .math.inline {
+  display: inline-block;
+}
+.markdown-body .math.block {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}

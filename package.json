@@ -1,0 +1,38 @@
+{
+  "name": "qingbird-md-ui",
+  "private": true,
+  "version": "0.1.4",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6",
+    "@codemirror/state": "^6",
+    "@codemirror/theme-one-dark": "^6",
+    "@codemirror/view": "^6",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/cli": "^2",
+    "codemirror": "^6",
+    "codemirror-lang-math": "^0.1",
+    "katex": "^0.16.47",
+    "lucide-react": "^0.469",
+    "mermaid": "^11.17.2",
+    "react": "^18.3",
+    "react-dom": "^18.3",
+    "zustand": "^5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3",
+    "@types/react-dom": "^18.3",
+    "@vitejs/plugin-react": "^4",
+    "typescript": "~5.6",
+    "vite": "^6"
+  }
+}
