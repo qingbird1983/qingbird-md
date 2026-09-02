@@ -58,7 +58,10 @@ pub enum EngineEvent {
     Unit { index: usize, text: String },
     /// Progress across all units of the run.
     Progress { done: usize, total: usize },
-    /// One unit failed; the rest of the run continues.
+    /// One unit failed; the rest of the run continues. 事件层刻意不消费
+    /// 这两个字段（lib.rs 把单段失败当"结果缺席"处理，done 事件统一带
+    /// 首个错误）——字段留给未来前端单段标红的扩展，先挂 allow 免噪音。
+    #[allow(dead_code)]
     Failed { index: usize, error: String },
 }
 

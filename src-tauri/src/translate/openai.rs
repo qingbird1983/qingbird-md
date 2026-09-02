@@ -15,10 +15,6 @@ use serde_json::Value;
 use super::http::{HttpClient, StreamResp};
 use super::sse::{Frame, SseParser, delta_content, frame_error};
 
-/// Default overall budget for one request. Long batches get more via
-/// [`ChatRequest::timeout_ms`].
-pub const DEFAULT_TIMEOUT_MS: u64 = 60_000;
-
 /// A single chat completion request.
 pub struct ChatRequest<'a> {
     pub base_url: &'a str,

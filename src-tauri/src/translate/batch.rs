@@ -64,6 +64,10 @@ fn clean_unit(s: &str) -> String {
 /// one. This resolves the common cases (exact 0-based, exact 1-based) and
 /// otherwise trusts arrival order, but never invents content — unmatched slots
 /// stay `None` so the caller can retry them.
+///
+/// 预留 API：当前流式解码走 `BatchDecoder::push` 的增量回填，
+/// 此函数供"整批一次性解析"的降级/恢复路径使用（有测试锚定行为）。
+#[allow(dead_code)]
 pub fn map_slots(recovered: &[(usize, String)], expected: usize) -> Vec<Option<String>> {
     let mut out: Vec<Option<String>> = vec![None; expected];
     if expected == 0 || recovered.is_empty() {
@@ -136,17 +140,23 @@ impl BatchDecoder {
 
     /// True when the model produced output that never resolved into a unit —
     /// the signal that it ignored the protocol entirely.
+    ///
+    /// 预留 API：接上后可在"整批零回填"时改用整段译文，避免对
+    /// 忽略标记协议的模型徒劳地逐段重试（有测试锚定行为）。
+    #[allow(dead_code)]
     pub fn ignored_protocol(&self) -> bool {
         self.fed_len > 0 && self.recovered == 0
     }
 
     /// True when unconsumed text remains in the buffer (a partial unit, or
     /// preamble the model emitted ahead of the markers).
+    #[allow(dead_code)]
     pub fn has_leftover(&self) -> bool {
         !self.buf.trim().is_empty()
     }
 
     /// How much raw text has been fed in, for diagnostics.
+    #[allow(dead_code)]
     pub fn fed_len(&self) -> usize {
         self.fed_len
     }
