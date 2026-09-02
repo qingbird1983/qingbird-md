@@ -91,6 +91,7 @@ pub fn lookup(
         temperature: 0.0,
         max_tokens: Some(96),
         json_mode: true,
+        thinking_off: true,
         timeout_ms: STAGE1_TIMEOUT_MS,
     };
     let s2 = ChatRequest {
@@ -102,6 +103,7 @@ pub fn lookup(
         temperature: 0.2,
         max_tokens: Some(512),
         json_mode: true,
+        thinking_off: true,
         timeout_ms: STAGE2_TIMEOUT_MS,
     };
 

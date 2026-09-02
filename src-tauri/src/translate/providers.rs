@@ -363,6 +363,7 @@ fn llm(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, Strin
         temperature: 0.1,
         max_tokens: None,
         json_mode: false,
+        thinking_off: true,
         timeout_ms: 120_000,
     };
     let mut noop = |_: &str| {};

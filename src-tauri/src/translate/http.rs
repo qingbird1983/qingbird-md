@@ -266,6 +266,9 @@ pub(crate) mod test_mock {
         /// Pre-baked raw stream bodies, returned one per `post_json_stream`
         /// call (FIFO). Lets tests script multi-chunk SSE and gap retries.
         streams: Arc<Mutex<VecDeque<String>>>,
+        /// Same FIFO, but each entry also carries an HTTP status. Checked
+        /// before `streams` — lets tests script 400-retry negotiation paths.
+        raws: Arc<Mutex<VecDeque<(u16, String)>>>,
     }
 
     impl MockClient {
@@ -273,6 +276,7 @@ pub(crate) mod test_mock {
             MockClient {
                 store: Arc::new(Mutex::new(Vec::new())),
                 streams: Arc::new(Mutex::new(VecDeque::new())),
+                raws: Arc::new(Mutex::new(VecDeque::new())),
             }
         }
 
@@ -285,8 +289,17 @@ pub(crate) mod test_mock {
             self.streams.lock().unwrap().push_back(raw);
         }
 
-        fn next_stream(&self) -> Option<String> {
-            self.streams.lock().unwrap().pop_front()
+        /// Queue a stream response with an explicit HTTP status (e.g. a 400
+        /// for capability-negotiation tests).
+        pub fn script_stream_raw_status(&self, status: u16, raw: String) {
+            self.raws.lock().unwrap().push_back((status, raw));
+        }
+
+        fn next_stream(&self) -> Option<(u16, String)> {
+            if let Some((code, raw)) = self.raws.lock().unwrap().pop_front() {
+                return Some((code, raw));
+            }
+            self.streams.lock().unwrap().pop_front().map(|raw| (200, raw))
         }
     }
 
@@ -361,9 +374,9 @@ pub(crate) mod test_mock {
         ) -> Result<super::StreamResp, String> {
             self.record(url, body, headers);
             // A scripted body wins over the canned one (tests control the wire).
-            if let Some(raw) = self.next_stream() {
+            if let Some((status, raw)) = self.next_stream() {
                 return Ok(super::StreamResp {
-                    status: 200,
+                    status,
                     reader: Box::new(Cursor::new(raw.into_bytes())),
                 });
             }

@@ -303,6 +303,7 @@ fn process_batch(
         temperature: 0.1,
         max_tokens: None,
         json_mode: false,
+        thinking_off: true,
         timeout_ms: req.config.timeout_ms,
     };
 
@@ -420,6 +421,7 @@ fn llm_once(req: &EngineRequest, text: &str) -> Result<String, String> {
         temperature: 0.1,
         max_tokens: None,
         json_mode: false,
+        thinking_off: true,
         timeout_ms: req.config.timeout_ms,
     };
     let mut noop = |_: &str| {};
