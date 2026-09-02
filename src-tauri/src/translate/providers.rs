@@ -348,56 +348,25 @@ fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String, St
 // ---- Custom LLM (OpenAI-compatible) ----
 const SYSTEM_PROMPT: &str = "你是一名专业的中英翻译。把用户给出的文本翻译成简体中文，保留原文的格式、语气和段落结构，各段之间用换行分隔。只输出译文本身，不要添加任何解释、注释或前后缀。";
 
+/// Single-shot LLM translation (the `translate_text` command and the `auto`
+/// chain's callers). Routed through the streaming client so every LLM call in
+/// the app shares one request builder, one SSE reader and one error format —
+/// and so time-to-first-token is the same everywhere instead of depending on
+/// which code path happened to be used.
 fn llm(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
-    let base = creds.get("baseUrl").map(|s| s.trim_end_matches('/').to_string()).unwrap_or_default();
-    let model = creds.get("model").map(|s| s.trim().to_string()).unwrap_or_default();
-    if base.is_empty() {
-        return Err("请先在「设置」中填写自定义大模型的 API 地址".to_string());
-    }
-    if model.is_empty() {
-        return Err("请先在「设置」中填写模型名".to_string());
-    }
-    let url = format!("{base}/chat/completions");
-    let api_key = creds.get("apiKey").map(|s| s.trim()).unwrap_or("").to_string();
-    let auth_owned = if api_key.is_empty() {
-        String::new()
-    } else {
-        format!("Bearer {api_key}")
+    let req = super::openai::ChatRequest {
+        base_url: creds.get("baseUrl").unwrap_or_default(),
+        api_key: creds.get("apiKey").unwrap_or_default(),
+        model: creds.get("model").unwrap_or_default(),
+        system: SYSTEM_PROMPT,
+        user: text,
+        temperature: 0.1,
+        max_tokens: None,
+        json_mode: false,
+        timeout_ms: 120_000,
     };
-    let mut headers: Vec<(&str, &str)> = Vec::new();
-    if !auth_owned.is_empty() {
-        headers.push(("Authorization", auth_owned.as_str()));
-    }
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": SYSTEM_PROMPT },
-            { "role": "user", "content": text },
-        ],
-        "temperature": 0.1,
-    })
-    .to_string();
-
-    let r = http.post_json_timeout(&url, &body, &headers, 120_000)?;
-    if r.status >= 400 {
-        let mut detail = String::new();
-        if let Ok(v) = parse_json(&r.body) {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
-                detail = format!("：{msg}");
-            }
-        }
-        return Err(format!("自定义大模型返回 {}{detail}", r.status));
-    }
-    let v = parse_json(&r.body)?;
-    let content = v.get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|x| x.as_str());
-    match content {
-        Some(c) => Ok(clean(c)),
-        None => Err("自定义大模型无返回内容".to_string()),
-    }
+    let mut noop = |_: &str| {};
+    super::openai::chat_stream(&req, http, &mut noop).map(|c| clean(&c))
 }
 
 fn clean(s: &str) -> String {

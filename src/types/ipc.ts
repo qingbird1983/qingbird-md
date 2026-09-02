@@ -9,6 +9,10 @@ export interface DocDTO {
   base_dir: string | null;
   char_count: number;
   line_count: number;
+  /** 实际解码编码（"UTF-8"/"GB18030"）；状态栏标注 */
+  encoding: string;
+  /** 打开时磁盘 mtime（毫秒），外部修改/保存冲突检测基线 */
+  mtime: number | null;
   parse: ParseResult;
 }
 
@@ -108,6 +112,16 @@ export interface DonePayload {
 
 export type Mode = "original" | "translation" | "bilingual";
 export type ViewKind = "source" | "preview" | "split";
+
+/**
+ * lib.rs TranslateStart：translate_document 的返回。
+ * started = 已起跑（gen 号，进度/完成走事件）；cached = 缓存全命中，
+ * done 产物随本调用同步直达（无进度条、不经事件通道——事件/invoke
+ * 到达顺序竞态从根上消除）。
+ */
+export type TranslateStart =
+  | { kind: "started"; gen: number }
+  | { kind: "cached"; done: DonePayload };
 
 /** dto.rs LookupExample */
 export interface LookupExample {

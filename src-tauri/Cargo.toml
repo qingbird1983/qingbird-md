@@ -21,28 +21,25 @@ path = "src/main.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-# 发版构建配置：体积优先，且不牺牲本地迭代速度。
-# - strip：剥离符号表，链接更快、exe 显著变小（不再产出数 MB 的 .pdb）。
-# - opt-level "s"：按尺寸优化，编译耗时与默认档相当。
-# - panic "abort"：移除 unwind 表；业务代码未使用 catch_unwind（已核），安全。
-# - 刻意不启用 lto / codegen-units = 1：二者会大幅拉长编译与链接时间，
-#   日常迭代不划算。追求极致体积时再打开。
-[profile.release]
-strip = true
-opt-level = "s"
-panic = "abort"
-
 [dependencies]
+base64 = "0.22"
 dirs = "6.0"
+encoding_rs = "0.8"
 fs2 = "0.4"
 hmac = "0.13"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 md-5 = "0.11"
 pulldown-cmark = "0.13"
+screenshots = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
+softbuffer = "0.4"
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 ureq = "2"
+winit = { version = "0.30", features = ["rwh_06"] }

@@ -48,6 +48,7 @@ body {
 .titlebar-left {
   display: flex;
   align-items: center;
+  align-self: stretch; /* 撑满标题栏高度，让内部按钮 hover 高亮上下到边（同 win-btn） */
   flex-shrink: 0;
 }
 
@@ -77,28 +78,33 @@ body {
   user-select: none;
 }
 
-/* 应用 logo（青鸟小图，替代原“青鸟”文字）；继承父级 pe:none 保证拖拽穿透 */
+/* 应用 logo（青鸟小图，替代原“青鸟”文字）；继承父级 pe:none 保证拖拽穿透。
+   亮/暗主题各一张（-light/-dark），随 body[data-theme] 显隐切换。 */
 .titlebar-logo {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
 }
+.logo-dark { display: none; }
+body[data-theme="dark"] .logo-light { display: none; }
+body[data-theme="dark"] .logo-dark { display: block; }
 
+/* 汉堡按钮：与 win-btn 同规格（宽 40、撑满标题栏高、直角），高亮风格统一 */
 .hamburger-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 28px;
+  width: 40px;
+  height: 100%;
   padding: 0;
   border: none;
-  border-radius: 4px;
   background: none;
   color: inherit;
   cursor: pointer;
 }
 
-.hamburger-btn:hover {
+.hamburger-btn:hover,
+.ws-toggle-btn:hover {
   background: var(--btn-hover-bg);
 }
 
@@ -107,19 +113,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 28px;
+  width: 40px;
+  height: 100%;
   margin-left: 2px;
   padding: 0;
   border: none;
-  border-radius: 4px;
   background: none;
   color: inherit;
   cursor: pointer;
-}
-
-.ws-toggle-btn:hover {
-  background: var(--btn-hover-bg);
 }
 
 .titlebar-title {
@@ -304,7 +305,7 @@ body {
   top: calc(100% + 5px);
   left: 0;
   z-index: 1000;
-  min-width: 190px;
+  min-width: 128px;
   margin: 0;
   padding: 5px;
   list-style: none;
@@ -328,7 +329,9 @@ body {
 
 .menu-item {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   width: 100%;
   padding: 6px 10px 6px 26px;
   border-radius: var(--r-sm);
@@ -336,6 +339,36 @@ body {
   color: var(--fg2);
   text-align: left;
   white-space: nowrap;
+}
+
+/* ✓ 前缀（::before absolute left 9px）依赖 26px 缩进；带图标的动作项
+   没有 ✓，图标顶格 + 文字紧随，视觉左对齐 */
+.menu-item.has-icon {
+  padding-left: 10px;
+}
+
+/* 工具栏下拉弹层在 .editor-toolbar 内，.editor-toolbar button 的工具钮样式
+   （居中/24px 高/内边距）会漏进菜单项——这里按菜单语义恢复 */
+.editor-toolbar .menu-pop .menu-item {
+  display: flex;
+  justify-content: flex-start;
+  height: auto;
+  min-width: 0;
+  padding: 6px 10px 6px 26px;
+}
+
+.editor-toolbar .menu-pop .menu-item.has-icon {
+  padding-left: 10px;
+}
+
+.menu-item-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-fg);
+}
+
+.menu-item:hover:not(:disabled) .menu-item-icon {
+  color: var(--accent);
 }
 
 .menu-item:hover:not(:disabled) {
@@ -393,10 +426,13 @@ body {
   flex: none;
   max-width: 200px;
   min-width: 80px;
-  height: 24px;
-  padding: 0 6px 0 10px;
+  /* 高亮形状：顶边保持在原 24px 居中位的上缘（(37-24)/2=6.5px，37=标题栏38px
+     -1px 底线），底边直通底线、底部直角——hover 背景因此上圆下直贴线。 */
+  align-self: flex-end;
+  height: calc(100% - 6.5px);
+  padding: 0 6px 6.5px 10px; /* 底部让位：内容仍居中于原 24px 视觉带 */
   border: 1px solid transparent;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
   font-size: 12.5px;
   color: var(--fg2);
   cursor: pointer;
@@ -410,6 +446,7 @@ body {
 
 .tab.active {
   border-color: var(--border);
+  border-bottom-color: transparent; /* 底边已贴标题栏底线，透明化避免叠成 2px；surface 背景直通底线 */
   background: var(--surface);
   color: var(--fg);
   font-weight: 500;
@@ -454,16 +491,17 @@ body {
   cursor: default;
 }
 
+/* 新建标签按钮：上下到边、直角（同标题栏其余图标钮），但宽度单独收窄——
+   「+」是次要动作，40px 与标签同宽显得笨重 */
 .tab-add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 20px;
-  height: 24px;
+  width: 28px;
+  height: 100%;
   padding: 0;
   border: none;
-  border-radius: var(--r-sm);
   background: none;
   color: var(--fg2);
   cursor: pointer;
@@ -487,13 +525,11 @@ body {
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.editor-toolbar::-webkit-scrollbar {
-  display: none;
+  /* 必须 visible：工具栏下拉（标题/列表/插入）的 .menu-pop 从按钮下方展开，
+     滚动容器（overflow-x:auto）会整层裁掉弹层。
+     ponytail: 按钮下拉化后总量已收敛，极窄窗口下按钮溢出而非横向滚动——
+     若以后需要窄窗滚动，弹层需改 fixed 定位再恢复 overflow-x:auto。 */
+  overflow: visible;
 }
 
 .editor-toolbar .tb-gap {
@@ -507,6 +543,17 @@ body {
   margin: 0 8px;
   background: var(--border);
   flex: none;
+}
+
+/* 下拉触发钮：主图标 + 弱化小箭头（标题/列表/插入） */
+.editor-toolbar .tb-dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.editor-toolbar .tb-dd svg:last-child {
+  opacity: 0.55;
 }
 
 .editor-toolbar button {
@@ -1092,7 +1139,9 @@ button.menu-btn:disabled,
   position: fixed;
   top: 56px;
   left: 50%;
-  transform: translateX(-50%);
+  /* 居中用独立 translate 属性而非 transform：pop-in/modal-in 关键帧声明的
+     transform 播放期间会覆盖 translateX(-50%)，导致浮窗先右偏半宽再跳回居中。 */
+  translate: -50% 0;
   z-index: 1100;
   max-width: min(480px, calc(100vw - 24px));
   max-height: 50vh;
@@ -1428,7 +1477,9 @@ button.menu-btn:disabled,
   position: absolute;
   top: 14vh;
   left: 50%;
-  transform: translateX(-50%);
+  /* 居中用独立 translate 属性而非 transform：modal-in 关键帧的 transform
+     播放期间覆盖 translateX(-50%)，面板会先右偏半宽、0.14s 后跳回居中。 */
+  translate: -50% 0;
   display: flex;
   flex-direction: column;
   width: min(560px, calc(100vw - 32px));

@@ -104,9 +104,11 @@ const LLM: ProviderMeta = ProviderMeta {
     label: "自定义大模型（OpenAI 兼容）",
     needs_key: false,
     max_len: 3000,
-    max_concurrency: 3,
+    // Streaming makes a request decode-bound rather than connection-bound, so
+    // the old cap of 3 left most of the document's latency on the table.
+    max_concurrency: 6,
     fields: LLM_FIELDS,
-    note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。更换模型后建议清除翻译缓存。划词查词复用此凭据，可用「查词模型」单独指定轻量模型。",
+    note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。译文流式返回，边翻边显示；更换模型/改提示词后旧缓存自动失效，无需手动清除。划词查词复用此凭据，可用「查词模型」单独指定轻量模型。",
 };
 
 const TRANSMART: ProviderMeta = ProviderMeta {

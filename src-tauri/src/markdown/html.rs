@@ -20,7 +20,7 @@ use syntect::highlighting::Color;
 use super::model::{Block, Inline};
 use super::syntax::highlight_spans;
 use super::units::inline_plain_text;
-use crate::translate::pipeline::needs_translation;
+use crate::translate::engine::needs_translation;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct OutlineItem {

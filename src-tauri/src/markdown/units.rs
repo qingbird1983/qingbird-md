@@ -1,5 +1,5 @@
 use super::model::{Block, Inline};
-use crate::translate::pipeline::needs_translation;
+use crate::translate::engine::needs_translation;
 
 /// Concatenated plain text of an inline run.
 pub fn inline_plain_text(inlines: &[Inline]) -> String {

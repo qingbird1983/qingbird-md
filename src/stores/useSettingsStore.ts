@@ -101,7 +101,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 // T30 主题 → DOM 贯通：body[data-theme] 恒为解析后的 dark|light。
 // 显式档由 store 订阅写入；auto 档由 matchMedia watch 随系统实时切换。
 // CSS 侧只需 body[data-theme="dark"] 一套覆盖（styles/theme.css）。
-const sysDark = matchMedia("(prefers-color-scheme: dark)");
+export const sysDark = matchMedia("(prefers-color-scheme: dark)");
 
 /** 解析后的暗色判定（EditorView/commands 统一口径）：dark 直取，auto 跟随系统。 */
 export function isDarkTheme(): boolean {

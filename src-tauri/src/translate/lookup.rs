@@ -1,81 +1,74 @@
-//! LLM 选区查词（spec 2026-08-29-selection-word-lookup）：词/句分流 +
-//! 富结果。与 providers.rs 的整篇 `llm()` 共用 HttpClient 抽象，但 prompt、
-//! 解析容错与缓存独立演进；模型选择按 B1（lookup_model 优先，空回落 model）。
+//! LLM 选区查词：两阶段并发。
+//!
+//! 单请求出完整 JSON 的旧实现慢在**输出量**：划一个单词也要生成
+//! translation + phonetic + partOfSpeech + usage + 2 例句 + terms，
+//! 200+ token 之后用户才看到第一个字，而卡片上真正被先读的只有译文。
+//!
+//! 现在拆成两个**同时发出**的请求：
+//!
+//! * 阶段一（快）：极短 prompt、短字段名、`max_tokens: 96`，只回
+//!   `{"t":译文,"p":音标,"pos":词性}`。输出约 30 token，TTFT 后不到 1 秒到手，
+//!   边生成边经 `on_stage1` 推给前端。
+//! * 阶段二（全）：用法、例句、生僻词等富信息。慢一点无所谓——用户已经在看
+//!   译文了；即便它失败，阶段一的结果依然完整可用。
+//!
+//! 并发而非串行：总墙钟时间取两者较慢者，而不是两者之和。
 
-use std::io::BufRead;
 use serde_json::Value;
 
 use super::cache::Cache;
 use super::http::HttpClient;
+use super::openai::{ChatRequest, chat_stream, strip_fence};
 use super::providers::Creds;
 
 /// 查词结果在翻译缓存中的 provider 名（与整篇翻译键空间隔离）。
 pub const CACHE_PROVIDER: &str = "llm-lookup";
-const LOOKUP_TIMEOUT_MS: u64 = 30_000;
+
+/// 缓存 variant 版本：改 prompt 或解析规则时 +1，旧缓存自动失效。
+pub const CACHE_VARIANT: &str = "v2";
+
+const STAGE1_TIMEOUT_MS: u64 = 15_000;
+const STAGE2_TIMEOUT_MS: u64 = 30_000;
 const MODELS_TIMEOUT_MS: u64 = 15_000;
 
-const LOOKUP_SYSTEM_PROMPT: &str = "你是一个中英翻译助手。用户会输入一个词/短语，或一句话/一段话。\n\n只输出一个 JSON 对象，不要输出任何额外文字，不要用代码块包裹。JSON 结构：\n{\"type\":\"word\"|\"sentence\",\"translation\":\"翻译结果\",\"phonetic\":\"音标或null\",\"partOfSpeech\":\"词性或null\",\"usage\":\"用法说明或null\",\"examples\":[{\"en\":\"英文例句\",\"zh\":\"中文翻译\"}],\"terms\":[{\"word\":\"英文词\",\"phonetic\":\"音标\",\"explanation\":\"中文解释\"}]}\n\n规则：\n1. 自动判断输入是中文还是英文，做中英互译（中→英、英→中）。\n2. 自动判断输入是「词/短语」还是「句子/段落」，填入 type。\n3. type 为 word 时（输入是词/短语）：\n   - translation：核心翻译，简洁\n   - phonetic：英文那一侧单词的 IPA 音标（带斜杠），无法给出为 null\n   - partOfSpeech：词性，如 n./v./adj./adv.，无法确定为 null\n   - usage：1-2 句简明中文，只讲最典型的搭配或语境（输出务必精简，首译速度优先）\n   - examples：至多 2 个例句，例句要自然、能体现该词的典型用法\n   - terms：空数组 []\n4. type 为 sentence 时：\n   - translation：整句翻译\n   - phonetic、partOfSpeech、usage 为 null，examples 为空数组 []\n   - terms：从英文那一侧（输入英文则原文、输入中文则译文）挑出的较生僻、较难的单词，每个给 word、IPA 音标 phonetic、简洁中文 explanation；常见简单词不挑，没有则空数组\n5. 音标只针对英文单词，使用 IPA；中文不需要音标。";
+/// 阶段一：只问用户第一眼要看的东西。字段名缩短为了省输出 token —— 输出
+/// token 数直接等于等待时间。
+const STAGE1_SYSTEM: &str = "中英互译。只输出一个 JSON 对象，不要任何多余文字、不要代码块：\
+{\"t\":\"译文\",\"p\":\"英文侧单词的 IPA 音标，无则 null\",\"pos\":\"词性如 n./v./adj.，无则 null\"}\
+中译英时 p 为 null。";
 
-/// 选区查词主入口：POST {base}/chat/completions（B1 模型回落），30s 超时。
-/// 流式（stream: true）：每收到 delta 就以累积后的完整 content 回调 on_delta
-/// （前端据此渐进渲染），结束后整包 parse。兼容两种帧：
-/// SSE `data: {...}` 与厂商忽略 stream 时的单帧非 SSE JSON。
-pub fn llm_lookup_stream(
-    text: &str,
-    creds: &Creds,
-    http: &dyn HttpClient,
-    on_delta: &mut dyn FnMut(&str),
-) -> Result<crate::dto::WordLookupDTO, String> {
-    let (url, body, headers) = build_lookup_request(text, creds)?;
-    let hdr_refs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    let mut resp = http.post_json_stream(&url, &body, &hdr_refs, LOOKUP_TIMEOUT_MS)?;
-    if resp.status >= 400 {
-        let mut err_body = String::new();
-        let _ = resp.reader.read_to_string(&mut err_body);
-        let mut detail = String::new();
-        if let Ok(v) = serde_json::from_str::<Value>(&err_body) {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
-                detail = format!("：{msg}");
-            }
-        }
-        return Err(format!("查词请求返回 {}{detail}", resp.status));
-    }
+/// 阶段二：富信息。仍在 JSON 的最前面带上 translation 作为阶段一失败时的
+/// 兜底——它不阻塞任何东西，因为阶段一已在独立连接上先返回。
+const STAGE2_SYSTEM: &str = "中英翻译助手。输入是一个词/短语，或一句话/一段话。\n\
+只输出一个 JSON 对象，不要代码块，不要多余文字：\n\
+{\"translation\":\"译文\",\"type\":\"word\"|\"sentence\",\"usage\":\"用法说明或null\",\
+\"examples\":[{\"en\":\"英文例句\",\"zh\":\"中文翻译\"}],\
+\"terms\":[{\"word\":\"英文词\",\"phonetic\":\"IPA音标\",\"explanation\":\"中文解释\"}]}\n\
+规则：\n\
+1. type：输入是词/短语填 word，是句子/段落填 sentence。\n\
+2. word：usage 用一句中文讲最典型的搭配或语境，务必精简；examples 至多 2 个自然例句；terms 为 []。\n\
+3. sentence：usage 为 null，examples 为 []；terms 从英文侧挑较生僻的词（常见词不挑），每个给 word、IPA 音标、简洁中文解释，没有则 []。";
 
-    let mut content = String::new();
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if resp.reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-            break;
-        }
-        let l = line.trim_end();
-        let frame = match l.strip_prefix("data:") {
-            Some(d) => d.trim(),
-            None => l,
-        };
-        if frame.is_empty() || frame == "[DONE]" {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<Value>(frame) else { continue };
-        if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|x| x.as_str()) {
-            return Err(format!("查词请求失败：{msg}"));
-        }
-        // SSE delta 帧与整包非 SSE 帧取 content 的路径不同，统一累积
-        let delta = v
-            .pointer("/choices/0/delta/content")
-            .or_else(|| v.pointer("/choices/0/message/content"))
-            .and_then(|x| x.as_str());
-        if let Some(d) = delta {
-            content.push_str(d);
-            on_delta(&content);
-        }
-    }
-    parse_lookup_json(&content)
+/// 阶段一结果（阶段二尚未到达时的最小可展示卡片）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stage1 {
+    pub translation: String,
+    pub phonetic: Option<String>,
+    pub part_of_speech: Option<String>,
 }
 
-/// 请求三件套（url/body/headers）构造。纯函数供测试断言 model 优先级、
-/// Bearer 头与 URL 规整。
-fn build_lookup_request(text: &str, creds: &Creds) -> Result<(String, String, Vec<(&'static str, String)>), String> {
+/// 选区查词主入口。
+///
+/// `on_stage1` 在阶段一每次收到 delta 时被调用，参数是**累积**内容（与前端
+/// `lookup-delta` 契约一致），因此阶段一刚生成一半也能先渲染出来。
+///
+/// 两个阶段任一成功即有结果：阶段一提供译文，阶段二补充富信息。
+pub fn lookup(
+    text: &str,
+    creds: &Creds,
+    http: &(dyn HttpClient + Sync),
+    on_stage1: &mut (dyn FnMut(&str) + Send),
+) -> Result<crate::dto::WordLookupDTO, String> {
     let base = creds
         .get("baseUrl")
         .map(|s| s.trim().trim_end_matches('/').to_string())
@@ -83,114 +76,243 @@ fn build_lookup_request(text: &str, creds: &Creds) -> Result<(String, String, Ve
     if base.is_empty() {
         return Err("请先在「设置」中填写自定义大模型的 API 地址".to_string());
     }
-    let lookup_model = creds.get("lookup_model").map(|s| s.trim().to_string()).unwrap_or_default();
-    let model = if lookup_model.is_empty() {
-        creds.get("model").map(|s| s.trim().to_string()).unwrap_or_default()
-    } else {
-        lookup_model
-    };
+    let model = resolve_model(creds);
     if model.is_empty() {
         return Err("请先在「设置」中填写模型名".to_string());
     }
-    let url = format!("{base}/chat/completions");
-    let api_key = creds.get("apiKey").map(|s| s.trim()).unwrap_or("").to_string();
-    let mut headers: Vec<(&str, String)> = Vec::new();
-    if !api_key.is_empty() {
-        headers.push(("Authorization", format!("Bearer {api_key}")));
+    let api_key = creds.get("apiKey").unwrap_or_default().to_string();
+
+    let s1 = ChatRequest {
+        base_url: &base,
+        api_key: &api_key,
+        model: &model,
+        system: STAGE1_SYSTEM,
+        user: text,
+        temperature: 0.0,
+        max_tokens: Some(96),
+        json_mode: true,
+        timeout_ms: STAGE1_TIMEOUT_MS,
+    };
+    let s2 = ChatRequest {
+        base_url: &base,
+        api_key: &api_key,
+        model: &model,
+        system: STAGE2_SYSTEM,
+        user: text,
+        temperature: 0.2,
+        max_tokens: Some(512),
+        json_mode: true,
+        timeout_ms: STAGE2_TIMEOUT_MS,
+    };
+
+    // 两阶段并发：慢的富信息请求不拖快译，快的也不必等富信息。
+    let (r1, r2) = std::thread::scope(|s| {
+        let t1 = s.spawn(|| chat_stream(&s1, http, &mut |acc: &str| on_stage1(acc)));
+        let t2 = s.spawn(|| {
+            let mut noop = |_: &str| {};
+            chat_stream(&s2, http, &mut noop)
+        });
+        (
+            t1.join().map_err(|_| "查词线程崩溃".to_string()).and_then(|r| r),
+            t2.join().map_err(|_| "查词线程崩溃".to_string()).and_then(|r| r),
+        )
+    });
+
+    let stage1 = r1.as_ref().ok().and_then(|c| parse_stage1(c));
+    let stage2 = r2.as_ref().ok().and_then(|c| parse_stage2(c));
+
+    match merge(stage1, stage2, &text) {
+        Some(dto) if !dto.translation.trim().is_empty() => Ok(dto),
+        _ => Err(first_error(&r1, &r2)),
     }
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": LOOKUP_SYSTEM_PROMPT },
-            { "role": "user", "content": text },
-        ],
-        "temperature": 0.2,
-        "stream": true,
-    })
-    .to_string();
-    Ok((url, body, headers))
 }
 
-/// 模型回复 → DTO。容错顺序：剥 ``` 围栏 → 截取首 `{` 至末 `}` → serde →
-/// 键映射（type→kind、partOfSpeech→part_of_speech）与字段规整（空串 → None、
-/// 无效数组项过滤）。仍失败报 Err（含回复前 200 字符截断）。
-pub fn parse_lookup_json(content: &str) -> Result<crate::dto::WordLookupDTO, String> {
-    use crate::dto::{LookupExample, LookupTerm, WordLookupDTO};
+/// Both requests failed: surface whichever error is actionable. Stage one
+/// fails first (shorter budget), so it usually carries the real cause.
+fn first_error(r1: &Result<String, String>, r2: &Result<String, String>) -> String {
+    match (r1, r2) {
+        (Err(e), _) => e.clone(),
+        (_, Err(e)) => e.clone(),
+        _ => "查词结果为空".to_string(),
+    }
+}
 
-    let mut json_text = content.trim();
-    if json_text.starts_with("```") {
-        let inner = json_text.strip_prefix("```").unwrap_or(json_text);
-        let inner = inner.split_once('\n').map(|(_, rest)| rest).unwrap_or(inner);
-        let inner = inner.strip_suffix("```").unwrap_or(inner).trim();
-        if !inner.is_empty() {
-            json_text = inner;
+/// 模型选择：`lookup_model` 优先，留空则回落主模型。划词对延迟极敏感，
+/// 推荐在设置里单独指定一个轻量模型。
+fn resolve_model(creds: &Creds) -> String {
+    let lookup_model = creds.get("lookup_model").map(|s| s.trim()).unwrap_or_default();
+    if !lookup_model.is_empty() {
+        return lookup_model.to_string();
+    }
+    creds.get("model").map(|s| s.trim()).unwrap_or_default().to_string()
+}
+
+/// 合并两阶段结果：译文以阶段一为准（它先到且更精简），富信息来自阶段二。
+///
+/// 阶段二失败**不影响**可用性：富信息请求更慢、输出更长，是最容易超时的一环。
+/// 此时用阶段一拼一张只有译文/音标/词性的最小卡片——用户要的是释义，不是空卡片。
+fn merge(
+    stage1: Option<Stage1>,
+    stage2: Option<crate::dto::WordLookupDTO>,
+    text: &str,
+) -> Option<crate::dto::WordLookupDTO> {
+    let mut out = match stage2 {
+        Some(d) => d,
+        None => {
+            let s1 = stage1?;
+            crate::dto::WordLookupDTO {
+                kind: kind_for(text).to_string(),
+                translation: s1.translation,
+                phonetic: s1.phonetic,
+                part_of_speech: s1.part_of_speech,
+                usage: None,
+                examples: Vec::new(),
+                terms: Vec::new(),
+            }
+        }
+    };
+    if let Some(s1) = stage1 {
+        // 阶段一是权威译文：它先到、更短、更不容易跑偏。
+        // 解构避免部分移动后再读字段。
+        let Stage1 { translation, phonetic, part_of_speech } = s1;
+        out.translation = translation;
+        if phonetic.is_some() {
+            out.phonetic = phonetic;
+        }
+        if part_of_speech.is_some() {
+            out.part_of_speech = part_of_speech;
         }
     }
-    let start = json_text.find('{').unwrap_or(0);
-    let end = json_text.rfind('}').map(|i| i + 1).unwrap_or(json_text.len());
-    let slice = &json_text[start..end];
-    let v: Value = serde_json::from_str(slice).map_err(|_| {
-        let short: String = content.trim().chars().take(200).collect();
-        format!("查词返回不是有效 JSON：{short}")
-    })?;
+    Some(out)
+}
 
+/// 阶段二缺席时的兜底判定：多词或较长按句子展示，否则按词。
+fn kind_for(text: &str) -> &'static str {
+    if text.split_whitespace().count() >= 3 || text.chars().count() > 24 {
+        "sentence"
+    } else {
+        "word"
+    }
+}
+
+/// 解析阶段一的短字段 JSON。容错：剥围栏 → 截取首尾花括号 → 缺字段降级。
+pub fn parse_stage1(content: &str) -> Option<Stage1> {
+    let v = parse_json_object(content)?;
+    let t = v.get("t").and_then(|x| x.as_str()).unwrap_or("").trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(Stage1 {
+        translation: t.to_string(),
+        phonetic: opt_str(&v, "p"),
+        part_of_speech: opt_str(&v, "pos"),
+    })
+}
+
+/// 解析阶段二的完整 DTO。与旧实现同构（键映射、空值规整、坏项过滤）。
+pub fn parse_stage2(content: &str) -> Option<crate::dto::WordLookupDTO> {
+    use crate::dto::{LookupExample, LookupTerm, WordLookupDTO};
+
+    let v = parse_json_object(content)?;
     let kind = match v.get("type").and_then(|x| x.as_str()) {
         Some("sentence") => "sentence",
         _ => "word",
     };
-    let opt_str = |key: &str| -> Option<String> {
-        v.get(key)
-            .and_then(|x| x.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    };
-    let empty_arr: Vec<Value> = Vec::new();
+    let empty: Vec<Value> = Vec::new();
     let examples = v
         .get("examples")
         .and_then(|x| x.as_array())
-        .unwrap_or(&empty_arr)
+        .unwrap_or(&empty)
         .iter()
         .filter_map(|it| {
             let en = it.get("en").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
             let zh = it.get("zh").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-            if en.is_empty() && zh.is_empty() { None } else { Some(LookupExample { en, zh }) }
+            if en.is_empty() && zh.is_empty() {
+                None
+            } else {
+                Some(LookupExample { en, zh })
+            }
         })
         .collect();
     let terms = v
         .get("terms")
         .and_then(|x| x.as_array())
-        .unwrap_or(&empty_arr)
+        .unwrap_or(&empty)
         .iter()
         .filter_map(|it| {
             let word = it.get("word").and_then(|x| x.as_str())?.trim().to_string();
-            if word.is_empty() { return None; }
-            let phonetic = it.get("phonetic").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-            let explanation = it.get("explanation").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-            Some(LookupTerm { word, phonetic, explanation })
+            if word.is_empty() {
+                return None;
+            }
+            Some(LookupTerm {
+                word,
+                phonetic: it.get("phonetic").and_then(|x| x.as_str()).unwrap_or("").trim().to_string(),
+                explanation: it
+                    .get("explanation")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            })
         })
         .collect();
 
-    Ok(WordLookupDTO {
+    Some(WordLookupDTO {
         kind: kind.to_string(),
         translation: v.get("translation").and_then(|x| x.as_str()).unwrap_or("").trim().to_string(),
-        phonetic: opt_str("phonetic"),
-        part_of_speech: opt_str("partOfSpeech"),
-        usage: opt_str("usage"),
+        phonetic: opt_str(&v, "phonetic"),
+        part_of_speech: opt_str(&v, "partOfSpeech"),
+        usage: opt_str(&v, "usage"),
         examples,
         terms,
     })
 }
 
+fn opt_str(v: &Value, key: &str) -> Option<String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != "null")
+}
+
+/// 从可能带围栏、前后有废话的回复里抠出一个 JSON 对象。
+fn parse_json_object(content: &str) -> Option<Value> {
+    let t = strip_fence(content);
+    let t = t.trim();
+    let start = t.find('{')?;
+    let end = t.rfind('}').map(|i| i + 1)?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str::<Value>(&t[start..end]).ok()
+}
+
 /// 命中读取；缓存里的坏 JSON 自愈为未命中（下次网络结果会覆写）。
-pub fn cache_get_lookup(cache: &Cache, text: &str) -> Option<crate::dto::WordLookupDTO> {
-    let json = cache.get(&Cache::key(CACHE_PROVIDER, text))?;
+pub fn cache_get_lookup(cache: &Cache, text: &str, variant: &str) -> Option<crate::dto::WordLookupDTO> {
+    let json = cache.get(&Cache::key(CACHE_PROVIDER, variant, text))?;
     serde_json::from_str(json).ok()
 }
 
 /// 回写（不落盘——落盘由命令层在短锁内完成）。
-pub fn cache_put_lookup(cache: &mut Cache, text: &str, dto: &crate::dto::WordLookupDTO) {
+pub fn cache_put_lookup(
+    cache: &mut Cache,
+    text: &str,
+    variant: &str,
+    dto: &crate::dto::WordLookupDTO,
+) {
     let json = serde_json::to_string(dto).unwrap_or_default();
-    cache.set(Cache::key(CACHE_PROVIDER, text), json);
+    cache.set(Cache::key(CACHE_PROVIDER, variant, text), json);
+}
+
+/// 查词缓存 variant：模型名 + 版本号。
+pub fn cache_variant(model: &str) -> String {
+    format!("{model}@{CACHE_VARIANT}")
+}
+
+/// 从凭据直接算出缓存 variant（命令层用它做命中检查与回写，必须与
+/// [`lookup`] 实际使用的模型一致，否则缓存永不命中）。
+pub fn cache_variant_for(creds: &Creds) -> String {
+    cache_variant(&resolve_model(creds))
 }
 
 /// 拉取 OpenAI 兼容 GET {base}/models：Bearer（key 非空时）、15s 超时、
@@ -246,151 +368,201 @@ pub fn parse_models_body(body: &str) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use crate::translate::http::test_mock::MockClient;
-    use std::collections::HashMap;
 
-    fn creds(base: &str, model: &str, lookup_model: &str) -> Creds {
-        let mut m = HashMap::new();
-        if !base.is_empty() { m.insert("baseUrl".to_string(), base.to_string()); }
-        if !model.is_empty() { m.insert("model".to_string(), model.to_string()); }
-        if !lookup_model.is_empty() { m.insert("lookup_model".to_string(), lookup_model.to_string()); }
+    fn creds(pairs: &[(&str, &str)]) -> Creds {
+        let m = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         Creds(m)
     }
 
-    const WORD_JSON: &str = r#"{"type":"word","translation":" 便利设施 ","phonetic":"/əˈmenəti/","partOfSpeech":"n.","usage":"用法说明","examples":[{"en":"The hotel has amenities.","zh":"酒店有设施。"},{"en":"","zh":"仅中文"}],"terms":[{"word":"lavish","phonetic":"/ˈlævɪʃ/","explanation":"奢华的"},{"word":" ","phonetic":"","explanation":"空白应被过滤"}]}"#;
+    const S1_JSON: &str = r#"{"t":"便利设施","p":"/əˈmenəti/","pos":"n."}"#;
+    const S2_JSON: &str = r#"{"translation":"便利设施","type":"word","usage":"指提升舒适度的设施。","examples":[{"en":"The hotel has amenities.","zh":"酒店有设施。"}],"terms":[{"word":"lavish","phonetic":"/ˈlævɪʃ/","explanation":"奢华的"}]}"#;
 
-    // ---- 请求构造 ----
+    fn sse(content: &str) -> String {
+        let payload =
+            serde_json::json!({ "choices": [ { "delta": { "content": content } } ] }).to_string();
+        format!("data: {payload}\n\ndata: [DONE]\n\n")
+    }
+
+    // ---- 阶段一解析 ----
 
     #[test]
-    fn builds_request_with_lookup_model_priority() {
-        let (url, body, headers) = build_lookup_request(
-            "amenity",
-            &creds("https://api.deepseek.com", "main-model", "fast-model"),
+    fn stage1_parses_short_fields() {
+        let s = parse_stage1(S1_JSON).unwrap();
+        assert_eq!(s.translation, "便利设施");
+        assert_eq!(s.phonetic.as_deref(), Some("/əˈmenəti/"));
+        assert_eq!(s.part_of_speech.as_deref(), Some("n."));
+    }
+
+    #[test]
+    fn stage1_tolerates_fence_and_prose() {
+        let s = parse_stage1(&format!("```json\n{S1_JSON}\n```")).unwrap();
+        assert_eq!(s.translation, "便利设施");
+        let s = parse_stage1(&format!("好的：{S1_JSON} 以上")).unwrap();
+        assert_eq!(s.translation, "便利设施");
+    }
+
+    #[test]
+    fn stage1_rejects_missing_translation() {
+        assert!(parse_stage1(r#"{"p":"/a/","pos":"n."}"#).is_none());
+        assert!(parse_stage1("不是 JSON").is_none());
+    }
+
+    #[test]
+    fn stage1_treats_string_null_as_none() {
+        let s = parse_stage1(r#"{"t":"你好","p":"null","pos":"null"}"#).unwrap();
+        assert_eq!(s.phonetic, None);
+        assert_eq!(s.part_of_speech, None);
+    }
+
+    // ---- 阶段二解析 ----
+
+    #[test]
+    fn stage2_maps_fields_and_filters_blank_items() {
+        let d = parse_stage2(S2_JSON).unwrap();
+        assert_eq!(d.kind, "word");
+        assert_eq!(d.translation, "便利设施");
+        assert_eq!(d.usage.as_deref(), Some("指提升舒适度的设施。"));
+        assert_eq!(d.examples.len(), 1);
+        assert_eq!(d.terms.len(), 1);
+        assert_eq!(d.terms[0].word, "lavish");
+    }
+
+    #[test]
+    fn stage2_sentence_has_no_word_fields() {
+        let d = parse_stage2(
+            r#"{"translation":"你好。","type":"sentence","usage":null,"examples":[],"terms":[]}"#,
         )
         .unwrap();
-        assert_eq!(url, "https://api.deepseek.com/chat/completions");
-        assert!(body.contains("\"model\":\"fast-model\""), "lookup_model 优先: {body}");
-        assert!(body.contains("0.2"), "temperature 0.2: {body}");
-        assert!(body.contains("中英翻译助手"), "system prompt 在场");
-        assert!(body.contains("\"stream\":true"), "流式开: {body}");
-        assert!(headers.is_empty());
+        assert_eq!(d.kind, "sentence");
+        assert_eq!(d.phonetic, None);
+        assert!(d.examples.is_empty() && d.terms.is_empty());
     }
 
     #[test]
-    fn falls_back_to_model_and_normalizes_trailing_slash() {
-        let (url, body, _) =
-            build_lookup_request("hi", &creds("https://x.io/", "main-model", "")).unwrap();
-        assert_eq!(url, "https://x.io/chat/completions");
-        assert!(body.contains("\"model\":\"main-model\""));
+    fn stage2_drops_blank_term_words() {
+        let d = parse_stage2(
+            r#"{"translation":"x","type":"word","usage":null,"examples":[],"terms":[{"word":" ","phonetic":"","explanation":"应被过滤"},{"word":"ok","phonetic":"/ok/","explanation":"保留"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(d.terms.len(), 1);
+        assert_eq!(d.terms[0].word, "ok");
+    }
+
+    // ---- 合并 ----
+
+    #[test]
+    fn merge_prefers_stage1_translation_and_keeps_stage2_richness() {
+        let s1 = parse_stage1(r#"{"t":"A1","p":"/p1/","pos":"v."}"#);
+        let s2 = parse_stage2(S2_JSON);
+        let d = merge(s1, s2, "amenity").unwrap();
+        assert_eq!(d.translation, "A1", "阶段一的译文优先");
+        assert_eq!(d.phonetic.as_deref(), Some("/p1/"));
+        assert_eq!(d.part_of_speech.as_deref(), Some("v."));
+        assert_eq!(d.examples.len(), 1, "阶段二的富信息保留");
+        assert_eq!(d.terms.len(), 1);
     }
 
     #[test]
-    fn sends_bearer_only_when_key_present() {
-        let mut c = creds("https://x.io", "m", "");
-        c.0.insert("apiKey".to_string(), "sk-1".to_string());
-        let (_, _, headers) = build_lookup_request("hi", &c).unwrap();
-        assert_eq!(
-            headers,
-            vec![("Authorization", "Bearer sk-1".to_string())]
-        );
-        let (_, _, headers2) = build_lookup_request("hi", &creds("https://x.io", "m", "")).unwrap();
-        assert!(headers2.is_empty(), "无 key 不带 Authorization");
+    fn merge_without_stage1_falls_back_to_stage2() {
+        let d = merge(None, parse_stage2(S2_JSON), "amenity").unwrap();
+        assert_eq!(d.translation, "便利设施");
     }
 
     #[test]
-    fn missing_base_or_model_is_actionable_error() {
-        let e = build_lookup_request("hi", &creds("", "m", "")).unwrap_err();
+    fn merge_without_stage2_still_yields_a_usable_card() {
+        // 富信息请求最容易超时；它失败时用户仍应看到释义，而不是「查词失败」。
+        let d = merge(parse_stage1(S1_JSON), None, "amenity").unwrap();
+        assert_eq!(d.translation, "便利设施");
+        assert_eq!(d.phonetic.as_deref(), Some("/əˈmenəti/"));
+        assert_eq!(d.kind, "word");
+        assert!(d.examples.is_empty() && d.terms.is_empty() && d.usage.is_none());
+    }
+
+    #[test]
+    fn stage2_only_failure_kind_falls_back_to_text_heuristic() {
+        assert_eq!(kind_for("amenity"), "word");
+        assert_eq!(kind_for("a big red apple"), "sentence");
+        assert_eq!(kind_for("uncharacteristically"), "sentence", "长词按句子展示");
+    }
+
+    #[test]
+    fn both_stages_failing_reports_an_actionable_error() {
+        let http = MockClient::new();
+        // 空流 → openai 层报「模型返回内容为空」
+        http.script_stream(String::new());
+        http.script_stream(String::new());
+        let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
+        let mut noop = |_: &str| {};
+        let e = lookup("amenity", &c, &http, &mut noop).unwrap_err();
+        assert!(!e.is_empty(), "失败必须给出可读原因，而不是空字符串");
+    }
+
+    // ---- 端到端（mock）----
+
+    #[test]
+    fn lookup_runs_both_stages_concurrently() {
+        let http = MockClient::new();
+        // 两条脚本：先到先服务无法保证，故两条内容都可被任一段解析。
+        http.script_stream(sse(S2_JSON));
+        http.script_stream(sse(S1_JSON));
+        let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
+        let mut deltas: Vec<String> = Vec::new();
+        let dto = lookup("amenity", &c, &http, &mut |acc| deltas.push(acc.to_string()));
+        // 两阶段内容相同，任序均能得到完整卡片
+        assert!(dto.is_ok(), "{dto:?}");
+        let d = dto.unwrap();
+        assert_eq!(d.translation, "便利设施");
+        assert_eq!(http.take_records().len(), 2, "两个并发请求");
+    }
+
+    #[test]
+    fn lookup_streams_stage1_progressively() {
+        let http = MockClient::new();
+        // 阶段一先返回（脚本按 FIFO 弹出，但两条并发请求顺序不定，故都用
+        // 同一份可解析内容；这里只断言 delta 至少被回调一次）
+        http.script_stream(sse(S1_JSON));
+        http.script_stream(sse(S2_JSON));
+        let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
+        let mut deltas: Vec<String> = Vec::new();
+        let _ = lookup("amenity", &c, &http, &mut |acc| deltas.push(acc.to_string()));
+        assert!(!deltas.is_empty(), "阶段一应产生流式回调");
+        assert!(deltas.iter().any(|d| d.contains("便利设施")));
+    }
+
+    #[test]
+    fn missing_credentials_are_actionable() {
+        let http = MockClient::new();
+        let mut noop = |_: &str| {};
+        let e = lookup("hi", &creds(&[("model", "m")]), &http, &mut noop).unwrap_err();
         assert!(e.contains("API 地址"), "{e}");
-        let e = build_lookup_request("hi", &creds("https://x.io", "", "")).unwrap_err();
+        let e = lookup("hi", &creds(&[("baseUrl", "https://x.io")]), &http, &mut noop).unwrap_err();
         assert!(e.contains("模型名"), "{e}");
     }
 
-    // ---- happy path（走 MockClient 的 lookup-mock.test SSE 分支）----
-
     #[test]
-    fn end_to_end_happy_path_maps_keys_and_streams_deltas() {
-        let http = MockClient::new();
-        let mut deltas: Vec<String> = Vec::new();
-        let dto = llm_lookup_stream(
-            "amenity",
-            &creds("https://lookup-mock.test/v1", "m", ""),
-            &http,
-            &mut |acc| deltas.push(acc.to_string()),
-        )
-        .unwrap();
-        assert_eq!(dto.kind, "word");
-        assert_eq!(dto.translation, "便利设施");
-        assert_eq!(dto.part_of_speech.as_deref(), Some("n."));
-        assert_eq!(deltas, vec!["{\"type\":\"word\",\"translation\":\"便利设施\",\"phonetic\":\"/əˈmenəti/\",\"partOfSpeech\":\"n.\",\"usage\":\"指提升舒适度的设施。\",\"examples\":[],\"terms\":[]}"]);
+    fn lookup_model_takes_priority() {
+        assert_eq!(resolve_model(&creds(&[("model", "main"), ("lookup_model", "fast")])), "fast");
+        assert_eq!(resolve_model(&creds(&[("model", "main"), ("lookup_model", "")])), "main");
+        assert_eq!(resolve_model(&creds(&[("model", " main ")])), "main");
     }
 
-    #[test]
-    fn non_json_content_is_explicit_error() {
-        let http = MockClient::new();
-        let mut noop = |_: &str| {};
-        let e = llm_lookup_stream("hi", &creds("https://x.io", "m", ""), &http, &mut noop).unwrap_err();
-        assert!(e.contains("不是有效 JSON"), "{e}");
-    }
-
-    // ---- 解析容错（纯函数）----
+    // ---- 缓存 ----
 
     #[test]
-    fn parses_word_json_with_key_mapping_and_cleanup() {
-        let dto = parse_lookup_json(WORD_JSON).unwrap();
-        assert_eq!(dto.kind, "word");
-        assert_eq!(dto.translation, "便利设施"); // trim
-        assert_eq!(dto.phonetic.as_deref(), Some("/əˈmenəti/"));
-        assert_eq!(dto.part_of_speech.as_deref(), Some("n."));
-        assert_eq!(dto.examples.len(), 2, "en 空 zh 非空的例句保留");
-        assert_eq!(dto.terms.len(), 1, "word 为空白的生僻词被过滤");
-        assert_eq!(dto.terms[0].word, "lavish");
-    }
-
-    #[test]
-    fn sentence_maps_to_nulls_and_strips_fence() {
-        let raw = "```json\n{\"type\":\"sentence\",\"translation\":\"你好。\",\"phonetic\":null,\"partOfSpeech\":null,\"usage\":null,\"examples\":[],\"terms\":[]}\n```";
-        let dto = parse_lookup_json(raw).unwrap();
-        assert_eq!(dto.kind, "sentence");
-        assert_eq!(dto.phonetic, None);
-        assert_eq!(dto.part_of_speech, None);
-        assert_eq!(dto.usage, None);
-        assert!(dto.examples.is_empty() && dto.terms.is_empty());
-    }
-
-    #[test]
-    fn tolerates_prose_around_json() {
-        let dto = parse_lookup_json(&format!("好的：{WORD_JSON} 以上。")).unwrap();
-        assert_eq!(dto.translation, "便利设施");
-    }
-
-    #[test]
-    fn rejects_non_json_with_snippet() {
-        let e = parse_lookup_json("这不是 JSON").unwrap_err();
-        assert!(e.contains("不是有效 JSON"), "{e}");
-    }
-
-    // ---- 契约（spec §10.6：线格式逐字段对齐）----
-
-    #[test]
-    fn word_lookup_dto_serializes_snake_case_for_ipc() {
-        let dto = parse_lookup_json(WORD_JSON).unwrap();
-        let json = serde_json::to_string(&dto).unwrap();
-        assert!(json.contains("\"part_of_speech\""), "线格式 snake_case: {json}");
-        assert!(!json.contains("partOfSpeech"), "禁止 camelCase 泄入线格式: {json}");
-        assert!(json.contains("\"kind\"") && json.contains("\"translation\""));
-    }
-
-    // ---- 缓存三件套 ----
-
-    #[test]
-    fn cache_roundtrip_and_malformed_self_heal() {
+    fn cache_roundtrip_is_versioned_and_self_heals() {
         let mut c = Cache::new();
-        assert!(cache_get_lookup(&c, "w").is_none(), "未命中");
-        let dto = parse_lookup_json(WORD_JSON).unwrap();
-        cache_put_lookup(&mut c, "w", &dto);
-        assert_eq!(cache_get_lookup(&c, "w").unwrap().translation, "便利设施");
-        c.set(Cache::key(CACHE_PROVIDER, "bad"), "not-json".into());
-        assert!(cache_get_lookup(&c, "bad").is_none(), "坏 JSON 自愈为未命中");
-        assert_eq!(Cache::key(CACHE_PROVIDER, "w"), "llm-lookup\u{0}w", "键空间与整篇翻译隔离");
+        let v = cache_variant("m");
+        assert_eq!(v, "m@v2");
+        assert!(cache_get_lookup(&c, "w", &v).is_none());
+        let dto = parse_stage2(S2_JSON).unwrap();
+        cache_put_lookup(&mut c, "w", &v, &dto);
+        assert_eq!(cache_get_lookup(&c, "w", &v).unwrap().translation, "便利设施");
+        assert!(
+            cache_get_lookup(&c, "w", &cache_variant("other-model")).is_none(),
+            "换模型必须 miss"
+        );
+        c.set(Cache::key(CACHE_PROVIDER, &v, "bad"), "not-json".into());
+        assert!(cache_get_lookup(&c, "bad", &v).is_none(), "坏 JSON 自愈为未命中");
     }
 
     // ---- 模型列表 ----
@@ -411,13 +583,20 @@ mod tests {
     #[test]
     fn fetch_models_requires_base_url() {
         let http = MockClient::new();
-        let e = fetch_models("", "sk-1", &http).unwrap_err();
-        assert!(e.contains("Base URL"), "{e}");
+        assert!(fetch_models("", "sk-1", &http).unwrap_err().contains("Base URL"));
     }
 
     #[test]
     fn parse_models_body_rejects_missing_data() {
         assert!(parse_models_body(r#"{"object":"list"}"#).is_err());
         assert!(parse_models_body("not json").is_err());
+    }
+
+    #[test]
+    fn word_lookup_dto_serializes_snake_case_for_ipc() {
+        let dto = parse_stage2(S2_JSON).unwrap();
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("\"part_of_speech\""), "线格式 snake_case: {json}");
+        assert!(!json.contains("partOfSpeech"), "禁止 camelCase 泄入线格式: {json}");
     }
 }

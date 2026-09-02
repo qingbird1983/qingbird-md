@@ -22,6 +22,10 @@ interface OpenTab {
   name: string;              // 显示名（path basename 或 "未命名"）
   content: string;
   savedContent: string;
+  /** 打开/保存时的磁盘 mtime（毫秒）；外部修改检测与保存冲突检测基线 */
+  mtime: number | null;
+  /** 打开时实际解码编码（"UTF-8"/"GB18030"）；状态栏标注 */
+  encoding: string | null;
   view: ViewKind;
   mode: Mode;
   cursorSel: [number, number];
@@ -74,6 +78,10 @@ interface DocState {
   setScrollTop(id: string, n: number): void;
   applyFormat(op: string): Promise<void>;
   saveDoc(as: boolean): Promise<boolean>;     // 返回值变了：true=写盘成功，false=用户取消
+  /** 从磁盘重读指定标签（T6「重新加载」）：内容/解析/翻译态全量重置。 */
+  reloadTab(id: string): Promise<void>;
+  /** 窗口聚焦时检查当前文档是否被外部修改（T6）：变了则弹重载确认。 */
+  checkExternalChange(): Promise<void>;
   switchView(v: ViewKind): void;
   switchMode(m: Mode): void;
   ensureParsed(): void;
@@ -103,6 +111,8 @@ function tabToDoc(t: OpenTab): DocDTO {
     content: t.content,
     char_count: [...t.content].length,
     line_count: t.content.split("\n").length,
+    encoding: t.encoding ?? "UTF-8",
+    mtime: t.mtime,
     parse: t.parseResult ?? { html: "", outline: [] },
   };
 }
@@ -178,6 +188,8 @@ export const useDocStore = create<DocState>()((set, get) => {
           name: d.name,
           content: d.content,
           savedContent: d.content,
+          mtime: d.mtime,
+          encoding: d.encoding,
           view: "preview",
           mode: "original",
           cursorSel: [0, 0],
@@ -200,6 +212,8 @@ export const useDocStore = create<DocState>()((set, get) => {
         name: "未命名",
         content: "",
         savedContent: "",
+        mtime: null,
+        encoding: null,
         view: "source",
         mode: "original",
         cursorSel: [0, 0],
@@ -250,6 +264,13 @@ export const useDocStore = create<DocState>()((set, get) => {
       if (docChangedRegistered) return;
       docChangedRegistered = true;
       void api.listenDocumentChanged((p) => useDocStore.getState().openTab(p));
+      // T6：窗口重获焦点/切回前台时检查当前文档是否被外部修改。
+      // 标签间切换不需要查——跨应用改动必然伴随本窗口失焦→聚焦。
+      const onFocus = () => { void useDocStore.getState().checkExternalChange(); };
+      window.addEventListener("focus", onFocus);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") onFocus();
+      });
     },
 
     dispatchUndo: () => {
@@ -311,9 +332,24 @@ export const useDocStore = create<DocState>()((set, get) => {
       if (!target || as) {
         target = await api.pickSavePath(t.name);
         if (!target) return false; // 用户取消另存为
+      } else {
+        // T8 冲突检测：磁盘 mtime 与打开时基线不一致 → 覆盖/另存/取消。
+        // 基线缺失（mtime=null）或文件已消失（disk=null，保存即重建）时跳过。
+        const disk = await api.fileMtime(target);
+        if (disk !== null && t.mtime !== null && disk !== t.mtime) {
+          const { showConflict } = await import("../components/ConflictDialog");
+          const choice = await showConflict(t.name);
+          if (choice === "cancel") return false;
+          if (choice === "saveas") {
+            const alt = await api.pickSavePath(t.name);
+            if (!alt) return false;
+            target = alt;
+          }
+          // overwrite → 继续按原路径落盘
+        }
       }
       try {
-        await api.saveFile(target, t.content);
+        const mtime = await api.saveFile(target, t.content);
         const { name } = pathParts(target);
         // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close）
         patchTab(myId, (cur) => ({
@@ -321,12 +357,54 @@ export const useDocStore = create<DocState>()((set, get) => {
           path: target!,
           name,
           savedContent: cur.content,
+          mtime, // 新基线：下次冲突检测以此为准
         }));
         useUiStore.getState().addToast("success", "保存成功");
         return true;
       } catch (e) {
         useUiStore.getState().addToast("error", `保存失败：${errText(e)}`);
         return false;
+      }
+    },
+
+    reloadTab: async (id) => {
+      const t = get().tabs.find((x) => x.id === id);
+      if (!t?.path) return;
+      try {
+        const d = await api.openFile(t.path);
+        // 按 id 写：await 期间 active 可能已切走。视图/模式/滚动保留（用户语境），
+        // 内容、解析、翻译态、光标全量重置（翻译按行号索引，旧内容下已失效）。
+        patchTab(id, (cur) => ({
+          ...cur,
+          name: d.name,
+          content: d.content,
+          savedContent: d.content,
+          mtime: d.mtime,
+          encoding: d.encoding,
+          parseResult: d.parse,
+          htmlCache: { contentKey: d.content, result: d.parse },
+          translations: new Map(),
+          doneHtml: null,
+          cursorSel: [0, 0],
+        }));
+      } catch (e) {
+        useUiStore.getState().addToast("error", `重新加载失败：${errText(e)}`);
+      }
+    },
+
+    checkExternalChange: async () => {
+      const t = activeTab(get());
+      if (!t?.path || t.mtime === null) return; // 新标签/基线缺失：无从比对
+      const disk = await api.fileMtime(t.path);
+      if (disk === null || disk === t.mtime) return; // 文件消失或未变
+      const { showReloadConfirm } = await import("../components/ReloadDialog");
+      const choice = await showReloadConfirm(t.name, t.content !== t.savedContent);
+      if (choice === "reload") {
+        void get().reloadTab(t.id);
+      } else {
+        // 保留我的版本：记下磁盘 mtime 作为新基线——用户已知情并选择保留，
+        // 之后保存不再重复弹冲突（一次外部修改只打扰一次）。
+        patchTab(t.id, (cur) => ({ ...cur, mtime: disk }));
       }
     },
 

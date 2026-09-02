@@ -15,12 +15,16 @@ import type {
   Mode,
   WordLookupDTO,
   LookupDeltaPayload,
+  TranslateStart,
 } from "../types/ipc";
 
 export const api = {
   // ---- 文件 ----
   openFile: (p: string) => invoke<DocDTO>("open_file", { path: p }),
-  saveFile: (p: string, c: string) => invoke<void>("save_file", { path: p, content: c }),
+  saveFile: (p: string, c: string) =>
+    invoke<number | null>("save_file", { path: p, content: c }),
+  /** 当前磁盘 mtime（毫秒）；文件不存在/不可访问为 null。 */
+  fileMtime: (p: string) => invoke<number | null>("file_mtime", { path: p }),
 
   // ---- 设置 ----
   loadSettings: () => invoke<Settings>("load_settings"),
@@ -52,7 +56,7 @@ export const api = {
   translateText: (t: string, p: string, c: Record<string, string>) =>
     invoke<string>("translate_text", { text: t, provider: p, creds: c }),
   translateDocument: (c: string, m: Mode, p: string, creds: Record<string, string>) =>
-    invoke<number>("translate_document", { content: c, mode: m, provider: p, creds }),
+    invoke<TranslateStart>("translate_document", { content: c, mode: m, provider: p, creds }),
   stopTranslation: () => invoke<void>("stop_translation"),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧

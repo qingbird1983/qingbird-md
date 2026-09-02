@@ -46,9 +46,10 @@ export default function StatusBar() {
           </span>
         )}
       </div>
-      {/* 右侧：字数/行数 · 阅读模式 · 翻译源 · 翻译状态 */}
+      {/* 右侧：字数/行数 · 编码 · 阅读模式 · 翻译源 · 翻译状态 */}
       <div className="status-right">
         {stats && <span>{stats}</span>}
+        {doc?.encoding && doc.path && <span>{doc.encoding}</span>}
         <span>{MODE_LABEL[mode] ?? mode}</span>
         <span>{provider ?? "—"}</span>
         <span>{transLabel}</span>

@@ -16,11 +16,27 @@ pub struct DocDTO {
     pub base_dir: Option<String>,
     pub char_count: usize,
     pub line_count: usize,
+    /// 实际解码编码（"UTF-8" / "GB18030"），状态栏标注用。
+    pub encoding: String,
+    /// 打开时磁盘 mtime（毫秒）。外部修改检测与保存冲突检测的比对基线；
+    /// 元数据不可得时为 None（前端跳过检测）。
+    pub mtime: Option<i64>,
     pub parse: crate::markdown::html::ParseResult,
 }
 
-/// Build a [`DocDTO`] from a resolved path and its UTF-8 content.
-pub fn doc_dto(path: &std::path::Path, content: String) -> DocDTO {
+/// 磁盘 mtime → epoch 毫秒。元数据/时间源不可得一律 None（调用方跳过比对）。
+pub fn file_mtime_millis(path: &std::path::Path) -> Option<i64> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as i64)
+}
+
+/// Build a [`DocDTO`] from a resolved path, its decoded content and encoding.
+pub fn doc_dto(path: &std::path::Path, content: String, encoding: &str) -> DocDTO {
     let parse = crate::markdown::html::render_html(&content, &Default::default(), false);
     DocDTO {
         name: path
@@ -31,6 +47,8 @@ pub fn doc_dto(path: &std::path::Path, content: String) -> DocDTO {
         base_dir: path.parent().map(|d| d.to_string_lossy().into_owned()),
         char_count: content.chars().count(),
         line_count: content.lines().count(),
+        encoding: encoding.to_owned(),
+        mtime: file_mtime_millis(path),
         parse,
         content,
     }
@@ -126,18 +144,19 @@ mod tests {
 
     #[test]
     fn doc_dto_counts_chars_lines_and_dirs() {
-        let d = doc_dto(std::path::Path::new("docs/note.md"), "a\nbb\nccc".into());
+        let d = doc_dto(std::path::Path::new("docs/note.md"), "a\nbb\nccc".into(), "UTF-8");
         assert_eq!(d.name, "note.md");
         assert!(d.path.as_deref().unwrap().ends_with("note.md"));
         assert_eq!(d.base_dir.as_deref(), Some("docs"));
         assert_eq!(d.char_count, 8);
         assert_eq!(d.line_count, 3);
         assert_eq!(d.content, "a\nbb\nccc");
+        assert_eq!(d.encoding, "UTF-8");
     }
 
     #[test]
     fn doc_dto_root_path_has_no_name_no_base_dir() {
-        let d = doc_dto(std::path::Path::new("/"), String::new());
+        let d = doc_dto(std::path::Path::new("/"), String::new(), "UTF-8");
         assert_eq!(d.name, "?");
         assert_eq!(d.base_dir, None);
         assert_eq!(d.char_count, 0);
@@ -146,10 +165,12 @@ mod tests {
 
     #[test]
     fn doc_dtos_serde_roundtrip() {
-        let d = doc_dto(std::path::Path::new("a.md"), "hi".into());
+        let d = doc_dto(std::path::Path::new("a.md"), "hi".into(), "UTF-8");
         let json = serde_json::to_string(&d).unwrap();
         let back: DocDTO = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, "a.md");
         assert_eq!(back.char_count, 2);
+        assert_eq!(back.encoding, "UTF-8");
+        assert_eq!(back.mtime, None); // 测试路径不存在，mtime 不可得
     }
 }

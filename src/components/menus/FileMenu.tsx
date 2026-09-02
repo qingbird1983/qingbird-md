@@ -1,7 +1,8 @@
-// 文件菜单：新建/打开/保存/另存为/打开工作区/退出。
+// 文件菜单：新建/打开/保存/另存为/导出 HTML/打开工作区/退出。
 // 新建与打开直接按 brief 接线（prompt 输入 → ws.createFile；api.pickFile → doc.openTab），
-// 其余全部派发 store action；无文档时保存/另存禁用，无工作区时新建禁用。
+// 其余全部派发 store action；无文档时保存/另存/导出禁用，无工作区时新建禁用。
 import { api } from "../../lib/ipc";
+import { exportActiveDocHtml } from "../../lib/exportHtml";
 import { useDocStore } from "../../stores/useDocStore";
 import { useWorkspaceStore } from "../../stores/useWorkspaceStore";
 import Menu, { MenuItem } from "./Menu";
@@ -54,6 +55,14 @@ export default function FileMenu() {
             onSelect={() => {
               close();
               void saveDoc(true);
+            }}
+          />
+          <MenuItem
+            label="导出 HTML…"
+            disabled={!hasDoc}
+            onSelect={() => {
+              close();
+              void exportActiveDocHtml();
             }}
           />
           <MenuItem

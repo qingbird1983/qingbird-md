@@ -4,11 +4,13 @@
 import { useState, type ReactNode } from "react";
 
 interface MenuProps {
-  label: string;
+  label: ReactNode;          // 文字（TopBar 菜单）或 图标+箭头（工具栏下拉）
+  title?: string;            // 悬浮提示，透传触发按钮
+  disabled?: boolean;        // 透传触发按钮（工具栏编辑类下拉随文档状态禁用）
   children: (close: () => void) => ReactNode;
 }
 
-export default function Menu({ label, children }: MenuProps) {
+export default function Menu({ label, title, disabled, children }: MenuProps) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   return (
@@ -22,6 +24,8 @@ export default function Menu({ label, children }: MenuProps) {
       <button
         type="button"
         className="menu-btn"
+        title={title}
+        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -39,6 +43,7 @@ export default function Menu({ label, children }: MenuProps) {
 
 interface ItemProps {
   label: string;
+  icon?: ReactNode;    // 可选前置图标（工具栏下拉用；✓ 前缀项不传 icon）
   active?: boolean;
   disabled?: boolean;
   onSelect: () => void;
@@ -46,18 +51,24 @@ interface ItemProps {
 
 /** 单个菜单项；active 时显示 ✓ 前缀（视图/模式类开关用）。
  * T17 review a11y 修补：带 aria-checked 的条目须用 role="menuitemcheckbox"，
- * 纯动作项（active 未传）保持 role="menuitem" 且不输出 aria-checked。 */
-export function MenuItem({ label, active, disabled, onSelect }: ItemProps) {
+ * 纯动作项（active 未传）保持 role="menuitem" 且不输出 aria-checked。
+ * 带 icon 的条目用 .has-icon 左对齐布局（图标顶格 + 文字紧随）。 */
+export function MenuItem({ label, icon, active, disabled, onSelect }: ItemProps) {
   return (
     <li role="presentation">
       <button
         type="button"
         role={active === undefined ? "menuitem" : "menuitemcheckbox"}
-        className="menu-item"
+        className={`menu-item${icon ? " has-icon" : ""}`}
         aria-checked={active === undefined ? undefined : active}
         disabled={disabled}
         onClick={onSelect}
       >
+        {icon && (
+          <span className="menu-item-icon" aria-hidden="true">
+            {icon}
+          </span>
+        )}
         {label}
       </button>
     </li>

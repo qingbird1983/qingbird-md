@@ -14,6 +14,7 @@ const HOTKEY_MODES: Array<[string, string]> = [
   ["original", "原文"],
   ["translation", "译文"],
   ["bilingual", "中英对照"],
+  ["capture", "截图翻译"],
 ];
 
 const TEST_TEXT = "Hello, this is a translation test.";
@@ -280,7 +281,7 @@ export default function SettingsModal() {
               {testResult && <div className="modal-test">{testResult}</div>}
 
               <div className="modal-sep" />
-              <div className="modal-note">阅读模式快捷键（点击后按下组合键，须含 Ctrl/Alt/Shift）</div>
+              <div className="modal-note">快捷键（点击后按下组合键，须含 Ctrl/Alt/Shift）</div>
               {HOTKEY_MODES.map(([mode, label]) => (
                 <div className="modal-row" key={mode}>
                   <label htmlFor={`set-hk-${mode}`}>{label}</label>

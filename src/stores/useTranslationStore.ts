@@ -122,6 +122,17 @@ function handleProgress(p: ProgressPayload) {
   useTranslationStore.setState({ progress: { done: p.done, total: p.total } });
 }
 
+/** done payload → 标签化落库形态（事件路径与缓存同步路径共用同一组装） */
+function doneHtmlOf(d: DonePayload, contentKey: string) {
+  return d.html_translation || d.html_bilingual
+    ? {
+        contentKey,
+        mode: (d.html_translation ? "translation" : "bilingual") as Exclude<Mode, "original">,
+        html: (d.html_translation ?? d.html_bilingual)!,
+      }
+    : null;
+}
+
 function handleDone(d: DonePayload) {
   const st = useTranslationStore.getState();
   if (d.gen !== st.gen) return; // 陈旧轮次直接丢弃
@@ -138,15 +149,7 @@ function handleDone(d: DonePayload) {
   const contentFresh = !!dd.doc && dd.doc.content === st.runContent;
   if (contentFresh) {
     const translations = d.translations ? new Map(d.translations) : new Map<number, string>();
-    const doneHtml =
-      d.html_translation || d.html_bilingual
-        ? {
-            contentKey: st.runContent!,
-            mode: (d.html_translation ? "translation" : "bilingual") as Exclude<Mode, "original">,
-            html: (d.html_translation ?? d.html_bilingual)!,
-          }
-        : null;
-    useDocStore.getState().applyTranslationResult(translations, doneHtml);
+    useDocStore.getState().applyTranslationResult(translations, doneHtmlOf(d, st.runContent!));
   }
   ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
   // 换挡补跑（startIfFresh 语义的收尾）：跑批期间用户切到另一翻译模式时，
@@ -170,15 +173,23 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     if (!dd.doc || !sp || dd.mode === "original") return; // mode 守卫：原文模式无需跑引擎
     if (get().status === "running") return;
     try {
-      const g = await api.translateDocument(
+      const r = await api.translateDocument(
         dd.doc.content,
         dd.mode,
         sp.provider,
         useSettingsStore.getState().credsFor(sp.provider),
       );
+      if (r.kind === "cached") {
+        // 缓存全命中：产物随返回值同步直达（不经事件通道），直接落库展示，
+        // 不进 running 态——进度条不出场，也无 done/invoke 到达顺序竞态。
+        const d = r.done;
+        useDocStore.getState().applyTranslationResult(new Map(d.translations ?? []), doneHtmlOf(d, dd.doc.content));
+        useUiStore.getState().addToast("success", `翻译完成（${dd.doc.name}·缓存）`);
+        return;
+      }
       // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
       set({
-        gen: g,
+        gen: r.gen,
         status: "running",
         progress: null,
         lastRunMode: dd.mode,

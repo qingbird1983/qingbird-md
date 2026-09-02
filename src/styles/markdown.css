@@ -29,8 +29,8 @@
   --md-tr-fg: #2c3f8f;
 
   /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
-     窗口/split 分栏窄于该值时自然收缩回流式排版。宽版 .wide 放宽到
-     1200px（视图菜单「正文宽版」切换，偏好存 uiStore/localStorage）。 */
+     窗口/split 分栏窄于该值时自然收缩回流式排版。宽度四档由 uiStore
+     contentWidth 驱动（标准档不挂类；紧凑 640 / 宽 1000 / 全宽 1200）。 */
   box-sizing: border-box;
   max-width: 794px;
   margin-inline: auto;
@@ -48,10 +48,10 @@
 .markdown-body > :first-child { margin-top: 0 !important; }
 .markdown-body > :last-child { margin-bottom: 0 !important; }
 
-/* 正文宽版（视图菜单切换） */
-.markdown-body.wide {
-  max-width: 1200px;
-}
+/* 正文宽度非标准档（视图菜单四选一；工具栏按钮循环切换） */
+.markdown-body.w-compact { max-width: 640px; }
+.markdown-body.w-wide    { max-width: 1000px; }
+.markdown-body.w-full    { max-width: 1200px; }
 
 /* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
    light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
@@ -302,6 +302,9 @@ body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
 /* ---- 表格：斑马纹 ---- */
 
 .markdown-body table {
+  /* 跟满正文宽度（对齐 InkNote 观感）：列宽仍由内容 auto 分配，
+     超长单元格靠 word-wrap 在 th/td 内折行而非横向溢出。 */
+  width: 100%;
   margin: 1.1em 0;
   border-collapse: collapse;
 }
@@ -310,6 +313,7 @@ body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
 .markdown-body td {
   padding: 8px 14px;
   border: 1px solid var(--md-border);
+  text-align: left;
 }
 
 .markdown-body thead th {

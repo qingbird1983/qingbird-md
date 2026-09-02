@@ -42,6 +42,22 @@ pub fn write_pending(path: &Path) {
     let _ = fs::write(pending_path(), path.to_string_lossy().as_bytes());
 }
 
+/// Pending-file payload meaning "wake the main window only"（无文档路径）。
+const SHOW_WAKE: &str = "show";
+
+/// Ask the running instance to just show its main window (second launch
+/// without a file argument — tray-resident app must respond to icon clicks).
+pub fn write_show_wake() {
+    let _ = fs::create_dir_all(user_data_dir());
+    let _ = fs::write(pending_path(), SHOW_WAKE);
+}
+
+/// Pending payload sentinel: contents exactly `show` mean "wake the window
+/// only", anything else is a file path to open.
+pub fn is_show_wake(p: &Path) -> bool {
+    p.to_string_lossy() == SHOW_WAKE
+}
+
 /// Read and remove a pending open-file request, if any.
 pub fn take_pending() -> Option<PathBuf> {
     let p = pending_path();
@@ -54,6 +70,22 @@ pub fn take_pending() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_wake_marker_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("qingbird-wake-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let pfile = dir.join("p.txt");
+        // write_show_wake 的路径可注入版本：写哨兵常量 → 读回一致
+        fs::write(&pfile, SHOW_WAKE).unwrap();
+        let s = fs::read_to_string(&pfile).unwrap();
+        assert_eq!(s.trim(), "show");
+    }
+
+    #[test]
+    fn show_wake_sentinel_is_detected() {
+        assert!(is_show_wake(Path::new(SHOW_WAKE)));
+    }
 
     #[test]
     fn pending_roundtrip() {

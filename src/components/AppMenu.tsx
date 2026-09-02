@@ -9,9 +9,10 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { api } from "../lib/ipc";
+import { exportActiveDocHtml } from "../lib/exportHtml";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
-import { useUiStore } from "../stores/useUiStore";
+import { useUiStore, CONTENT_WIDTHS, CONTENT_WIDTH_LABEL } from "../stores/useUiStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 
@@ -57,17 +58,19 @@ export default function AppMenu() {
     if (closeTimer.current !== null) clearTimeout(closeTimer.current);
   }, []);
 
-  // 监听汉堡按钮点击：打开时实时对齐按钮位置（面板左缘贴 ☰ 左缘、顶在其下方 4px）
+  // 监听汉堡按钮点击：打开时实时对齐按钮位置（面板左缘贴 ☰ 左缘、顶在其下方 4px）。
+  // 用 document 事件委托而非直挂按钮节点：HMR/重渲染会重挂标题栏按钮 DOM，
+  // 直挂会丢监听（点 ☰ 无反应）；委托按 closest 认按钮，重挂也免疫。
   useEffect(() => {
-    const btn = document.getElementById("app-hamburger");
-    if (!btn) return;
-    const onClick = () => {
+    const onClick = (e: MouseEvent) => {
+      const btn = (e.target as Element | null)?.closest?.("#app-hamburger");
+      if (!btn) return;
       const r = btn.getBoundingClientRect();
       setPos({ left: r.left, top: r.bottom + 4 });
       setOpen((o) => !o);
     };
-    btn.addEventListener("click", onClick);
-    return () => btn.removeEventListener("click", onClick);
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
   }, []);
 
   // 悬停分类：短暂停留后切换二级；快速扫过（leave 先于计时器到点）不切换
@@ -119,8 +122,8 @@ export default function AppMenu() {
   const showOutline = useUiStore((s) => s.showOutline);
   const toggleNav = useUiStore((s) => s.toggleNav);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
-  const wideContent = useUiStore((s) => s.wideContent);
-  const toggleWideContent = useUiStore((s) => s.toggleWideContent);
+  const contentWidth = useUiStore((s) => s.contentWidth);
+  const setContentWidth = useUiStore((s) => s.setContentWidth);
   const openSettings = useUiStore((s) => s.openSettings);
   const addToast = useUiStore((s) => s.addToast);
   const running = useTranslationStore((s) => s.status === "running");
@@ -145,6 +148,7 @@ export default function AppMenu() {
         <button onClick={() => { close(); void pickOpen(); }}>打开…</button>
         <button disabled={!hasDoc} onClick={() => { close(); void saveDoc(false); }}>保存</button>
         <button disabled={!hasDoc} onClick={() => { close(); void saveDoc(true); }}>另存为…</button>
+        <button disabled={!hasDoc} onClick={() => { close(); void exportActiveDocHtml(); }}>导出 HTML…</button>
         <button onClick={() => { close(); void openWorkspace(); }}>打开工作区…</button>
       </>
     ),
@@ -162,9 +166,11 @@ export default function AppMenu() {
         <button className={showOutline ? "active" : ""} onClick={() => { close(); toggleOutline(); }}>
           {showOutline ? "隐藏大纲" : "显示大纲"}
         </button>
-        <button className={wideContent ? "active" : ""} onClick={() => { close(); toggleWideContent(); }}>
-          正文宽版
-        </button>
+        {CONTENT_WIDTHS.map((w) => (
+          <button key={w} className={contentWidth === w ? "active" : ""} onClick={() => { close(); setContentWidth(w); }}>
+            正文宽度：{CONTENT_WIDTH_LABEL[w]}
+          </button>
+        ))}
         <button onClick={() => { close(); useSettingsStore.getState().setTheme(isDarkTheme() ? "light" : "dark"); }}>
           切换明暗主题
         </button>

@@ -35,6 +35,9 @@ pub struct Settings {
     /// "" = follow system on first run; otherwise "light"/"dark".
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// 开机自启（托盘菜单开关；持久化权威，启动时 apply 到 autostart 插件）。
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 impl Default for Settings {
@@ -44,11 +47,12 @@ impl Default for Settings {
             providers: HashMap::new(),
             workspace: None,
             last_file: None,
-            hotkeys: HashMap::new(),
+            hotkeys: HashMap::from([("capture".to_string(), "Ctrl+Shift+X".to_string())]),
             selection_translate: true,
             outline: "on".to_string(),
             nav: "on".to_string(),
             theme: String::new(),
+            autostart: false,
         }
     }
 }
@@ -84,7 +88,13 @@ pub fn load_settings() -> Settings {
 pub fn load_settings_from(path: &std::path::Path) -> Settings {
     if let Ok(s) = std::fs::read_to_string(path) {
         match serde_json::from_str::<Settings>(&s) {
-            Ok(v) => return v,
+            Ok(mut v) => {
+                // capture 热键补缺：老设置文件升级后开箱即用；显式空串=禁用不补
+                v.hotkeys
+                    .entry("capture".to_string())
+                    .or_insert_with(|| "Ctrl+Shift+X".to_string());
+                return v;
+            }
             Err(_) => {
                 // 加固（审查遗留）：解析失败的坏文件重命名为 <name>.bak-<timestamp>
                 // 再回退默认值——坏内容仍在磁盘上，绝不静默丢弃用户数据。
@@ -205,5 +215,29 @@ mod tests {
         let s2: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(s2.provider, "youdao");
         assert_eq!(s2.hotkeys.get("original").map(|x| x.as_str()), Some("Alt+1"));
+    }
+
+    #[test]
+    fn capture_hotkey_defaults_added_when_missing() {
+        // 老用户设置文件无 capture 键 → 加载后补默认值（spec §8）
+        let dir = std::env::temp_dir().join(format!("qingbird-hk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("qingbird-settings.json");
+        std::fs::write(&p, r#"{"provider":"auto"}"#).unwrap();
+        let s = load_settings_from(&p);
+        assert_eq!(s.hotkeys.get("capture").map(String::as_str), Some("Ctrl+Shift+X"));
+        // 显式空串 = 用户禁用，不得覆盖
+        std::fs::write(&p, r#"{"hotkeys":{"capture":""}}"#).unwrap();
+        let s2 = load_settings_from(&p);
+        assert_eq!(s2.hotkeys.get("capture").map(String::as_str), Some(""));
+        // autostart 缺字段 → false
+        assert!(!s2.autostart);
+    }
+
+    #[test]
+    fn default_settings_carry_capture_hotkey() {
+        let s = Settings::default();
+        assert_eq!(s.hotkeys.get("capture").map(String::as_str), Some("Ctrl+Shift+X"));
+        assert!(!s.autostart);
     }
 }

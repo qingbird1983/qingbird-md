@@ -15,20 +15,33 @@ export interface Toast {
   kind: ToastKind;
 }
 
+/** 正文宽度四档（markdown.css .w-*；标准档不挂类，恒 A4 794px） */
+export type ContentWidth = "compact" | "normal" | "wide" | "full";
+
+export const CONTENT_WIDTHS: ContentWidth[] = ["compact", "normal", "wide", "full"];
+
+export const CONTENT_WIDTH_LABEL: Record<ContentWidth, string> = {
+  compact: "紧凑 640",
+  normal: "标准 794",
+  wide: "宽 1000",
+  full: "全宽 1200",
+};
+
 interface UiState {
   showNav: boolean;
   showOutline: boolean;
   sidebarWidth: number;
   outlineWidth: number;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
-  wideContent: boolean; // 正文宽版（markdown.css .markdown-body.wide 1200px；窄版恒 A4 794px）
+  contentWidth: ContentWidth; // 正文宽度档（markdown.css .markdown-body.w-*）
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
 
   toggleNav(): void;
   toggleOutline(): void;
-  toggleWideContent(): void;
+  setContentWidth(w: ContentWidth): void;
+  cycleContentWidth(): void;
   addToast(kind: ToastKind, text: string): void;
   removeToast(id: number): void;
   openPalette(): void;
@@ -42,9 +55,16 @@ interface UiState {
 
 let toastSeq = 0;
 
-// 宽版偏好跨启动保留：Tauri WebView2 的 localStorage 随应用数据目录持久化，
-// 一个布尔值不值得走 Rust 设置文件。
-const WIDE_KEY = "qb.wide-content";
+// 宽度偏好跨启动保留：Tauri WebView2 的 localStorage 随应用数据目录持久化，
+// 一个档位值不值得走 Rust 设置文件。旧布尔键一次性迁移（"1"→wide，"0"/缺失→normal）。
+const WIDTH_KEY = "qb.content-width";
+const LEGACY_WIDE_KEY = "qb.wide-content";
+
+function loadContentWidth(): ContentWidth {
+  const saved = localStorage.getItem(WIDTH_KEY) as ContentWidth | null;
+  if (saved && CONTENT_WIDTHS.includes(saved)) return saved;
+  return localStorage.getItem(LEGACY_WIDE_KEY) === "1" ? "wide" : "normal";
+}
 
 export const useUiStore = create<UiState>()((set) => ({
   showNav: true,
@@ -52,18 +72,22 @@ export const useUiStore = create<UiState>()((set) => ({
   sidebarWidth: 240,
   outlineWidth: 200,
   splitRatio: 0.5,
-  wideContent: localStorage.getItem(WIDE_KEY) === "1",
+  contentWidth: loadContentWidth(),
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
-  toggleWideContent: () =>
+  setContentWidth: (w) => {
+    localStorage.setItem(WIDTH_KEY, w);
+    return set({ contentWidth: w });
+  },
+  cycleContentWidth: () =>
     set((s) => {
-      const wideContent = !s.wideContent;
-      localStorage.setItem(WIDE_KEY, wideContent ? "1" : "0");
-      return { wideContent };
+      const next = CONTENT_WIDTHS[(CONTENT_WIDTHS.indexOf(s.contentWidth) + 1) % CONTENT_WIDTHS.length]!;
+      localStorage.setItem(WIDTH_KEY, next);
+      return { contentWidth: next };
     }),
 
   addToast: (kind, text) => {

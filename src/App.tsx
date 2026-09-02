@@ -130,6 +130,7 @@ function App() {
       const hk = useSettingsStore.getState().settings?.hotkeys;
       if (!hk) return;
       for (const [mode, combo] of Object.entries(hk)) {
+        if (mode === "capture") continue; // 全局热键，Rust 侧注册处理
         if (comboMatches(e, combo)) {
           e.preventDefault();
           if (mode === "original" || mode === "translation" || mode === "bilingual") {

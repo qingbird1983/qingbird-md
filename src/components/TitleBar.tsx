@@ -5,11 +5,13 @@
 // 工作区切换按钮：图标为 lucide PanelLeft（方框内偏左一根竖线），toggleNav
 // 控制 showNav；隐藏工作区时本按钮依旧留在标题栏可见——视觉锚点不丢。
 import { useState, useEffect } from "react";
-import { Minus, Square, X, Maximize2, PanelLeft } from "lucide-react";
+import { Minus, Square, X, Maximize2, Moon, PanelLeft, Sun } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { sysDark, useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
 import TabBar from "./TabBar";
-import qingniaoLogo from "../assets/qingniao-logo.png";
+import qingniaoLogoLight from "../assets/qingniao-logo-light.png";
+import qingniaoLogoDark from "../assets/qingniao-logo-dark.png";
 
 const appWindow = getCurrentWindow();
 
@@ -17,6 +19,16 @@ export default function TitleBar() {
   const [maximized, setMaximized] = useState(false);
   const showNav = useUiStore((s) => s.showNav);
   const toggleNav = useUiStore((s) => s.toggleNav);
+  // 明暗主题按钮（自 EditorToolbar 搬入）：解析后的明暗态仅决定图标/提示，
+  // 切换走 setTheme；sysMatches 订阅让 auto 档随系统变化时图标实时刷新。
+  const theme = useSettingsStore((s) => s.theme);
+  const [sysMatches, setSysMatches] = useState(sysDark.matches);
+  useEffect(() => {
+    const f = () => setSysMatches(sysDark.matches);
+    sysDark.addEventListener("change", f);
+    return () => sysDark.removeEventListener("change", f);
+  }, []);
+  const dark = theme === "dark" || (theme !== "light" && sysMatches);
 
   useEffect(() => {
     void appWindow.isMaximized().then(setMaximized);
@@ -35,7 +47,9 @@ export default function TitleBar() {
       {/* 左侧：应用名 + 工作区切换按钮 + 汉堡菜单按钮 —— AppMenu 在汉堡按钮下方绝对定位弹出 */}
       <div className="titlebar-left">
         <span className="titlebar-brand">
-          <img src={qingniaoLogo} className="titlebar-logo" alt="青鸟" />
+          {/* 双图随主题显隐（CSS body[data-theme] 切换，无 JS 分支） */}
+          <img src={qingniaoLogoLight} className="titlebar-logo logo-light" alt="青鸟" />
+          <img src={qingniaoLogoDark} className="titlebar-logo logo-dark" alt="青鸟" />
           <span>Markdown</span>
         </span>
         <button
@@ -74,8 +88,16 @@ export default function TitleBar() {
           自由拖动窗口」。 */}
       <TabBar />
 
-      {/* 右侧窗控按钮 */}
+      {/* 右侧窗控按钮；最前为明暗主题切换（与窗控同款 win-btn 样式） */}
       <div className="window-controls">
+        <button
+          type="button"
+          className="win-btn"
+          title={`切换明暗主题（当前${dark ? "暗色" : "亮色"}）`}
+          onClick={() => useSettingsStore.getState().setTheme(dark ? "light" : "dark")}
+        >
+          {dark ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
         <button
           type="button"
           className="win-btn"
