@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- 翻译逐块流式回填（打字机效果）：点翻译后译文按文档序逐块上屏，不再等整篇完成；
+  bilingual 逐块追加译文框，translation 逐 run 替换浮现。渲染层新增 data-bi/data-ri
+  锚点（与翻译单元索引空间一致），前端打字机缓冲把完成序重排为文档序，网络吞吐不变。
+
 ## [0.1.5] - 2026-09-03
 
 托盘常驻 + 截图翻译 + 开机自启落地，主窗口 WebView 按需休眠把常驻内存还给系统；
