@@ -147,6 +147,9 @@ function handlePartial(p: TranslationPartialPayload) {
   // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与当前内容错位，宁缺勿错
   // （与 handleDone 的 runContent 护栏同一口径）。
   if (useDocStore.getState().doc?.content !== st.runContent) return;
+  // 模式护栏：批次期间切换阅读模式 ⇒ partial 的 index 空间（runs/块）与当前
+  // 预览锚点错位，宁缺勿错（与上方 runContent 护栏同口径；换挡补跑由 done 处理）。
+  if (useDocStore.getState().mode !== st.lastRunMode) return;
   const next = typewriterPush(twState, p.index, p.text);
   twState = next.state;
   if (next.released.length === 0) return;
@@ -288,6 +291,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
   stop: () => {
     // gen 前跳使同轮迟到的 done 失配而被丢弃（后端取消会丢弃部分产物）
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null }));
+    clearPartial(); // 停止即清流：partialGen 归 0（0 = 无流），不留跨轮残留
     api.stopTranslation().catch(() => {});
   },
 
