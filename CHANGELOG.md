@@ -16,6 +16,7 @@ adheres to [Semantic Versioning](https://semver.org/).
 - 翻译逐块流式回填（打字机效果）：点翻译后译文按文档序逐块上屏，不再等整篇完成；
   bilingual 逐块追加译文框，translation 逐 run 替换浮现。渲染层新增 data-bi/data-ri
   锚点（与翻译单元索引空间一致），前端打字机缓冲把完成序重排为文档序，网络吞吐不变。
+  （2026-09-03 真机手工验收通过）
 
 ### Fixed
 
@@ -25,7 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   mailto/tel 走系统默认浏览器打开（新增 `open_external` 命令，Rust 侧 URL scheme
   白名单，`javascript:` 等危险协议一律拒绝），`#` 锚点改手动滚动（避开 target=_blank
   的新窗语义），相对路径等一律吞掉不让 WebView 处理；休眠冷重建窗口另挂
-  `on_navigation` 兜底，外部站点导航直接拦下。
+  `on_navigation` 兜底，外部站点导航直接拦下。（2026-09-03 真机手工验收通过）
 
 ## [0.1.5] - 2026-09-03
 
