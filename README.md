@@ -92,7 +92,7 @@ CHANGELOG.md                  # 版本变更记录
 
 ## 贡献与反馈
 
-- **Bug / 需求**：在 [GitHub Issues](https://github.com/muyan1983/qingbird-md/issues) 提交，请附最小复现路径与系统信息（Windows 版本、WebView2 版本号）。
+- **Bug / 需求**：在 [Gitee Issues](https://gitee.com/muyan1983/qingbird-md/issues) 提交，请附最小复现路径与系统信息（Windows 版本、WebView2 版本号）。
 - **人工回归手测**：见 [docs/regression-checklist.md](docs/regression-checklist.md)，按节逐条勾选。
 - **变更记录**：[CHANGELOG.md](CHANGELOG.md)。当前最新为 `0.1.0`。
 
