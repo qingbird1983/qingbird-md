@@ -43,6 +43,33 @@ npx tauri build
 
 产物为 NSIS 安装器（`src-tauri/target/release/bundle/nsis/`）。`scripts/package.ps1` 是旧 eframe 版遗留脚本，未随本次迁移更新。
 
+## 发布到 Gitee
+
+构建产物发布到 [Gitee Releases](https://gitee.com/muyan1983/qingbird-md/releases)（主远端）。
+Gitee Go 的云端构建环境只有 Linux 容器，无法编译 Windows 安装包，因此构建仍在本地执行，
+脚本负责校验、打包与上传。
+
+首次使用需存入 Gitee 私人令牌（只需 `projects` 权限），令牌落在
+`%APPDATA%\qingbird-md\gitee-token`，不进仓库、不进 git 历史：
+
+```bash
+python scripts/publish-gitee.py --set-token <TOKEN>
+```
+
+发版流程（版本号三处需一致 —— `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`，
+并已打好 tag 推送到 origin）：
+
+```bash
+python scripts/publish-gitee.py              # 构建后发布
+python scripts/publish-gitee.py --skip-build # 复用已有的 release/*.exe 直接发布
+python scripts/publish-gitee.py --dry-run    # 只打印计划，不碰 Gitee
+python scripts/publish-gitee.py --force      # 删除并重建已存在的发行版
+```
+
+脚本会依次校验工作区干净、三处版本号一致、tag 已推送到 origin、从 `CHANGELOG.md` 提取
+release notes、构建（可选）、暂存为 `release/qingbird-md-setup-<版本>-x64.exe`，
+最后调 Gitee OpenAPI 创建发行版并上传附件。
+
 ## 性能
 
 冷启动目标：与旧 eframe exe 相近（webview 冷启动一般 ~600ms 内达标）。实测数据待人工回填，记录表见 [docs/regression-checklist.md](docs/regression-checklist.md) §0。
