@@ -17,11 +17,11 @@
 import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
-import type { Mode } from "../types/ipc";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
+import { patchPartial } from "../lib/patchPartial";
 import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
@@ -104,26 +104,6 @@ function addHeadingToggles(scope: HTMLElement) {
       }
     });
     h.prepend(caret);
-  }
-}
-
-/**
- * 把一个已放行的译文块 patch 进预览 DOM。锚点缺失/形态不符静默跳过：
- * done 事件随后整树重建兜底，不在此层重试。XSS 边界：只用 createElement + textContent。
- */
-function patchPartial(el: HTMLElement, mode: Mode, index: number, text: string) {
-  if (mode === "bilingual") {
-    const host = el.querySelector(`[data-bi="${index}"]`);
-    if (!host) return;
-    if (host.nextElementSibling?.classList.contains("tr-box")) return; // StrictMode 双跑防重
-    const box = document.createElement("div");
-    box.className = "tr-box";
-    box.textContent = text; // textContent 赋值：LLM 译文永不解析为 HTML
-    host.after(box);
-  } else if (mode === "translation") {
-    const run = el.querySelector(`[data-ri="${index}"]`);
-    if (!run) return;
-    run.textContent = text;
   }
 }
 
