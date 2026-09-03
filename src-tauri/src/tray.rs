@@ -33,19 +33,32 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
         // 改用已废弃等价物 `.menu_on_left_click(false)`
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "show" => orchestrate::show_main_window(app),
+            "show" => wake_main_window(app),
             "capture" => trigger_capture(app),
             "autostart" => toggle_autostart(app, &autostart_item),
-            "quit" => app.exit(0),
+            // 主动退出不保留休眠草稿：用户的意图是结束，不该在下次冷启动
+            // 冒出旧内容（休眠中退出时磁盘上可能还留着一份）。
+            "quit" => {
+                let _ = crate::hibernate::clear_snapshot();
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
-                orchestrate::show_main_window(&tray.app_handle());
+                wake_main_window(&tray.app_handle());
             }
         })
         .build(app)?;
     Ok(())
+}
+
+/// 唤醒主窗口：走 hibernate 的唯一入口（休眠后能冷重建），失败只记日志——
+/// 托盘点击不该因为窗口异常而弹错。
+fn wake_main_window(app: &tauri::AppHandle) {
+    if let Err(e) = crate::hibernate::ensure_main_window(app) {
+        eprintln!("tray show main window: {e}");
+    }
 }
 
 fn trigger_capture(app: &tauri::AppHandle) {

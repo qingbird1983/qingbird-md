@@ -17,6 +17,13 @@ adheres to [Semantic Versioning](https://semver.org/).
   按导出时刻明暗落盘，mermaid/KaTeX 取预览已渲染产物，本机图片转 file:// 绝对路径）
 - 新增：命令面板文件直开（Ctrl+Shift+P 输入文件名片段即搜工作区文件并打开，
   相对路径匹配、短路径优先、结果截 20 条；`>` 前缀只搜命令）
+- 新增：主窗口 WebView 按需休眠（docs/webview-hibernate-plan.md）。
+  关窗隐藏后空闲 5 分钟真正销毁 WebView，把常驻内存还给系统；开机自启
+  （`--minimized`）不再养一个从没显示过的 WebView。托盘/热键/截图翻译/翻译
+  缓存均不经 WebView，休眠零影响。唤醒：5 分钟内秒回，休眠后冷重建并恢复
+  会话（标签、未保存草稿、光标/滚动/面板宽度；仅脏 tab 落草稿，一次性，
+  恢复即删）。休眠期间双击 .md 能正常重建窗口并打开文件。验收可设
+  `QINGBIRD_HIBERNATE_DELAY_SECS` 缩短等待
 
 ### Changed
 

@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 use base64::Engine;
-use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
 
 use super::ocr;
@@ -118,14 +117,6 @@ fn decode_image_rgba(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
         .to_rgba8();
     let (w, h) = (img.width(), img.height());
     Ok((img.into_raw(), w, h))
-}
-
-pub fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
 }
 
 fn notify_error(app: &tauri::AppHandle, err: &str) {

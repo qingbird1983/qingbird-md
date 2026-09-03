@@ -3,7 +3,9 @@
 > 分支：`feat-webview-hibernate`（自 `main` @ `2ec8a58` 切出）
 > 注意：**分支名不要用斜杠**。本机 `git checkout -b feat/webview-hibernate` 会改写 `.git/HEAD` 却不生成 `.git/refs/heads/feat/` 下的 ref 文件，导致 HEAD 成孤儿、171 个已跟踪文件被误报为 `new file`（此时 commit 会产生无父提交的新根）。项目沿用不含斜杠的命名（`main` / `origin-main` / `salvage-snapshot`）。
 > 备份：`F:/AIwork/git-backups/qingbird-md-20260902-pre-hibernate.bundle`（全分支 bundle，7.4 MB）
-> 状态：**未实施**，本文档为实施蓝图。照第 4 节顺序逐步落地即可。
+> 实施备份：`F:/AIwork/git-backups/qingbird-md-20260903-pre-impl.bundle`
+> 状态：**已实施（步骤 1–8 全部落地）**，待第 5 节真机验收。实施中发现的四处
+> 计划外问题已补进第 3.5 节，改动代码前必读。
 
 ---
 
@@ -153,6 +155,54 @@ pub struct SessionSnapshot {
 - **hibernate 时**落草稿；**恢复成功后立即删除**（一次性快照）。
 - **托盘主动退出不落草稿**。理由：hibernate 是「用户没打算结束、系统替他省内存」，此时保住内容正确；主动退出是用户的明确意图，不该在下次冷启动冒出旧内容。
 - 恢复时若任一 tab 带 `content`（脏），弹 toast：`已恢复上次未保存的内容`。
+
+---
+
+### 3.5 实施补充：计划外又挖出四个坑（均已修）
+
+实施时逐行读 Tauri 源码，发现原计划的「四个坑」之外还有四处会真实翻车的地方。
+它们都已落地修复，改动本模块前必读。
+
+**坑 5 — `silent` 标志也要复位，不只是 shown 闩。**
+`--minimized` 的判定结果原本是 `run()` 里的局部 `bool`，被 `on_page_load` 闭包
+捕获成常量。L0 把启动时那个窗口 destroy 掉之后，从托盘唤醒会走到
+`spawn_main_window`，而 `!silent` 恒为 false → 重建的窗口**永远不显示**
+（进程活着、托盘活着、就是看不到窗）。现改为模块级 `SILENT: AtomicBool`，
+与 `SHOWN` 一起由 `reset_startup_flags()` 复位。
+
+**坑 6 — 冷重建必须在主线程。**
+`tauri-runtime-wry` 的 `create_window` 在**后台线程**下只把建窗任务异步派发到
+事件循环，而紧随其后的 `create_webview` 是**同步**查窗口表的——窗口还没建出来，
+直接 `WindowNotFound`。主线程下 `send_user_message` 特判为同步执行，两步顺序
+才有保证。因此 `ensure_main_window` / `spawn_main_window` 要求主线程调用：
+托盘菜单与左键事件天然满足；单实例 handoff 的轮询线程必须
+`app.run_on_main_thread(...)` 包一层（已在 `lib.rs` 落地）。
+
+**坑 7 — 休眠态的 handoff 文件会丢。**
+`emit` 无缓冲也无重放：窗口不存在时发出去就等于丢。休眠态下双击 `.md`，原逻辑
+`emit("document-changed")` 没人接收，文件永远打不开。现改为：窗口不存在时把
+路径存进 `hibernate::PENDING_OPEN`，冷重建后的前端在 `openDocFromArgs` 里用
+`take_pending_open` 取走。顺序上**先恢复快照、再打开待打开文件**——后者是用户
+刚刚双击的目标，它的 `openTab` 会把焦点抢到自己身上。
+
+**坑 8 — 草稿文件的两处泄漏。**
+- 休眠被取消（用户抢在 3s 握手窗口内唤醒）时，前端已落草稿但销毁放弃 →
+  草稿残留到下次冷启动，冒出用户早就不用的旧内容。现放弃销毁时一并删除。
+- 休眠态下从托盘主动退出，磁盘上同样留着一份草稿。现 `quit` 分支先
+  `clear_snapshot()` 再 `exit(0)`，守住「主动退出不落草稿」的语义。
+
+> 进程被强杀的残留草稿仍会在下次启动恢复——这是有意的：内容不丢。
+
+### 3.6 验收辅助
+
+休眠延迟可用环境变量覆盖，避免真机验收干等 5 分钟：
+
+```powershell
+$env:QINGBIRD_HIBERNATE_DELAY_SECS = "20"
+npm run tauri dev
+```
+
+不设或解析失败即回默认 5 分钟（`hibernate::HIBERNATE_DELAY`，单点可调）。
 
 ---
 
@@ -344,6 +394,16 @@ load_session()
 - [ ] 休眠后触发截图翻译：流程完整，结果浮窗正常
 - [ ] 休眠状态下从资源管理器双击 .md（单实例 handoff）：窗口能重建并打开该文件
 - [ ] 休眠后按全局热键切阅读模式：不报错（窗口不存在时 emit 无人接收，静默）
+
+#### 实施中新增坑的回归项
+
+- [ ] 开机自启（`--minimized`）后点托盘「显示主窗口」：**窗口真的可见**
+      （坑 5 回归：SILENT 标志未复位时窗口重建但永不显示）
+- [ ] 休眠态双击 `.md`：窗口重建 **且** 该文件被打开并处于激活标签
+      （坑 6 + 坑 7 回归：主线程约束 + handoff 待打开队列）
+- [ ] 关窗后在 5 分钟内唤醒、再正常退出：user-data 目录下**没有**
+      `qingbird-session.json` 残留（坑 8 回归：取消休眠要删草稿）
+- [ ] 休眠态下直接托盘「退出」：同样无草稿残留（坑 8 回归）
 
 ### 内存验证
 

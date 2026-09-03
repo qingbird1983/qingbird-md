@@ -16,6 +16,7 @@ import type {
   WordLookupDTO,
   LookupDeltaPayload,
   TranslateStart,
+  SessionSnapshot,
 } from "../types/ipc";
 
 export const api = {
@@ -69,6 +70,15 @@ export const api = {
   llmListModels: (baseUrl: string, apiKey: string) =>
     invoke<string[]>("llm_list_models", { baseUrl, apiKey }),
 
+  // ---- 休眠会话快照（hibernate.rs；见 docs/webview-hibernate-plan.md）----
+  // 休眠握手固定顺序：saveSession → hibernateReady。
+  saveSession: (s: SessionSnapshot) => invoke<void>("save_session", { snapshot: s }),
+  hibernateReady: () => invoke<void>("hibernate_ready"),
+  loadSession: () => invoke<SessionSnapshot | null>("load_session"),
+  clearSession: () => invoke<void>("clear_session"),
+  /** 取走休眠期间积攒的 handoff 文件（休眠态 emit 无人接收，改由前端启动拉取） */
+  takePendingOpen: () => invoke<string[]>("take_pending_open"),
+
   // ---- 事件（事件名与 lib.rs .emit(...) 注册逐字一致）----
   listenDocumentChanged: (cb: (p: string) => void) =>
     listen<{ path: string }>("document-changed", (e) => cb(e.payload.path)),
@@ -80,6 +90,9 @@ export const api = {
     listen<Settings>("settings-updated", (e) => cb(e.payload)),
   // T29 全局热键回调（Rust hotkeys.rs emit）；payload 为模式字符串，由调用方校验
   listenHotkeyMode: (cb: (m: string) => void) => listen<string>("hotkey-mode", (e) => cb(e.payload)),
+  // 休眠握手：Rust 侧倒计时到点下发，前端须同步收集快照并回 hibernateReady。
+  // 不回则 3s 后 Rust 强制销毁（内存释放优先于草稿完整性）。
+  listenHibernate: (cb: () => void) => listen<null>("session-hibernate", () => cb()),
 };
 
 // ---- 偏移换算：CodeMirror 位置 ↔ Rust UTF-8 字节 ----

@@ -6,6 +6,7 @@ mod capture;
 mod dto;
 mod editor;
 mod fileopen;
+mod hibernate;
 mod hotkeys;
 mod markdown;
 mod single_instance;
@@ -190,6 +191,39 @@ fn clear_cache(st: tauri::State<AppTxn>) -> Result<(), String> {
         .expect("cache mutex poisoned")
         .save(&storage::cache_path())
         .map_err(|e| e.to_string())
+}
+
+// ---- 休眠会话快照（docs/webview-hibernate-plan.md 步骤 5）----
+// 只在休眠握手期间由前端调用。批次顺序：save_session → hibernate_ready。
+
+/// 落草稿快照。内容是「脏 tab 的 content + 干净 tab 的 path」，见 hibernate 模块。
+#[tauri::command]
+fn save_session(snapshot: hibernate::SessionSnapshot) -> Result<(), String> {
+    hibernate::save_snapshot(&snapshot)
+}
+
+/// 前端落完草稿的通知：唤醒 `do_hibernate` 的 recv_timeout，随即销毁 WebView。
+#[tauri::command]
+fn hibernate_ready() -> Result<(), String> {
+    hibernate::mark_ready()
+}
+
+/// 冷启动 / 冷重建时读取上次休眠留下的快照；无快照或版本不符为 `None`。
+#[tauri::command]
+fn load_session() -> Result<Option<hibernate::SessionSnapshot>, String> {
+    hibernate::load_snapshot()
+}
+
+/// 恢复成功后删除快照（一次性：不在下次冷启动冒出旧内容）。
+#[tauri::command]
+fn clear_session() -> Result<(), String> {
+    hibernate::clear_snapshot()
+}
+
+/// 取走休眠期间积攒的待打开路径（单实例 handoff 在休眠态的补偿）。
+#[tauri::command]
+fn take_pending_open() -> Vec<String> {
+    hibernate::take_pending_open()
 }
 
 // ---- 工作区 ----
@@ -760,6 +794,44 @@ fn spawn_translation(
     });
 }
 
+/// 首帧就绪后显示主窗口的一次性闩（`visible:false` 配置的补偿）。
+///
+/// 放在模块级而非 `run()` 局部变量：`spawn_main_window` 冷重建窗口时必须能复位
+/// 它，否则第二个窗口永远不 show（坑 2）。
+static SHOWN: Mutex<bool> = Mutex::new(false);
+
+/// 静默启动（`--minimized`）标志。
+///
+/// 同样必须是模块级可复位的：它只该约束「开机自启时那个没人看过的窗口」，
+/// 冷重建的窗口是用户主动唤醒的，必须显示。否则开机自启后从托盘唤醒，
+/// 重建出来的窗口会被 on_page_load 继续当静默处理，永远不显示。
+static SILENT: AtomicBool = AtomicBool::new(false);
+
+/// 冷重建窗口前的标志复位（显示闩 + 静默标志），见两处注释。
+fn reset_startup_flags() {
+    *SHOWN.lock().expect("shown mutex poisoned") = false;
+    SILENT.store(false, Ordering::SeqCst);
+}
+
+/// 挂主窗口的「关闭=隐藏 + 排定休眠」钩子。
+///
+/// 抽成函数是因为它有第二个调用点：休眠后冷重建的窗口是全新对象，`setup` 里
+/// 挂的那份钩子不会跟着过去，必须重挂，否则第二次关窗会真的退出应用（坑 3）。
+fn hook_main_window_close(win: &tauri::WebviewWindow) {
+    let h = win.app_handle().clone();
+    win.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            // 关闭=隐藏到托盘（spec §5）；真退出走托盘菜单「退出」。
+            // 排定 5 分钟后真正销毁 WebView（hibernate L1）。
+            api.prevent_close();
+            if let Some(w) = h.get_webview_window(hibernate::MAIN_LABEL) {
+                let _ = w.hide();
+            }
+            hibernate::schedule(&h);
+        }
+    });
+}
+
 fn tree_out(nodes: &[workspace::TreeNode]) -> Vec<dto::TreeNodeDTO> {
     nodes
         .iter()
@@ -796,6 +868,7 @@ fn changed_payload(p: &std::path::Path) -> serde_json::Value {
 pub fn run() {
     // 静默启动判定（--minimized，开机自启驻留托盘）：true 则 on_page_load 永不 show。
     let silent = capture::startup_arg::is_silent_launch(std::env::args());
+    SILENT.store(silent, Ordering::SeqCst);
     // CLI 文件参数一次解析两处共用：第二实例转交 / 首开直接加载。
     let file_arg = fileopen::file_arg_from_args(std::env::args().skip(1));
     let lock = single_instance::acquire_lock();
@@ -815,7 +888,6 @@ pub fn run() {
     // 窗口注册、必能捕获首次加载完成；Mutex+take 闩保证全程只发一次，延迟
     // 500ms 给前端留出挂监听的时间（Task 15 启动时只挂一次）。
     let initial = Mutex::new(file_arg);
-    let shown = Mutex::new(false);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -829,10 +901,15 @@ pub fn run() {
                 return;
             }
             // 非静默启动：首帧就绪后显示主窗口（visible:false 配置的补偿，
-            // 消除 webview 白屏；静默启动永不 show，驻留托盘）
-            if !silent && !*shown.lock().expect("shown mutex poisoned") {
-                *shown.lock().expect("shown mutex poisoned") = true;
-                if let Some(w) = wv.app_handle().get_webview_window("main") {
+            // 消除 webview 白屏；静默启动永不 show，驻留托盘）。
+            // 两个标志都是模块级：休眠冷重建后由 spawn_main_window 复位，
+            // 保证重建出来的窗口正常显示。
+            if !SILENT.load(Ordering::SeqCst) && !*SHOWN.lock().expect("shown mutex poisoned") {
+                *SHOWN.lock().expect("shown mutex poisoned") = true;
+                if let Some(w) = wv
+                    .app_handle()
+                    .get_webview_window(hibernate::MAIN_LABEL)
+                {
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
@@ -876,9 +953,23 @@ pub fn run() {
             pick_save_path,
             // Task 26: 设置弹窗
             clear_cache,
+            // 休眠会话快照（Task: webview hibernate）
+            save_session,
+            hibernate_ready,
+            load_session,
+            clear_session,
+            take_pending_open,
             // Task 10-11 追加于此
         ])
-        .setup(|app| {
+        .setup(move |app| {
+            // L0 静默启动（开机自启 `--minimized`）：不在内存里养一个从没显示过
+            // 的 WebView。setup 运行在窗口创建之后，此处同步 destroy 是安全的；
+            // destroy 会触发 ExitRequested(code=None)，由 run() 回调 prevent_exit 兜住。
+            if silent {
+                if let Some(w) = app.get_webview_window(hibernate::MAIN_LABEL) {
+                    let _ = w.destroy();
+                }
+            }
             // Task 10: 单实例 handoff——轮询第二实例写入的 pending 文件并转成
             // document-changed 事件推给前端；纯本地小文件 IO，独立线程不占主循环。
             let h = app.handle().clone();
@@ -888,12 +979,26 @@ pub fn run() {
                     // 路径=先派发 document-changed，再把主窗口从最小化/后台拉回
                     // 前台（静默驻留被第二实例唤醒时窗口弹出）。
                     if !single_instance::is_show_wake(&p) {
-                        let _ = h.emit("document-changed", changed_payload(&p));
+                        if h.get_webview_window(hibernate::MAIN_LABEL).is_some() {
+                            let _ = h.emit("document-changed", changed_payload(&p));
+                        } else {
+                            // 已休眠：此刻没有 WebView 能接收 emit（无缓冲/重放），
+                            // 存下来等重建后的前端启动阶段主动取走。
+                            hibernate::push_pending_open(p.to_string_lossy().into_owned());
+                        }
                     }
-                    if let Some(w) = h.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.unminimize();
-                        let _ = w.set_focus();
+                    // 唤醒唯一入口：活着就拉回前台，已休眠就冷重建（坑 4）。
+                    // 必须回主线程：本循环跑在后台线程，而冷重建是
+                    // create_window（后台线程下只异步派发到事件循环）+ 紧随其
+                    // 后的 create_webview（同步查窗口表）两步，后台线程下第二步
+                    // 会查不到刚派发的窗口而报 WindowNotFound。
+                    let h2 = h.clone();
+                    if let Err(e) = h.run_on_main_thread(move || {
+                        if let Err(e) = hibernate::ensure_main_window(&h2) {
+                            eprintln!("wake main window: {e}");
+                        }
+                    }) {
+                        eprintln!("run_on_main_thread: {e}");
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -908,22 +1013,23 @@ pub fn run() {
                     eprintln!("apply autostart: {e}");
                 }
             }
-            if let Some(main) = app.get_webview_window("main") {
-                let h = app.handle().clone();
-                main.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // 关闭=隐藏到托盘（spec §5）；真退出走托盘菜单「退出」
-                        api.prevent_close();
-                        if let Some(w) = h.get_webview_window("main") {
-                            let _ = w.hide();
-                        }
-                    }
-                });
+            if let Some(main) = app.get_webview_window(hibernate::MAIN_LABEL) {
+                hook_main_window_close(&main);
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                // code = None  → 最后一个窗口被销毁（关窗隐藏 / hibernate 销毁），
+                //                我们要继续驻留托盘，必须拦下；
+                // code = Some  → 程序调用 app.exit()（托盘「退出」，必须放行）。
+                if code.is_none() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }
 
 #[cfg(test)]

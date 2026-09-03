@@ -18,10 +18,31 @@ import { openFile } from "./components/commands";
 import { comboMatches } from "./lib/hotkeys";
 import { startColDrag } from "./lib/colDrag";
 import { api } from "./lib/ipc";
+import { collectSnapshot } from "./lib/session";
 
 // 面板宽度钳制：左右栏与主区之间拖宽条的取值范围（默认 240/200 落在其中）
 const PANEL_MIN = 160;
 const PANEL_MAX = 480;
+
+// 休眠握手（docs/webview-hibernate-plan.md 步骤 6）：关窗后空闲 5 分钟，Rust
+// 侧下发 session-hibernate，前端同步收集快照落盘再回 hibernateReady，随后
+// WebView 被销毁。Rust 只等 3s，超时就强杀（内存释放优先于草稿完整性），
+// 因此这里必须快：collectSnapshot 全同步，只有在等 IPC 返回。
+let hibernateRegistered = false;
+function listenHibernateOnce() {
+  if (hibernateRegistered) return; // 防 StrictMode 双跑重复注册
+  hibernateRegistered = true;
+  void api.listenHibernate(async () => {
+    try {
+      await api.saveSession(collectSnapshot());
+      await api.hibernateReady();
+    } catch (e) {
+      // 落盘失败也要回 ready：让 Rust 立刻销毁，别白等那 3 秒超时。
+      console.error("[hibernate] 保存会话快照失败:", e);
+      await api.hibernateReady().catch(() => {});
+    }
+  });
+}
 
 // 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
 // 左栏向右拖增宽，右大纲向左拖增宽，方向用 side 翻转；宽度存 uiStore，跨视图切换保持。
@@ -57,6 +78,7 @@ function App() {
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
     void useTranslationStore.getState().listenLookupDelta();
+    void listenHibernateOnce();
   }, []);
 
   useEffect(

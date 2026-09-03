@@ -152,3 +152,38 @@ export interface LookupDeltaPayload {
   text: string;
   content: string;
 }
+
+/** hibernate.rs SessionTab：一个标签的休眠快照 */
+export interface SessionTab {
+  id: string;
+  path: string | null;
+  name: string;
+  /** null = 干净（重建时从 path 重读）；字符串 = 未保存的草稿内容 */
+  content: string | null;
+  mtime: number | null;
+  encoding: string | null;
+  view: string;
+  mode: string;
+  cursor_sel: [number, number];
+  scroll_top: number;
+}
+
+/** hibernate.rs SessionUi：面板折叠与分栏宽度 */
+export interface SessionUi {
+  show_nav: boolean;
+  show_outline: boolean;
+  sidebar_width: number;
+  outline_width: number;
+  split_ratio: number;
+}
+
+/** hibernate.rs SessionSnapshot：仅休眠时落草稿，恢复成功后即删（一次性） */
+export interface SessionSnapshot {
+  /** 恒为 SESSION_VERSION；不符即丢弃 */
+  version: number;
+  saved_at: number;
+  tabs: SessionTab[];
+  active_id: string | null;
+  workspace_root: string | null;
+  ui: SessionUi | null;
+}

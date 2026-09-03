@@ -13,6 +13,8 @@ interface WorkspaceState {
   selectedPath: string | null;
 
   openWorkspace(): Promise<void>;
+  /** 休眠恢复用：按已知道路打开工作区，跳过目录选择对话框。 */
+  restoreWorkspace(p: string): Promise<void>;
   selectFile(p: string): void;
   searchFilter(q: string): Promise<void>;
   /** name 为 root 下的一级名称；创建成功后刷新树。 */
@@ -69,6 +71,18 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
         rawTree = t;
       } catch (e) {
         useUiStore.getState().addToast("error", `打开工作区失败：${errText(e)}`);
+      }
+    },
+
+    // 休眠恢复：目录已失效（被移动/删除）时静默跳过——不阻塞启动，
+    // 也不必弹 toast 打扰用户（他没主动要求打开工作区）。
+    restoreWorkspace: async (p) => {
+      try {
+        const t = await api.openWorkspace(p);
+        set({ root: p, tree: t, search: "", selectedPath: null });
+        rawTree = t; // 与 openWorkspace 同口径：refresh 依赖它
+      } catch {
+        /* 静默 */
       }
     },
 
