@@ -101,20 +101,25 @@ impl<'t> Ctx<'t> {
                     text: plain.clone(),
                     id: id.clone(),
                 });
-                let _ = write!(out, "<h{} id=\"{}\">", level, id);
+                let bi_idx = self.bi_advance(&plain);
+                match bi_idx {
+                    Some(i) => write!(out, r#"<h{} id="{}" data-bi="{}">"#, level, id, i).unwrap(),
+                    None => write!(out, "<h{} id=\"{}\">", level, id).unwrap(),
+                }
                 self.push_inlines(out, text);
                 let _ = writeln!(out, "</h{}>", level);
-                // Bilingual: walk_collect assigns indexes to translatable
-                // headings too, so consume here or all later indexes drift.
-                self.maybe_tr_box(out, &plain);
+                self.maybe_tr_box(out, bi_idx);
             }
             Block::Paragraph { text } => {
-                out.push_str("<p>");
+                let plain = inline_plain_text(text);
+                let bi_idx = self.bi_advance(&plain);
+                match bi_idx {
+                    Some(i) => write!(out, r#"<p data-bi="{}">"#, i).unwrap(),
+                    None => out.push_str("<p>"),
+                }
                 self.push_inlines(out, text);
                 out.push_str("</p>");
-                // Bilingual: index consumed only when this block is
-                // translatable, exactly like units::walk_collect.
-                self.maybe_tr_box(out, &inline_plain_text(text));
+                self.maybe_tr_box(out, bi_idx);
             }
             Block::Code { lang, code } => match lang.as_deref() {
                 Some("mermaid") => {
@@ -166,18 +171,28 @@ impl<'t> Ctx<'t> {
             Block::Table { headers, rows } => {
                 out.push_str("<table><thead><tr>");
                 for h in headers {
-                    out.push_str("<th>");
+                    let plain = inline_plain_text(h);
+                    let bi_idx = self.bi_advance(&plain);
+                    match bi_idx {
+                        Some(i) => write!(out, r#"<th data-bi="{}">"#, i).unwrap(),
+                        None => out.push_str("<th>"),
+                    }
                     self.push_inlines(out, h);
-                    self.maybe_tr_box(out, &inline_plain_text(h));
+                    self.maybe_tr_box(out, bi_idx);
                     out.push_str("</th>");
                 }
                 out.push_str("</tr></thead><tbody>");
                 for row in rows {
                     out.push_str("<tr>");
                     for cell in row {
-                        out.push_str("<td>");
+                        let plain = inline_plain_text(cell);
+                        let bi_idx = self.bi_advance(&plain);
+                        match bi_idx {
+                            Some(i) => write!(out, r#"<td data-bi="{}">"#, i).unwrap(),
+                            None => out.push_str("<td>"),
+                        }
                         self.push_inlines(out, cell);
-                        self.maybe_tr_box(out, &inline_plain_text(cell));
+                        self.maybe_tr_box(out, bi_idx);
                         out.push_str("</td>");
                     }
                     out.push_str("</tr>");
@@ -196,19 +211,26 @@ impl<'t> Ctx<'t> {
         }
     }
 
-    /// Append `<div class="tr-box">…</div>` when rendering bilingually and
-    /// this block/cell was assigned a translation. Mirrors
-    /// `units::walk_collect`: only needs_translation-true blocks consume an
-    /// index, headers before body cells, items in order.
-    fn maybe_tr_box(&mut self, out: &mut String, plain: &str) {
-        if self.bi.is_none() || !needs_translation(plain) {
-            return;
+    /// Assign the block-space index for this block/cell if it is translatable.
+    /// 恒占号（与 units::collect_translatable 逐块一致），无论当前渲染形态——
+    /// 原文/done 渲染的 data-bi 锚点编号因此与 partial 事件的 index 同空间。
+    /// 返回 None 表示本块不占号（不开 data-bi、不追加 tr-box）。
+    fn bi_advance(&mut self, plain: &str) -> Option<usize> {
+        if !needs_translation(plain) {
+            return None;
         }
         let idx = self.bi_counter;
-        let tr = self.bi.and_then(|m| m.get(&idx)).map(String::as_str).map(String::from);
         self.bi_counter += 1;
-        if let Some(tr) = tr {
-            let _ = write!(out, r#"<div class="tr-box">{}</div>"#, escape_html(&tr));
+        Some(idx)
+    }
+
+    /// Append `<div class="tr-box">…</div>` in bilingual mode, using the
+    /// index already assigned by [`Self::bi_advance`].
+    fn maybe_tr_box(&mut self, out: &mut String, bi_idx: Option<usize>) {
+        let Some(idx) = bi_idx else { return };
+        let Some(map) = self.bi else { return };
+        if let Some(tr) = map.get(&idx) {
+            let _ = write!(out, r#"<div class="tr-box">{}</div>"#, escape_html(tr));
         }
     }
 
@@ -222,10 +244,12 @@ impl<'t> Ctx<'t> {
                     let idx = self.sub_counter;
                     self.sub_counter += 1;
                     let tr = self.sub.and_then(|m| m.get(&idx)).map(String::as_str);
+                    let _ = write!(out, r#"<span data-ri="{}">"#, idx);
                     match tr {
                         Some(tr) => out.push_str(&escape_html(tr)),
                         None => out.push_str(&escape_html(t)),
                     }
+                    out.push_str("</span>");
                 }
                 Inline::Strong(x) => {
                     out.push_str("<strong>");
@@ -354,8 +378,8 @@ mod tests {
     #[test]
     fn original_mode_renders_basic_markdown() {
         let r = render_html("# Ti\n\ntext **b**.", &HashMap::new(), false);
-        assert!(r.html.contains("<h1 id=\"h-1\">Ti</h1>"));
-        assert!(r.html.contains("<strong>b</strong>"));
+        assert!(r.html.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#));
+        assert!(r.html.contains(r#"<strong><span data-ri="2">b</span></strong>"#));
         assert_eq!(r.outline.len(), 1);
         assert_eq!(r.outline[0].text, "Ti");
     }
@@ -381,10 +405,10 @@ mod tests {
         // Probe (task-3-report.md): pulldown emits raw tags as InlineHtml
         // events, which model.rs collect_inlines drops, so `<b>`/`</b>` never
         // reach this renderer — only Text("Text with "), Text("&") and
-        // Text(" quote") survive. The guarantee tested here stands: every
-        // surviving text goes through escape_html, so raw "<b>" can never be
-        // emitted.
-        assert!(r.html.contains("Text with &amp; quote"));
+        // Text(" quote") survive, each wrapped in a data-ri span. The
+        // guarantee tested here stands: every surviving text goes through
+        // escape_html, so raw "<b>" can never be emitted.
+        assert!(r.html.contains(r#"<span data-ri="1">&amp;</span>"#));
         assert!(!r.html.contains("<b>"));
     }
 
@@ -397,7 +421,42 @@ mod tests {
         m.insert(1usize, "正文译文".into());
         let r = render_html("# Title\n\nBody text", &m, true);
         assert!(r.html.contains("</h1>\n<div class=\"tr-box\">中文标题</div>"));
-        assert!(r.html.contains(r#"<p>Body text</p><div class="tr-box">正文译文</div>"#));
+        assert!(
+            r.html
+                .contains(r#"<p data-bi="1"><span data-ri="1">Body text</span></p><div class="tr-box">正文译文</div>"#)
+        );
+    }
+
+    #[test]
+    fn anchors_mark_bi_blocks_and_ri_runs_in_original_render() {
+        // 原文渲染（trans 空）也输出锚点：data-bi 与 collect_translatable 的块
+        // 空间一致，data-ri 与 collect_text_runs 的 run 空间一致——partial 流式
+        // 回填靠这两个属性定位 DOM。
+        let md = "# Hello\n\nA **B** C\n\n```rust\nfn x() {}\n```\n\n中文段落\n\nDone doc\n";
+        let r = render_html(md, &HashMap::new(), false);
+        // 块空间：Hello(0)、A B C(1)、中文段落(无 ASCII 不占号)、Done doc(2)
+        assert!(r.html.contains(r#"<h1 id="h-1" data-bi="0">"#));
+        assert!(r.html.contains(r#"<p data-bi="1">"#));
+        assert!(r.html.contains(r#"<p data-bi="2">"#));
+        assert_eq!(r.html.matches("data-bi=").count(), 3);
+        // run 空间：每个 Text run 占号（含不可翻译的中文段落）：
+        // Hello(0) A..(1) B(2) ..C(3) 中文段落(4) Done doc(5)
+        for i in 0..6 {
+            assert!(r.html.contains(&format!(r#"data-ri="{}""#, i)));
+        }
+        assert_eq!(r.html.matches("data-ri=").count(), 6);
+    }
+
+    #[test]
+    fn substituted_render_keeps_run_anchors() {
+        // translation 形态（run 替换）里 span 恒在——替换发生在 span 内部，
+        // 属性数量不变，done 后锚点仍然可寻址。
+        let md = "A **B** C\n";
+        let mut trans = HashMap::new();
+        trans.insert(1usize, "乙".to_string()); // run 1 = "A ..." 之外的 Text run
+        let r = render_html(md, &trans, false);
+        assert_eq!(r.html.matches("data-ri=").count(), 3);
+        assert!(r.html.contains(r#"<span data-ri="1">乙</span>"#));
     }
 
     #[test]
@@ -408,19 +467,32 @@ mod tests {
         m.insert(1usize, "世界".into());
         m.insert(2usize, "更多".into());
         let r = render_html("Hello **world** more", &m, false);
-        assert!(r.html.contains(r#"<p>你好<strong>世界</strong>更多</p>"#));
+        assert!(
+            r.html.contains(
+                r#"<p data-bi="0"><span data-ri="0">你好</span><strong><span data-ri="1">世界</span></strong><span data-ri="2">更多</span></p>"#
+            )
+        );
     }
 
     #[test]
     fn multicol_table_single_thead_row() {
         let r = render_html("| a | b |\n| --- | --- |\n| 1 | 2 |", &HashMap::new(), false);
-        // Exactly one <tr> in thead, holding BOTH th cells.
-        assert!(r.html.contains("<thead><tr><th>a</th><th>b</th></tr></thead>"));
+        // Exactly one <tr> in thead, holding BOTH th cells ("a"/"b" 可翻译：
+        // 开标签带 data-bi，内文为 data-ri span；"1"/"2" 不可翻译，td 无 data-bi).
+        assert!(
+            r.html.contains(
+                r#"<thead><tr><th data-bi="0"><span data-ri="0">a</span></th><th data-bi="1"><span data-ri="1">b</span></th></tr></thead>"#
+            )
+        );
         let thead = r.html.split("</thead>").next().unwrap();
         assert_eq!(thead.matches("<tr>").count(), 1, "header must be one row");
-        assert_eq!(thead.matches("<th>").count(), 2);
+        assert_eq!(thead.matches("<th ").count(), 2);
         // Body keeps its single normal row.
-        assert!(r.html.contains("<tbody><tr><td>1</td><td>2</td></tr></tbody>"));
+        assert!(
+            r.html.contains(
+                r#"<tbody><tr><td><span data-ri="2">1</span></td><td><span data-ri="3">2</span></td></tr></tbody>"#
+            )
+        );
     }
 
     #[test]

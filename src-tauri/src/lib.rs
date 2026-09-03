@@ -1310,11 +1310,19 @@ mod tests {
         m.insert(3usize, "更多".into());
         let (html_original, tr, bi, outline) =
             html_payload_parts("# Ti\n\nHello **world** more", &m, false);
-        assert!(html_original.contains(r#"<h1 id="h-1">Ti</h1>"#));
-        assert!(html_original.contains("<p>Hello <strong>world</strong> more</p>"));
+        assert!(html_original.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#));
+        assert!(
+            html_original.contains(
+                r#"<p data-bi="1"><span data-ri="1">Hello </span><strong><span data-ri="2">world</span></strong><span data-ri="3"> more</span></p>"#
+            )
+        );
         let tr = tr.expect("translation batch must carry substituted form");
-        assert!(tr.contains(r#"<h1 id="h-1">标题</h1>"#));
-        assert!(tr.contains("<p>你好<strong>世界</strong>更多</p>"));
+        assert!(tr.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">标题</span></h1>"#));
+        assert!(
+            tr.contains(
+                r#"<p data-bi="1"><span data-ri="1">你好</span><strong><span data-ri="2">世界</span></strong><span data-ri="3">更多</span></p>"#
+            )
+        );
         assert!(bi.is_none());
         assert_eq!(outline.len(), 1);
         assert_eq!(outline[0].text, "Ti");
@@ -1330,7 +1338,11 @@ mod tests {
         let bi2 = bi2.expect("bilingual batch must carry bilingual form");
         assert!(bi2.contains(r#"<div class="tr-box">中文标题</div>"#));
         assert!(bi2.contains(r#"<div class="tr-box">中文正文</div>"#));
-        assert!(orig2.contains("<p>Hello <strong>world</strong> more</p>"));
+        assert!(
+            orig2.contains(
+                r#"<p data-bi="1"><span data-ri="1">Hello </span><strong><span data-ri="2">world</span></strong><span data-ri="3"> more</span></p>"#
+            )
+        );
     }
 
     #[test]
