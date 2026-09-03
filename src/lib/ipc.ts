@@ -11,6 +11,7 @@ import type {
   ProviderInfo,
   Settings,
   ProgressPayload,
+  TranslationPartialPayload,
   DonePayload,
   Mode,
   WordLookupDTO,
@@ -84,6 +85,8 @@ export const api = {
     listen<{ path: string }>("document-changed", (e) => cb(e.payload.path)),
   listenProgress: (cb: (p: ProgressPayload) => void) =>
     listen<ProgressPayload>("translation-progress", (e) => cb(e.payload)),
+  listenPartial: (cb: (p: TranslationPartialPayload) => void) =>
+    listen<TranslationPartialPayload>("translation-partial", (e) => cb(e.payload)),
   listenDone: (cb: (p: DonePayload) => void) =>
     listen<DonePayload>("translation-done", (e) => cb(e.payload)),
   listenSettingsUpdated: (cb: (s: Settings) => void) =>

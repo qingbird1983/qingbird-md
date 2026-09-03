@@ -3,9 +3,12 @@
 // XSS 信任边界（勿改）：本组件以 dangerouslySetInnerHTML 等价的方式把 html 赋给
 // 容器 innerHTML——字符串生产者唯一：src-tauri/markdown/html.rs（parseResult 与
 // done payload 的三形态 html 皆出于此），其中所有文本节点与属性值均经 escape_html
-// 转义，markdown / 文档内容永远无法注入标签或脚本。前端在此层只做三件 DOM 后
+// 转义，markdown / 文档内容永远无法注入标签或脚本。前端在此层只做四件 DOM 后
 // 处理：图片 src 经后端 resolve_image 解析成绝对路径再转 asset 协议、代码块
-// 注入复制按钮、标题注入折叠 caret；绝不向 HTML 字符串拼接任何文档派生内容。
+// 注入复制按钮、标题注入折叠 caret；
+// 四：翻译进行中的流式回填（patchPartial）——partial 事件放行的块经
+// textContent / createElement 写入，绝不拼 HTML 字符串（XSS 边界同上）。
+// 绝不向 HTML 字符串拼接任何文档派生内容。
 //
 // 渲染管线：useEffect([html, baseDir]) 先整树重建 innerHTML（旧图片改写与按钮
 // 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态（Task 23）：done
@@ -14,6 +17,7 @@
 import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
+import type { Mode } from "../types/ipc";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
@@ -103,12 +107,35 @@ function addHeadingToggles(scope: HTMLElement) {
   }
 }
 
+/**
+ * 把一个已放行的译文块 patch 进预览 DOM。锚点缺失/形态不符静默跳过：
+ * done 事件随后整树重建兜底，不在此层重试。XSS 边界：只用 createElement + textContent。
+ */
+function patchPartial(el: HTMLElement, mode: Mode, index: number, text: string) {
+  if (mode === "bilingual") {
+    const host = el.querySelector(`[data-bi="${index}"]`);
+    if (!host) return;
+    if (host.nextElementSibling?.classList.contains("tr-box")) return; // StrictMode 双跑防重
+    const box = document.createElement("div");
+    box.className = "tr-box";
+    box.textContent = text; // textContent 赋值：LLM 译文永不解析为 HTML
+    host.after(box);
+  } else if (mode === "translation") {
+    const run = el.querySelector(`[data-ri="${index}"]`);
+    if (!run) return;
+    run.textContent = text;
+  }
+}
+
 export default function PreviewView() {
   const ref = useRef<HTMLDivElement>(null);
   const content = useDocStore((s) => s.doc?.content ?? null);
   const mode = useDocStore((s) => s.mode);
   const parseHtml = useDocStore((s) => s.parseResult?.html ?? null);
   const doneHtml = useDocStore((s) => s.doneHtml);
+  const partialBlocks = useTranslationStore((s) => s.partialBlocks);
+  const partialCursor = useTranslationStore((s) => s.partialCursor);
+  const partialGen = useTranslationStore((s) => s.partialGen);
   const baseDir = useDocStore((s) => s.doc?.base_dir ?? null);
   const ensureParsed = useDocStore((s) => s.ensureParsed);
   const contentWidth = useUiStore((s) => s.contentWidth);
@@ -138,6 +165,23 @@ export default function PreviewView() {
     renderMathPlaceholders(el);
     void renderMermaidPlaceholders(el);
   }, [html, baseDir]);
+
+  // 流式回填：只处理上次水位之后新放行的区间，逐块查锚点 patch。
+  // gen 变化（新轮次/清空）即重置水位；innerHTML 重建 effect（上方）在
+  // done 时整树重渲，本 effect 因 partialGen=0 不再动作——两管线无缝交接。
+  const patchedRef = useRef<{ gen: number; upto: number }>({ gen: 0, upto: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || partialGen === 0) return;
+    if (patchedRef.current.gen !== partialGen) {
+      patchedRef.current = { gen: partialGen, upto: 0 };
+    }
+    for (let i = patchedRef.current.upto; i < partialCursor; i++) {
+      const text = partialBlocks.get(i);
+      if (text !== undefined) patchPartial(el, mode, i, text);
+    }
+    patchedRef.current.upto = Math.max(patchedRef.current.upto, partialCursor);
+  }, [partialGen, partialCursor, partialBlocks, mode]);
 
   // 划词翻译（选区查词）预览侧捕获：编辑器侧由 App.tsx 的 CM cursorSel 订阅
   // 覆盖，预览渲染 DOM 没有 CM 选区事件——这里监听 selectionchange，锚点落

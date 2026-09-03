@@ -89,6 +89,15 @@ export interface ProgressPayload {
   total: number;
 }
 
+/** lib.rs TranslationPartialEvt：{gen, index, text}（r#gen → "gen"）。
+ * index 与 translation-done 的 pair 首元素同一索引空间：
+ * translation 模式 = text runs（data-ri），bilingual 模式 = translatable 块（data-bi）。 */
+export interface TranslationPartialPayload {
+  gen: number;
+  index: number;
+  text: string;
+}
+
 /**
  * lib.rs TranslationDoneEvt：{gen, ok, translations?, error?,
  * html_original?, html_translation?, html_bilingual?, outline?}。

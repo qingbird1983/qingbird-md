@@ -1,8 +1,16 @@
 // 翻译域：整篇翻译的 gen 时序、进度、划词翻译浮窗结果。
 // 阅读模式不在此存——唯一真源是 useDocStore.mode（plan 防双源决议）。
 import { create } from "zustand";
-import type { DonePayload, Mode, ProgressPayload, WordLookupDTO, LookupDeltaPayload } from "../types/ipc";
+import type {
+  DonePayload,
+  Mode,
+  ProgressPayload,
+  TranslationPartialPayload,
+  WordLookupDTO,
+  LookupDeltaPayload,
+} from "../types/ipc";
 import { api } from "../lib/ipc";
+import { typewriterPush, typewriterStart, type TypewriterState } from "../lib/typewriter";
 import { useUiStore, errText } from "./useUiStore";
 import { useDocStore } from "./useDocStore";
 import { useSettingsStore } from "./useSettingsStore";
@@ -25,10 +33,17 @@ interface TranslationState {
   lastRunMode: Mode | null; // 上次整篇翻译所用的阅读模式，startIfFresh 判"模式变了需重跑"
   runContent: string | null; // 发起批次时的 doc.content：done 时判内容/文档是否仍一致（防编辑/切档后写入过期产物）
   selection: SelectionState | null;
+  /** 已按文档序放行的块/run 译文（index 语义随当前 run 模式：runs 或 块） */
+  partialBlocks: Map<number, string>;
+  /** 已放行的连续前缀上界（exclusive）；PreviewView 的 patch 水位参照 */
+  partialCursor: number;
+  /** partial 流所属轮次；0 = 无流 */
+  partialGen: number;
 
   translateDocument(): Promise<void>;
   /** switchMode 联动入口：gen 尚未产出 / 无译文缓存 / 模式与上次运行不同 ⇒ 重新起跑。 */
   startIfFresh(): void;
+  listenPartial(): void;
   listenProgress(): void;
   listenDone(): void;
   listenLookupDelta(): void;
@@ -42,6 +57,9 @@ let progressRegistered = false;
 let doneRegistered = false;
 let deltaRegistered = false;
 let selTimer: ReturnType<typeof setTimeout> | undefined;
+// 打字机缓冲（不进 React state：pending 不驱动渲染，只有放行结果才 set）
+let twState: TypewriterState = typewriterStart();
+let partialRegistered = false;
 
 /**
  * 截断 JSON 的渐进字段提取（流式渲染用）：从可能中途截断的 LLM 输出里
@@ -122,6 +140,35 @@ function handleProgress(p: ProgressPayload) {
   useTranslationStore.setState({ progress: { done: p.done, total: p.total } });
 }
 
+/** translation-partial → 打字机缓冲 → 放行结果落 store（PreviewView patch 消费）。 */
+function handlePartial(p: TranslationPartialPayload) {
+  const st = useTranslationStore.getState();
+  if (p.gen !== st.gen || st.status !== "running") return;
+  // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与当前内容错位，宁缺勿错
+  // （与 handleDone 的 runContent 护栏同一口径）。
+  if (useDocStore.getState().doc?.content !== st.runContent) return;
+  const next = typewriterPush(twState, p.index, p.text);
+  twState = next.state;
+  if (next.released.length === 0) return;
+  const blocks = new Map(st.partialBlocks);
+  for (const r of next.released) blocks.set(r.index, r.text);
+  useTranslationStore.setState({
+    partialBlocks: blocks,
+    partialCursor: twState.cursor,
+    partialGen: p.gen,
+  });
+}
+
+/** 清空 partial 流（起跑/收尾共用）：React 状态 + 模块级打字机缓冲。 */
+function clearPartial() {
+  twState = typewriterStart();
+  useTranslationStore.setState({
+    partialBlocks: new Map(),
+    partialCursor: 0,
+    partialGen: 0,
+  });
+}
+
 /** done payload → 标签化落库形态（事件路径与缓存同步路径共用同一组装） */
 function doneHtmlOf(d: DonePayload, contentKey: string) {
   return d.html_translation || d.html_bilingual
@@ -139,10 +186,12 @@ function handleDone(d: DonePayload) {
   const ui = useUiStore.getState();
   const dd = useDocStore.getState();
   if (!d.ok) {
+    clearPartial();
     useTranslationStore.setState({ status: "error", progress: null });
     ui.addToast("error", d.error ? `翻译失败：${d.error}` : "翻译失败");
     return;
   }
+  clearPartial();
   useTranslationStore.setState({ status: "idle", progress: null });
   // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与 payload html 全部过期，宁缺勿错不落库。
   // 改走标签化 applyTranslationResult —— 翻译产物的归宿是当前 active tab。
@@ -165,6 +214,9 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
   gen: 0,
   lastRunMode: null,
   runContent: null,
+  partialBlocks: new Map(),
+  partialCursor: 0,
+  partialGen: 0,
   selection: null,
 
   translateDocument: async () => {
@@ -188,6 +240,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         return;
       }
       // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
+      clearPartial(); // 新一轮起跑清残留
       set({
         gen: r.gen,
         status: "running",
@@ -218,6 +271,12 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     if (doneRegistered) return;
     doneRegistered = true;
     void api.listenDone(handleDone);
+  },
+
+  listenPartial: () => {
+    if (partialRegistered) return;
+    partialRegistered = true;
+    void api.listenPartial(handlePartial);
   },
 
   listenLookupDelta: () => {

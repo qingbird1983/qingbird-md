@@ -77,6 +77,7 @@ function App() {
     void useDocStore.getState().openDocFromArgs();
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
+    void useTranslationStore.getState().listenPartial();
     void useTranslationStore.getState().listenLookupDelta();
     void listenHibernateOnce();
   }, []);
