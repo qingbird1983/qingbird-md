@@ -23,7 +23,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   缓存均不经 WebView，休眠零影响。唤醒：5 分钟内秒回，休眠后冷重建并恢复
   会话（标签、未保存草稿、光标/滚动/面板宽度；仅脏 tab 落草稿，一次性，
   恢复即删）。休眠期间双击 .md 能正常重建窗口并打开文件。验收可设
-  `QINGBIRD_HIBERNATE_DELAY_SECS` 缩短等待
+  `QINGBIRD_HIBERNATE_DELAY_SECS` 缩短等待（2026-09-03 沙箱 + 真机手工验收通过）
 
 ### Changed
 
