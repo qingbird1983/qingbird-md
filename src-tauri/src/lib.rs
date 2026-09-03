@@ -827,6 +827,7 @@ fn hook_main_window_close(win: &tauri::WebviewWindow) {
             if let Some(w) = h.get_webview_window(hibernate::MAIN_LABEL) {
                 let _ = w.hide();
             }
+            eprintln!("[wb] 窗口关闭请求已拦下（隐藏 + 排定休眠）");
             hibernate::schedule(&h);
         }
     });

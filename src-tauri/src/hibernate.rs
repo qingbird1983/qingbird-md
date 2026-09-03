@@ -75,6 +75,10 @@ pub fn take_pending_open() -> Vec<String> {
 
 /// 关窗时调用：从现在起 [`HIBERNATE_DELAY`] 后销毁主窗口。
 pub fn schedule(app: &tauri::AppHandle) {
+    eprintln!(
+        "[hibernate] 关窗：排定 {:.0}s 后销毁 WebView",
+        hibernate_delay().as_secs_f64()
+    );
     *HIBERNATE_AT.lock().expect("hibernate mutex poisoned") =
         Some(Instant::now() + hibernate_delay());
     CANCELLED.store(false, Ordering::SeqCst);
@@ -83,7 +87,10 @@ pub fn schedule(app: &tauri::AppHandle) {
 
 /// 任一唤醒路径（托盘 / 热键 / 单实例 handoff）调用：取消待卸载计时。
 pub fn cancel() {
-    *HIBERNATE_AT.lock().expect("hibernate mutex poisoned") = None;
+    let had_pending = HIBERNATE_AT.lock().expect("hibernate mutex poisoned").take().is_some();
+    if had_pending {
+        eprintln!("[hibernate] 唤醒：取消待卸载计时");
+    }
     // 销毁倒计时已启动、前端正在落草稿时用户抢先唤醒 → 让 do_hibernate 放弃销毁。
     CANCELLED.store(true, Ordering::SeqCst);
 }
@@ -120,6 +127,7 @@ fn start_watcher(app: tauri::AppHandle) {
 
 /// 到点：与前端握手落草稿 → 销毁。
 fn do_hibernate(app: &tauri::AppHandle) {
+    eprintln!("[hibernate] 到点：发起休眠握手（等前端落草稿 {HANDSHAKE_TIMEOUT:?}）");
     let (tx, rx) = mpsc::channel();
     *READY_TX.lock().expect("hibernate mutex poisoned") = Some(tx);
 
@@ -146,6 +154,8 @@ fn do_hibernate(app: &tauri::AppHandle) {
         Some(w) => {
             if let Err(e) = w.destroy() {
                 eprintln!("[hibernate] destroy 失败: {e}");
+            } else {
+                eprintln!("[hibernate] 主窗口已销毁（WebView 内存归还）");
             }
         }
         None => eprintln!("[hibernate] 主窗口已不存在，跳过销毁"),
@@ -176,6 +186,7 @@ pub fn mark_ready() -> Result<(), String> {
 pub fn ensure_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     if let Some(w) = app.get_webview_window(MAIN_LABEL) {
         cancel(); // 待卸载计时作废：5 分钟内是秒回
+        eprintln!("[hibernate] 唤醒：窗口存活，直接显示");
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
@@ -211,6 +222,7 @@ pub fn spawn_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webview
     // 坑 3：新窗口是全新对象，CloseRequested 钩子必须重挂，否则第二次关窗
     //       会真的把应用关掉（关窗隐藏行为丢失）。
     crate::hook_main_window_close(&win);
+    eprintln!("[hibernate] 主窗口冷重建完成");
     Ok(win)
 }
 

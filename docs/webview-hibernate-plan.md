@@ -4,8 +4,8 @@
 > 注意：**分支名不要用斜杠**。本机 `git checkout -b feat/webview-hibernate` 会改写 `.git/HEAD` 却不生成 `.git/refs/heads/feat/` 下的 ref 文件，导致 HEAD 成孤儿、171 个已跟踪文件被误报为 `new file`（此时 commit 会产生无父提交的新根）。项目沿用不含斜杠的命名（`main` / `origin-main` / `salvage-snapshot`）。
 > 备份：`F:/AIwork/git-backups/qingbird-md-20260902-pre-hibernate.bundle`（全分支 bundle，7.4 MB）
 > 实施备份：`F:/AIwork/git-backups/qingbird-md-20260903-pre-impl.bundle`
-> 状态：**已实施（步骤 1–8 全部落地）**，待第 5 节真机验收。实施中发现的四处
-> 计划外问题已补进第 3.5 节，改动代码前必读。
+> 状态：**已实施（步骤 1–8 全部落地）**。沙箱自动化验收完成（见 §3.7），
+> 真机视觉项待第 5 节清单收尾。实施中发现的计划外问题已补进第 3.5 节，改动代码前必读。
 
 ---
 
@@ -204,6 +204,46 @@ npm run tauri dev
 
 不设或解析失败即回默认 5 分钟（`hibernate::HIBERNATE_DELAY`，单点可调）。
 
+**关键状态转换有 stderr 日志**（从控制台直接跑 exe 即可观察，桌面验收对照用）：
+
+```
+[wb] 窗口关闭请求已拦下（隐藏 + 排定休眠）     ← 点 × 之后
+[hibernate] 关窗：排定 {n}s 后销毁 WebView     ← schedule()
+[hibernate] 唤醒：取消待卸载计时                ← 倒计时中被唤醒（秒回路径）
+[hibernate] 唤醒：窗口存活，直接显示
+[hibernate] 到点：发起休眠握手（等前端落草稿 3s）← do_hibernate()
+[hibernate] 主窗口已销毁（WebView 内存归还）    ← destroy 成功
+[hibernate] 前端握手超时，强制销毁（草稿可能不完整）← 前端 3s 未应答的兜底
+[hibernate] 销毁前检测到唤醒，放弃本次休眠       ← cancel 抢在销毁前
+[hibernate] 主窗口冷重建完成                    ← spawn_main_window
+```
+
+### 3.7 沙箱自动化验收记录（2026-09-03）
+
+改动全落在 `feat-webview-hibernate` 分支后，在隔离沙箱里做了进程级自动化验证
+（同会话 .NET `ProcessStartInfo` 直启 + 轮询 `WorkingSet64`/`MainWindowHandle`/
+WebView2 进程组内存）。结论：
+
+**已验证（进程级客观事实）：**
+- 主窗口被关掉/销毁后**进程驻留不退出**（`ExitRequested(code=None) → prevent_exit`
+  生效）：多次实测 alive 恒为 true，最长存活 2m46s+。
+- `schedule → do_hibernate → destroy` 全链路可执行：早期一次后台跑实测打出
+  `[hibernate] 前端握手超时，强制销毁`，进程随后仍存活。
+- 二次实例 handoff：第二实例正常写完 pending 后自退（`secondExited=True`），
+  第一实例 WS +11MB、WebView2 进程组 +23MB——冷重建已启动。
+- 全程无 `qingbird-session.json` 残留（无脏 tab 时握手未落盘，符合设计）。
+
+**沙箱环境的两个硬限制（非代码问题，真机不受影响）：**
+- 沙箱窗口站非交互，「点 × / WM_CLOSE → Tauri CloseRequested」链路无法保真驱动，
+  钩子日志在沙箱里不可复现。**关窗→休眠→唤醒闭环必须真机过一遍。**
+- 跨工具调用进程不可见（后台 Bash 起的进程，PowerShell/前台 Bash 都查不到），
+  验收脚本必须与被测进程同会话。
+
+**实测纠正 §5 的一处错误**：Windows 上 WebView2 是**独立 `msedgewebview2.exe`
+进程组**，不是 wry 默认同进程。`qingbird-md.exe` 自身 WorkingSet 恒在 ~36MB
+（启动/关窗/休眠全程不变），**主进程工作集测不出 WebView 内存**——必须量
+`msedgewebview2.exe` 合计（并扣除基线，本机 WorkBuddy 等宿主会带 ~1.5GB 噪声）。
+
 ---
 
 ## 4. 实施步骤
@@ -385,14 +425,17 @@ load_session()
 
 ### 功能
 
+> 标注：[沙箱✓] = 隔离沙箱进程级已验；其余待真机（窗口可见性/内容恢复/交互）
+> 无法在无桌面沙箱里保真验证，逐条过完打勾即可。
+
 - [ ] 开机自启（`--minimized`）后：托盘可用、截图翻译可用，任务管理器看不到明显 WebView 内存占用
 - [ ] 关主窗口 → 托盘仍活；5 分钟内点托盘 → **秒回**（~50ms，无重建）
-- [ ] 关主窗口 → 静置 5 分钟 → 内存下降 → 点托盘 → 窗口重建，内容/光标/滚动/面板宽度恢复
+- [ ] 关主窗口 → 静置 5 分钟 → 内存下降 → 点托盘 → 窗口重建，内容/光标/滚动/面板宽度恢复（进程驻留 [沙箱✓]；重建启动 [沙箱✓]）
 - [ ] 有未保存改动时关窗休眠 → 重建后内容仍在，toast 提示
 - [ ] 托盘「退出」能正常结束进程（**坑 1 的回归测试**）
 - [ ] **连续关窗两次**：第二次关窗后进程仍在、托盘仍活（**坑 3 的回归测试**）
 - [ ] 休眠后触发截图翻译：流程完整，结果浮窗正常
-- [ ] 休眠状态下从资源管理器双击 .md（单实例 handoff）：窗口能重建并打开该文件
+- [ ] 休眠状态下从资源管理器双击 .md（单实例 handoff）：窗口能重建并打开该文件（handoff 传递 + 唤醒 [沙箱✓]；文件打开与置顶待真机）
 - [ ] 休眠后按全局热键切阅读模式：不报错（窗口不存在时 emit 无人接收，静默）
 
 #### 实施中新增坑的回归项
@@ -408,10 +451,17 @@ load_session()
 ### 内存验证
 
 ```powershell
-Get-Process qingbird-md | Select-Object WorkingSet64, PrivateMemorySize64
+# WebView2 是独立 msedgewebview2.exe 进程组，量它的合计（扣除基线）才是真实指标。
+# 基线：验收前先跑一次下面两行，记录 webview 合计作基数（本机其他 WebView2 宿主 ~1.5GB）。
+$app = Get-Process qingbird-md
+$wv  = Get-Process msedgewebview2 -ErrorAction SilentlyContinue
+"app   : {0,8} MB" -f [math]::Round($app.WorkingSet64/1MB,1)
+"webview2: {0,8} MB" -f [math]::Round((($wv | Measure-Object WorkingSet64 -Sum).Sum)/1MB,1)
 ```
 
-分别记录：刚启动 / 关窗后 / 休眠后 / 唤醒后。WebView2 与 Tauri 主进程同进程（wry 默认），内存体现在主进程私有工作集上。**预期休眠后下降 100 MB 量级**（视文档大小与翻译态而定）。
+分别记录：刚启动 / 关窗后（应仍在，秒回能力保留）/ 休眠后（**WebView2 进程组
+应下降 100 MB 量级甚至归零**）/ 唤醒后（回升）。`qingbird-md.exe` 自身 ~36MB
+恒定，不随 WebView 生灭变化，别拿它当指标。
 
 ### 回归
 
