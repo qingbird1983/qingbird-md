@@ -10,6 +10,8 @@
 
 下载 Windows 安装包（约 7 MB）：**[Gitee Releases](https://gitee.com/muyan1983/qingbird-md/releases)** ↓
 
+![青鸟 Markdown 主界面：编辑器、预览、大纲三栏式布局，Markdown 源码与渲染结果实时对照](docs/screenshots/app-main-light.png)
+
 ## 为什么值得一试
 
 - **开箱即译，零配置**：内置三个免密钥翻译源（腾讯 Transmart / 金山 iCiba / MyMemory），
