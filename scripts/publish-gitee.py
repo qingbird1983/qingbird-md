@@ -42,7 +42,9 @@ API_BASE = "https://gitee.com/api/v5"
 BRANCH = "main"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NSIS_DIR = REPO_ROOT / "src-tauri" / "target" / "release" / "bundle" / "nsis"
+# Cargo workspace root is the repo root, so `npx tauri build` emits the NSIS
+# bundle under <repo-root>/target/... (NOT src-tauri/target).
+NSIS_DIR = REPO_ROOT / "target" / "release" / "bundle" / "nsis"
 RELEASE_DIR = REPO_ROOT / "release"
 NOTES_SCRIPT = REPO_ROOT / ".github" / "scripts" / "extract-notes.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
