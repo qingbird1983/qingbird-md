@@ -22,6 +22,7 @@ import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
 import { patchPartial } from "../lib/patchPartial";
+import { handlePreviewLinkClick } from "../lib/linkSafety";
 import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
@@ -211,6 +212,21 @@ export default function PreviewView() {
       unsub();
       mq.removeEventListener("change", apply);
     };
+  }, []);
+
+  // T25：预览链接点击接管。document capture 委托——预览容器 innerHTML 整树
+  // 重建不丢监听、先于任何子元素 handler；只处理本预览容器内的 <a>：
+  // http(s)/mailto/tel 走系统浏览器（open_external），# 锚点手动滚动，
+  // 危险/相对链接一律吞掉。绝不发生 WebView 整窗导航（窗口被外部站点顶掉后
+  // 标题栏操作键全失，只能强杀）。
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      handlePreviewLinkClick(e, ref.current, (url) => {
+        void api.openExternal(url).catch(() => {});
+      });
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
   }, []);
 
   if (content === null) return <div className="preview-empty">未打开文档</div>;

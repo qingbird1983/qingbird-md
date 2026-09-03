@@ -12,6 +12,16 @@ adheres to [Semantic Versioning](https://semver.org/).
   bilingual 逐块追加译文框，translation 逐 run 替换浮现。渲染层新增 data-bi/data-ri
   锚点（与翻译单元索引空间一致），前端打字机缓冲把完成序重排为文档序，网络吞吐不变。
 
+### Fixed
+
+- 修复：预览里点击 Markdown 链接会把整个主窗口导航到外部网站——窗口被站点顶掉，
+  自定义标题栏的最小化/最大化/关闭键随页面消失，只能强杀进程。链接渲染统一加
+  `target="_blank" rel="noopener noreferrer"`；前端 capture 委托接管点击：http(s)/
+  mailto/tel 走系统默认浏览器打开（新增 `open_external` 命令，Rust 侧 URL scheme
+  白名单，`javascript:` 等危险协议一律拒绝），`#` 锚点改手动滚动（避开 target=_blank
+  的新窗语义），相对路径等一律吞掉不让 WebView 处理；休眠冷重建窗口另挂
+  `on_navigation` 兜底，外部站点导航直接拦下。
+
 ## [0.1.5] - 2026-09-03
 
 托盘常驻 + 截图翻译 + 开机自启落地，主窗口 WebView 按需休眠把常驻内存还给系统；

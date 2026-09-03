@@ -106,6 +106,28 @@ fn file_mtime(path: String) -> Option<i64> {
     dto::file_mtime_millis(std::path::Path::new(&path))
 }
 
+// ---- 链接外部打开（T25：点 Markdown 链接整窗导航的修复）----
+
+/// URL 是否可用系统默认方式打开。白名单 http/https/mailto/tel——一切其它
+/// scheme（`javascript:`、`data:`、`vbscript:`、相对路径等）都返回 false：
+/// WebView 永不执行或导航到它们。
+pub(crate) fn is_openable_url(url: &str) -> bool {
+    let Ok(parsed) = tauri::Url::parse(url) else {
+        return false;
+    };
+    matches!(parsed.scheme(), "http" | "https" | "mailto" | "tel")
+}
+
+/// 用系统默认浏览器/程序打开外部链接。前端点击 Markdown 链接会走这里；
+/// scheme 白名单在 Rust 侧再兜一道，防止 `javascript:` 之类经任何路径执行。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !is_openable_url(&url) {
+        return Err(format!("blocked url: {url}"));
+    }
+    open::that_detached(&url).map_err(|e| e.to_string())
+}
+
 // ---- 对话框（Task 9，tauri-plugin-dialog）----
 
 /// Convert a dialog result into a path string: `FilePath::Path` -> string,
@@ -939,6 +961,8 @@ pub fn run() {
             apply_op,
             parse_markdown,
             resolve_image,
+            // T25: 预览链接外部打开（系统浏览器）
+            open_external,
             // Task 8: 翻译
             get_providers,
             get_provider_meta,
@@ -1405,5 +1429,25 @@ mod tests {
         let m = dto::file_mtime_millis(&p).unwrap();
         assert!(m > 0);
         std::fs::remove_file(&p).ok();
+    }
+
+    // ---- T25: 预览链接外部打开（点链接不得整窗导航）----
+
+    #[test]
+    fn openable_url_whitelists_http_mailto_tel() {
+        assert!(is_openable_url("https://gitee.com/muyan1983/qingbird-md"));
+        assert!(is_openable_url("http://a.b/c?x=1#y"));
+        assert!(is_openable_url("mailto:a@b.c"));
+        assert!(is_openable_url("tel:+8613800000000"));
+    }
+
+    #[test]
+    fn openable_url_rejects_dangerous_or_relative() {
+        assert!(!is_openable_url("javascript:alert(1)"));
+        assert!(!is_openable_url("data:text/html,<b>x</b>"));
+        assert!(!is_openable_url("vbscript:msgbox(1)"));
+        assert!(!is_openable_url("docs/a.md")); // 相对路径：无 base 无法 parse
+        assert!(!is_openable_url(""));
+        assert!(!is_openable_url("   "));
     }
 }

@@ -51,6 +51,8 @@ export const api = {
   parse: (c: string) => invoke<ParseResult>("parse_markdown", { content: c }),
   resolveImage: (s: string, b: string | null) =>
     invoke<string | null>("resolve_image", { src: s, baseDir: b }),
+  // T25: 预览链接外部打开（Rust 侧 scheme 白名单，拒绝 javascript: 等）
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
 
   // ---- 翻译 ----
   getProviders: () => invoke<ProviderInfo[]>("get_providers"),

@@ -270,7 +270,16 @@ impl<'t> Ctx<'t> {
                     let _ = write!(out, "<code>{}</code>", escape_html(c));
                 }
                 Inline::Link { text, href } => {
-                    let _ = write!(out, r#"<a href="{}">"#, escape_html(href));
+                    // T25：target=_blank 是第一道属性级防线——即使点击漏过前端
+                    // 拦截，WebView2 也只会尝试新窗请求，绝不会把主窗口整窗导航
+                    // 到外部站点（此前无 target 时点一下 = 整个阅读器被网站顶掉，
+                    // 标题栏/快捷键全失，只能强杀）。实际点击由前端 capture 拦截
+                    // 走 open_external（系统浏览器），rel=noopener 防新窗反向劫持。
+                    let _ = write!(
+                        out,
+                        r#"<a href="{}" target="_blank" rel="noopener noreferrer">"#,
+                        escape_html(href)
+                    );
                     self.push_inlines(out, text);
                     out.push_str("</a>");
                 }
@@ -640,5 +649,46 @@ A--&gt;B
             "trailing text preserved: {}",
             r2.html
         );
+    }
+
+    // ---- T25: 链接渲染必须带 target=_blank（防整窗导航劫持）----
+
+    #[test]
+    fn links_carry_target_blank_and_noopener() {
+        let r = render_html(
+            "[青鸟](https://gitee.com/muyan1983/qingbird-md)",
+            &HashMap::new(),
+            false,
+        );
+        assert!(
+            r.html.contains(
+                r#"<a href="https://gitee.com/muyan1983/qingbird-md" target="_blank" rel="noopener noreferrer">"#
+            ),
+            "link must carry target=_blank: {}",
+            r.html
+        );
+        // 危险 scheme 照常转义输出（href 仍是属性值，绝不执行）；拦截在
+        // 前端 capture + Rust open_external 白名单两层兜底。
+        let r2 = render_html("[x](javascript:alert(1))", &HashMap::new(), false);
+        assert!(r2.html.contains(r#"href="javascript:alert(1)""#));
+        assert!(r2.html.contains("target=\"_blank\""));
+        assert!(!r2.html.contains("<script"));
+    }
+
+    #[test]
+    fn links_and_image_links_carry_target() {
+        // 显式链接与「图片包链接」都走 Inline::Link，统一带 target。
+        let r = render_html("[官网](https://example.com/x)", &HashMap::new(), false);
+        assert!(r.html.contains("target=\"_blank\""), "{}", r.html);
+        let r2 = render_html(
+            "[![logo](img/a.png)](https://example.com)",
+            &HashMap::new(),
+            false,
+        );
+        assert!(r2.html.contains("target=\"_blank\""), "{}", r2.html);
+        // 裸 URL（本渲染器未开 GFM autolink）退化为纯文本——不是链接，
+        // 自然无 target，也无需拦截。
+        let r3 = render_html("https://example.com/x", &HashMap::new(), false);
+        assert!(!r3.html.contains("<a "), "{}", r3.html);
     }
 }

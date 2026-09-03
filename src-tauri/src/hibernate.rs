@@ -217,7 +217,20 @@ pub fn spawn_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webview
         .cloned()
         .ok_or(tauri::Error::WindowNotFound)?;
 
-    let win = tauri::WebviewWindowBuilder::from_config(app, &conf)?.build()?;
+    let win = tauri::WebviewWindowBuilder::from_config(app, &conf)?
+        // T25：冷重建窗口是 builder 阶段，能挂导航拦截——外部站点一律拦下
+        // （前端 capture 拦截失效时的兜底；初始 config 窗口运行时无 setter，
+        // 只能靠前端，见 docs/）。放行：本地资源协议 + dev server localhost。
+        .on_navigation(|url| {
+            match url.scheme() {
+                "tauri" | "asset" | "app" => true,
+                "http" | "https" => {
+                    matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
+                }
+                _ => false,
+            }
+        })
+        .build()?;
 
     // 坑 3：新窗口是全新对象，CloseRequested 钩子必须重挂，否则第二次关窗
     //       会真的把应用关掉（关窗隐藏行为丢失）。
