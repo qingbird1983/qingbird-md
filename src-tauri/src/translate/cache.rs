@@ -90,11 +90,6 @@ impl Cache {
         self.map.len()
     }
 
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }
-
     pub fn to_json(&self) -> String {
         serde_json::to_string(&self.map).unwrap_or_default()
     }

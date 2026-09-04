@@ -8,8 +8,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use fs2::FileExt;
-
 use crate::storage::user_data_dir;
 
 fn lock_path() -> PathBuf {
@@ -30,10 +28,7 @@ pub fn acquire_lock() -> Option<File> {
         .create(true)
         .open(lock_path())
         .ok()?;
-    match f.try_lock_exclusive() {
-        Ok(()) => Some(f),
-        Err(_) => None,
-    }
+    f.try_lock().ok().map(|()| f)
 }
 
 /// Ask the running instance to open `path` (used when a second launch happens).

@@ -2,6 +2,7 @@
 //! (file read/write, settings read/write). Workspace/editor commands land in
 //! Task 6, dialogs Task 9, translation Task 8 — appended to `generate_handler!`.
 
+mod bridge;
 mod capture;
 mod dto;
 mod editor;
@@ -15,7 +16,6 @@ mod tray;
 mod translate;
 mod workspace;
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,41 +29,32 @@ use translate::cache::Cache;
 
 /// Managed shared state, registered via `.manage(AppTxn::new(lock))`.
 ///
-/// `ponytail:` lock_file 初始化后永不读（测试断言保留除外）——持有 File 本身
-/// 就是让 OS 建议锁活到进程退出，不是脚手架。
-#[allow(dead_code)]
-struct AppTxn {
+/// `lock_file` 仅做 RAII 持有：acquire_lock 返回的 File 留在字段里活到进程
+/// 退出（释放即丢单实例锁），构造后无路径再读它。Mutex 是过度封装。
+pub struct AppTxn {
     /// 翻译缓存共享。Arc 包一层：Task 8 后台 worker 克隆 Arc 出去，收尾时
     /// 短暂锁回写新键并落盘——绝不跨网络请求持锁。
-    cache: Arc<Mutex<Cache>>,
-    cancel: Arc<AtomicBool>, // 当前批次取消旗标
-    running: Arc<AtomicBool>,
+    pub(crate) cache: Arc<Mutex<Cache>>,
+    pub(crate) cancel: Arc<AtomicBool>, // 当前批次取消旗标
+    pub(crate) running: Arc<AtomicBool>,
     /// 代次：新一轮翻译 +1；事件里带上，前端丢弃过期。
     /// Rust 2024 保留字，raw identifier（序列化不涉及，仅内部状态）。
-    r#gen: AtomicU64,
-    lock_file: Mutex<Option<File>>, // 单实例锁持有物，保进程生命周期
-}
-
-impl Default for AppTxn {
-    fn default() -> Self {
-        Self {
-            cache: Arc::new(Mutex::new(Cache::new())),
-            cancel: Arc::new(AtomicBool::new(false)),
-            running: Arc::new(AtomicBool::new(false)),
-            r#gen: AtomicU64::new(0),
-            lock_file: Mutex::new(None),
-        }
-    }
+    pub(crate) r#gen: AtomicU64,
+    // 仅做 RAII 持有（单实例锁活到进程退出），构造后无路径再读它。
+    #[allow(dead_code)]
+    lock_file: Option<File>,
 }
 
 impl AppTxn {
-    fn new(lock: Option<File>) -> Self {
-        let s = Self::default();
+    pub(crate) fn new(lock: Option<File>) -> Self {
         // 启动时接续上次落盘的翻译记忆（save 在 worker 收尾/clear_cache 时写回）。
-        // Default 保持空缓存，测试不依赖真机磁盘状态。
-        *s.cache.lock().expect("cache mutex poisoned") = Cache::load(&storage::cache_path());
-        *s.lock_file.lock().expect("lock_file mutex poisoned") = lock;
-        s
+        Self {
+            cache: Arc::new(Mutex::new(Cache::load(&storage::cache_path()))),
+            cancel: Arc::new(AtomicBool::new(false)),
+            running: Arc::new(AtomicBool::new(false)),
+            r#gen: AtomicU64::new(0),
+            lock_file: lock,
+        }
     }
 }
 
@@ -203,16 +194,13 @@ fn get_user_data_dir() -> String {
 }
 
 /// 清空翻译缓存并立即落盘（Task 26 设置弹窗「清除翻译缓存」）。
-/// 两次短暂锁：clear 与 save 各自持锁，绝不跨任何长操作持有。
+/// 单锁持有：clear 与 save 一起，绝不跨任何长操作持有。
 /// save 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
 #[tauri::command]
 fn clear_cache(st: tauri::State<AppTxn>) -> Result<(), String> {
-    st.cache.lock().expect("cache mutex poisoned").clear();
-    st.cache
-        .lock()
-        .expect("cache mutex poisoned")
-        .save(&storage::cache_path())
-        .map_err(|e| e.to_string())
+    let mut c = st.cache.lock().expect("cache mutex poisoned");
+    c.clear();
+    c.save(&storage::cache_path()).map_err(|e| e.to_string())
 }
 
 // ---- 休眠会话快照（docs/webview-hibernate-plan.md 步骤 5）----
@@ -257,15 +245,13 @@ fn take_pending_open() -> Vec<String> {
 /// `.txt` only; dotfiles and vendored/build dirs skipped by `workspace::walk`).
 #[tauri::command]
 fn open_workspace(path: String) -> Vec<dto::TreeNodeDTO> {
-    tree_out(&workspace::walk(std::path::Path::new(&path)))
+    workspace::walk(std::path::Path::new(&path))
 }
 
-/// Filter a client-held tree by filename query. Kernel filter operates on
-/// [`workspace::TreeNode`], so this is the pure mechanical mapping
-/// DTO→TreeNode→filter→DTO.
+/// Filter a client-held tree by filename query.
 #[tauri::command]
 fn filter_workspace(tree: Vec<dto::TreeNodeDTO>, query: String) -> Vec<dto::TreeNodeDTO> {
-    tree_out(&workspace::filter(&tree_in(&tree), &query))
+    workspace::filter(&tree, &query)
 }
 
 /// Create an empty file; refuses to overwrite (`create_new`).
@@ -364,461 +350,6 @@ fn snap_down(c: &str, mut i: usize) -> usize {
     i
 }
 
-// ---- 翻译（Task 8）----
-
-/// Wire contract for the `translation-progress` event (Task 14 binds these
-/// exact field names). Serialized as `{gen, done, total}`.
-#[derive(Clone, serde::Serialize)]
-struct TranslationProgressEvt {
-    /// Rust 2024 保留字 raw identifier；serde 序列化仍输出 `"gen"`。
-    r#gen: u64,
-    done: usize,
-    total: usize,
-}
-
-/// Wire contract for the `translation-done` event:
-/// `{gen, ok, translations?: [[usize, String]], error?,
-///   html_original?, html_translation?, html_bilingual?, outline?}`.
-/// `translations` 是按下标升序的 pair 数组（HashMap 无序，保证前端确定性渲染）；
-/// None 字段在 JSON 中整体缺席。
-///
-/// Task 8 扩展：完成路径随事件附带三种渲染形态 + 原文结构 outline，前端切
-/// 模式零延迟。译文形态只出与批次索引空间匹配的一种（见
-/// [`html_payload_parts`]），另一种缺席——错配空间会把译文放错位置。
-#[derive(Clone, serde::Serialize)]
-struct TranslationDoneEvt {
-    r#gen: u64,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    translations: Option<Vec<(usize, String)>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    html_original: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    html_translation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    html_bilingual: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    outline: Option<Vec<markdown::html::OutlineItem>>,
-}
-
-/// Wire contract for the `translation-partial` event（整篇翻译的逐段流式下发）：
-/// `{gen, index, text}`——index 与 `translation-done` 的 pair 首元素同一索引
-/// 空间（translation 模式 = text runs，bilingual 模式 = translatable 块）。
-/// 每段译完即刻下发，不等整批结束：用户先看到第一段，而不是等全篇。
-#[derive(Clone, serde::Serialize)]
-struct TranslationPartialEvt {
-    r#gen: u64,
-    index: usize,
-    text: String,
-}
-
-/// Wire contract for the `lookup-delta` event（划词查词流式渐进渲染）：
-/// `{text, content}`——text 是归一（trim）后的查词原文供前端乱序匹配，
-/// content 是截止当前的累积 LLM 输出（每次 delta 全量覆盖，非增量）。
-#[derive(Clone, serde::Serialize)]
-struct LookupDeltaEvt {
-    text: String,
-    content: String,
-}
-
-/// 进度事件最小间隔。engine 每译完一段回调一次，长文档上千段会把 webview
-/// 事件队列压满——而进度条 80ms 刷一帧肉眼已完全平滑。
-const PROGRESS_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
-
-/// Pure core of the done-payload assembly (unit-testable without threads):
-/// successes become `[index, text]` pairs sorted ascending; the first error wins.
-fn done_payload_parts(
-    indices: &[usize],
-    results: &[Result<String, String>],
-) -> (bool, Vec<(usize, String)>, Option<String>) {
-    let mut pairs = Vec::new();
-    let mut err = None;
-    for (i, r) in results.iter().enumerate() {
-        match r {
-            Ok(v) => pairs.push((indices[i], v.clone())),
-            Err(e) => {
-                if err.is_none() {
-                    err = Some(e.clone());
-                }
-            }
-        }
-    }
-    pairs.sort_by_key(|p| p.0);
-    (err.is_none(), pairs, err)
-}
-
-/// 完成路径的 html/outline 组装（纯函数，worker 收尾调用）：
-/// - 原文形态恒出：空 map = 纯原文渲染，outline 为原文结构（只此一份）。
-/// - 译文形态按批次索引空间二选一：translation 批次的 map 是
-///   `units::collect_text_runs` 空间 → substituted 形式（trans 非空即替换）；
-///   bilingual 批次的 map 是 `units::collect_translatable` 空间 → bilingual
-///   形式。另一形式缺席：两个收集器的索引空间互不兼容，错配会把译文放在
-///   错误位置，宁缺勿错（前端可自行回退渲染）。
-/// - render_html 内部自行 parse_blocks：brief 裁定先对齐行为，不重构共享解析。
-fn html_payload_parts(
-    content: &str,
-    trans: &HashMap<usize, String>,
-    bilingual_batch: bool,
-) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
-    let orig = markdown::html::render_html(content, &HashMap::new(), false);
-    let (html_translation, html_bilingual) = if bilingual_batch {
-        (None, Some(markdown::html::render_html(content, trans, true).html))
-    } else {
-        (Some(markdown::html::render_html(content, trans, false).html), None)
-    };
-    (orig.html, html_translation, html_bilingual, orig.outline)
-}
-
-/// `translate_document` 的返回：起跑（前端进 running 等事件收尾），或缓存
-/// 全命中同步完成（前端直接落库展示——无进度条、不经事件通道，事件/invoke
-/// 到达顺序竞态从根上消失）。
-#[derive(Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum TranslateStart {
-    Started {
-        r#gen: u64,
-    },
-    Cached {
-        done: TranslationDoneEvt,
-    },
-}
-
-/// 缓存全命中预检的纯核心（可单测）：所有批次文本均在缓存快照中 ⇒ 组装
-/// 同步完成的 done 事件（gen 置 0，不随事件发出）；任一未命中 ⇒ None，
-/// 走正常 worker 路径。空批次平凡命中（空文档无需起 worker）。
-///
-/// `variant` 是模型 + 提示词版本：换模型后这里必然 miss，旧译文不会复活。
-fn cached_done_evt(
-    provider: &str,
-    variant: &str,
-    snapshot: &Cache,
-    indices: &[usize],
-    texts: &[String],
-    content: &str,
-    bilingual_batch: bool,
-) -> Option<TranslationDoneEvt> {
-    let results: Vec<Result<String, String>> = texts
-        .iter()
-        .map(|t| {
-            snapshot
-                .get(&Cache::key(provider, variant, t))
-                .map(|s| s.to_string())
-                .ok_or_else(|| "缓存缺失".to_string())
-        })
-        .collect();
-    let (ok, pairs, _) = done_payload_parts(indices, &results);
-    if !ok {
-        return None;
-    }
-    let map: HashMap<usize, String> = pairs.iter().cloned().collect();
-    let (html_original, html_translation, html_bilingual, outline) =
-        html_payload_parts(content, &map, bilingual_batch);
-    Some(TranslationDoneEvt {
-        r#gen: 0,
-        ok: true,
-        translations: Some(pairs),
-        error: None,
-        html_original: Some(html_original),
-        html_translation,
-        html_bilingual,
-        outline: Some(outline),
-    })
-}
-
-/// State pieces cloned out of [`AppTxn`] once at start so the worker thread
-/// never touches managed-state borrows.
-struct WorkerState {
-    cache: Arc<Mutex<Cache>>, // 回写目标（worker 收尾时短暂锁回写 + 落盘）
-    cancel: Arc<AtomicBool>,
-    running: Arc<AtomicBool>,
-}
-
-#[tauri::command]
-fn get_providers() -> Vec<dto::ProviderInfoDto> {
-    translate::providers_meta::all_infos()
-}
-
-#[tauri::command]
-fn get_provider_meta(key: String) -> Option<dto::ProviderInfoDto> {
-    translate::providers_meta::info(&key)
-}
-
-/// 划词翻译：文本天然短，单发直调 provider（超长选区由前端限制）。
-/// async 命令：阻塞网络调用必须离开主线程（UreqClient 无超时，provider
-/// 挂起可达 30s+），否则冻结 UI 事件循环（同 T9 pick_* 先例）。
-#[tauri::command(async)]
-fn translate_text(
-    text: String,
-    provider: String,
-    creds: HashMap<String, String>,
-) -> Result<String, String> {
-    if translate::providers_meta::get(&provider).is_none() {
-        return Err(format!("未知翻译源：{provider}"));
-    }
-    std::thread::spawn(move || {
-        let http = translate::http::UreqClient::shared();
-        translate::providers::provider(&provider, &text, &translate::providers::Creds(creds), http)
-    })
-    .join()
-    .map_err(|_| "翻译线程崩溃".to_string())
-    .and_then(|r| r)
-}
-
-/// 选区查词：两阶段并发（极简译文先到 + 富信息后补），译文边生成边经
-/// `lookup-delta` 推给前端。结果进翻译缓存（provider 名 "llm-lookup"，键含
-/// 模型版本），命中零网络。网络段走 spawn+join（同 translate_text 先例）：
-/// 阻塞 HTTP 不占 tokio worker。缓存锁纪律：短锁读 → 网络（独立线程，不持锁）
-/// → 短锁写 + 落盘。
-#[tauri::command(async)]
-fn lookup_word(
-    text: String,
-    creds: HashMap<String, String>,
-    app: tauri::AppHandle,
-    st: tauri::State<AppTxn>,
-) -> Result<dto::WordLookupDTO, String> {
-    // spec §5.2：用户消息 = text.trim()，入口先归一（缓存键与 prompt 消息随之统一）
-    let text = text.trim().to_string();
-    let creds = translate::providers::Creds(creds);
-    // 换模型 / 改提示词后键自动变化，旧释义不会复活。
-    let variant = translate::lookup::cache_variant_for(&creds);
-    // 1. 短锁命中检查（缓存坏 JSON 自愈为未命中，见 cache_get_lookup）；
-    //    命中零网络，无需起线程
-    {
-        let c = st.cache.lock().expect("cache mutex poisoned");
-        if let Some(dto) = translate::lookup::cache_get_lookup(&c, &text, &variant) {
-            return Ok(dto);
-        }
-    }
-    // 2. 网络调用绝不持锁：独立线程上跑，join 处只短暂等待；
-    //    阶段一的流式 delta 经 lookup-delta 事件推送（text 供前端乱序匹配）
-    let dto = {
-        let net_text = text.clone();
-        let app = app.clone();
-        std::thread::spawn(move || {
-            let http = translate::http::UreqClient::shared();
-            let mut emit = |acc: &str| {
-                let _ = app.emit(
-                    "lookup-delta",
-                    LookupDeltaEvt { text: net_text.clone(), content: acc.to_string() },
-                );
-            };
-            translate::lookup::lookup(&net_text, &creds, http, &mut emit)
-        })
-        .join()
-        .map_err(|_| "查词线程崩溃".to_string())
-        .and_then(|r| r)?
-    };
-    // 3. 短锁回写 + 落盘；落盘失败仅丢持久性（内存已有），不向用户报错
-    {
-        let mut c = st.cache.lock().expect("cache mutex poisoned");
-        translate::lookup::cache_put_lookup(&mut c, &text, &variant, &dto);
-        let _ = c.save(&storage::cache_path());
-    }
-    Ok(dto)
-}
-
-/// 拉取 LLM 厂商可用模型列表（OpenAI 兼容 GET /models），供设置弹窗点选，
-/// 消除模型 ID 手填错误。编排已在 lookup::fetch_models（可测），此处薄壳；
-/// spawn+join 同 translate_text 先例，阻塞 HTTP 不占 tokio worker。
-#[tauri::command(async)]
-fn llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
-    std::thread::spawn(move || {
-        let http = translate::http::UreqClient::shared();
-        translate::lookup::fetch_models(&base_url, &api_key, http)
-    })
-    .join()
-    .map_err(|_| "模型列表线程崩溃".to_string())
-    .and_then(|r| r)
-}
-
-/// 停止当前后台批次：worker 里每个 HTTP 请求出发前经 CancelableClient 检查旗标，
-/// 置位后未发请求全部 fail-fast、已排队批次在边界处排空。
-#[tauri::command]
-fn stop_translation(state: tauri::State<AppTxn>) {
-    state.cancel.store(true, Ordering::SeqCst);
-}
-
-/// 整篇文档翻译：缓存全命中时不起 worker，产物随本调用同步返回
-/// （`TranslateStart::Cached`）；否则即刻返回 gen 号（`TranslateStart::Started`），
-/// 真正翻译在后台线程，进度/完成经 Event 推送（`translation-progress` /
-/// `translation-done`）。忙碌时返回错误。
-#[tauri::command]
-fn translate_document(
-    app: tauri::AppHandle,
-    content: String,
-    mode: String,
-    provider: String,
-    creds: HashMap<String, String>,
-    state: tauri::State<AppTxn>,
-) -> Result<TranslateStart, String> {
-    let meta = translate::providers_meta::get(&provider)
-        .ok_or_else(|| format!("未知翻译源：{provider}"))?;
-    let blocks = markdown::parse_blocks(&content);
-    let units = match mode.as_str() {
-        "translation" => markdown::units::collect_text_runs(&blocks),
-        "bilingual" => markdown::units::collect_translatable(&blocks),
-        other => return Err(format!("不支持的模式：{other}")),
-    };
-    // 缓存全命中预检：快照锁内 clone 后判定，不起 worker、不占 running、
-    // 不发事件——「有缓存直接展示，不弹进度条」由返回值直达保证。
-    let snapshot = state.cache.lock().expect("cache mutex poisoned").clone();
-    let (indices, texts): (Vec<usize>, Vec<String>) = units.into_iter().unzip();
-    let bilingual = mode == "bilingual";
-    // 缓存 variant 随模型/提示词版本变化：换模型后旧译文自动 miss，
-    // 否则用户会看到上一个模型的译文并以为是质量问题。
-    let variant = translate::engine::cache_variant(
-        &provider,
-        creds.get("model").map(|s| s.as_str()).unwrap_or_default(),
-    );
-    if let Some(done) =
-        cached_done_evt(&provider, &variant, &snapshot, &indices, &texts, &content, bilingual)
-    {
-        return Ok(TranslateStart::Cached { done });
-    }
-    // 忙碌检查：CAS false→true 成功才开工；失败即拒绝并保留原任务。
-    state
-        .running
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .map_err(|_| "已有翻译在进行".to_string())?;
-    let r#gen = state.r#gen.fetch_add(1, Ordering::SeqCst) + 1;
-    state.cancel.store(false, Ordering::SeqCst);
-
-    let st = WorkerState {
-        cache: Arc::clone(&state.cache),
-        cancel: Arc::clone(&state.cancel),
-        running: Arc::clone(&state.running),
-    };
-    spawn_translation(app, r#gen, texts, indices, provider, creds, meta, st, snapshot, content, bilingual);
-    Ok(TranslateStart::Started { r#gen })
-}
-
-/// 后台 worker 编排：UreqClient 包 CancelableClient 交给 engine，每段译完立刻
-/// 经 `translation-partial` 下发（进度帧节流到 80ms 一发）；收尾时把新键 merge
-/// 回共享缓存并落盘，再 emit 完成事件、释放 running。
-/// 事件只在 worker 线程经 AppHandle clone 发出；前端按 gen 丢弃过期事件。
-///
-/// engine 的并发/分批/重试策略见 [`translate::engine`]；这里只负责搬运状态
-/// 与事件形状，不掺翻译逻辑。
-fn spawn_translation(
-    app: tauri::AppHandle,
-    r#gen: u64,
-    texts: Vec<String>,
-    indices: Vec<usize>,
-    provider: String,
-    creds: HashMap<String, String>,
-    meta: &'static translate::providers_meta::ProviderMeta,
-    st: WorkerState,
-    mut work_cache: Cache,
-    content: String,
-    bilingual: bool,
-) {
-    std::thread::spawn(move || {
-        let http0 = translate::http::UreqClient::shared();
-        let http = translate::cancel::CancelableClient { inner: http0, cancel: &st.cancel };
-        let creds = translate::providers::Creds(creds);
-        let variant =
-            translate::engine::cache_variant(&provider, creds.get("model").unwrap_or_default());
-
-        // engine 以 (文档下标, 原文) 为单位工作，与 done 事件的 pair 空间一致。
-        let units: Vec<(usize, String)> =
-            indices.iter().copied().zip(texts.iter().cloned()).collect();
-        let config = translate::engine::EngineConfig::for_provider(
-            &provider,
-            meta.max_len,
-            meta.max_concurrency,
-        );
-        let req = translate::engine::EngineRequest {
-            provider: &provider,
-            creds: &creds,
-            units: &units,
-            http: &http,
-            config,
-            cache_variant: &variant,
-        };
-
-        let app_evt = app.clone();
-        // 进度节流：一段一回调，上千段文档会把 webview 事件队列压满。
-        let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-        let emit = |ev: translate::engine::EngineEvent| match ev {
-            translate::engine::EngineEvent::Unit { index, text } => {
-                let _ = app_evt.emit(
-                    "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text },
-                );
-            }
-            translate::engine::EngineEvent::Progress { done, total } => {
-                let mut last = last_progress.lock().expect("progress mutex poisoned");
-                let due = last.map(|t| t.elapsed() >= PROGRESS_MIN_INTERVAL).unwrap_or(true);
-                if due || done >= total {
-                    *last = Some(std::time::Instant::now());
-                    drop(last);
-                    let _ = app_evt.emit(
-                        "translation-progress",
-                        TranslationProgressEvt { r#gen, done, total },
-                    );
-                }
-            }
-            // 单段失败不打断整篇：它只是不出现在结果里，done 事件带首个错误。
-            translate::engine::EngineEvent::Failed { .. } => {}
-        };
-
-        let results = translate::engine::run(&req, &mut work_cache, &emit);
-
-        // merge 回写：锁内只做内存 set + 快照 JSON，落盘紧随其后（单一写者，
-        // 由 running 单飞保护，锁不跨网络请求）。is_dirty 由 Cache 自己记账，
-        // 全命中（或全失败）时一次磁盘写都不做。
-        {
-            let mut shared = st.cache.lock().expect("cache mutex poisoned");
-            for (i, r) in results.iter().enumerate() {
-                if let Ok(v) = r {
-                    shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
-                }
-            }
-            if shared.is_dirty() {
-                let _ = shared.save(&storage::cache_path());
-            }
-        }
-
-        let (ok, pairs, err) = done_payload_parts(&indices, &results);
-        let payload = if ok {
-            // 完成（含缓存全命中零网络）：组装三形态 + outline 随事件一并发出。
-            // pairs 已按 index 升序，collect 回 HashMap 供 render_html 查表。
-            let map: HashMap<usize, String> = pairs.iter().cloned().collect();
-            let (html_original, html_translation, html_bilingual, outline) =
-                html_payload_parts(&content, &map, bilingual);
-            TranslationDoneEvt {
-                r#gen,
-                ok: true,
-                translations: Some(pairs),
-                error: None,
-                html_original: Some(html_original),
-                html_translation,
-                html_bilingual,
-                outline: Some(outline),
-            }
-        } else {
-            // 取消/失败：维持现状（translations 缺席），html/outline 同样缺席，
-            // 不阻塞 done 事件本身。
-            TranslationDoneEvt {
-                r#gen,
-                ok: false,
-                translations: None,
-                error: err,
-                html_original: None,
-                html_translation: None,
-                html_bilingual: None,
-                outline: None,
-            }
-        };
-        // 先释放单飞再 emit done：换挡补跑（done 收尾立刻按新模式重发起）的
-        // invoke 不再撞「已有翻译在进行」的 CAS 窗口。
-        st.running.store(false, Ordering::SeqCst);
-        let _ = app.emit("translation-done", payload);
-    });
-}
-
 /// 首帧就绪后显示主窗口的一次性闩（`visible:false` 配置的补偿）。
 ///
 /// 放在模块级而非 `run()` 局部变量：`spawn_main_window` 冷重建窗口时必须能复位
@@ -856,30 +387,6 @@ fn hook_main_window_close(win: &tauri::WebviewWindow) {
             hibernate::schedule(&h);
         }
     });
-}
-
-fn tree_out(nodes: &[workspace::TreeNode]) -> Vec<dto::TreeNodeDTO> {
-    nodes
-        .iter()
-        .map(|n| dto::TreeNodeDTO {
-            name: n.name.clone(),
-            path: n.path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            is_dir: n.is_dir,
-            children: tree_out(&n.children),
-        })
-        .collect()
-}
-
-fn tree_in(nodes: &[dto::TreeNodeDTO]) -> Vec<workspace::TreeNode> {
-    nodes
-        .iter()
-        .map(|n| workspace::TreeNode {
-            name: n.name.clone(),
-            path: n.path.as_ref().map(std::path::PathBuf::from),
-            is_dir: n.is_dir,
-            children: tree_in(&n.children),
-        })
-        .collect()
 }
 
 // ---- 单实例 handoff（Task 10）----
@@ -969,15 +476,15 @@ pub fn run() {
             resolve_image,
             // T25: 预览链接外部打开（系统浏览器）
             open_external,
-            // Task 8: 翻译
-            get_providers,
-            get_provider_meta,
-            translate_text,
+            // Task 8: 翻译（编排与事件见 bridge.rs）
+            bridge::get_providers,
+            bridge::get_provider_meta,
+            bridge::translate_text,
             // 选区查词（2026-08-29 spec）
-            lookup_word,
-            llm_list_models,
-            translate_document,
-            stop_translation,
+            bridge::lookup_word,
+            bridge::llm_list_models,
+            bridge::translate_document,
+            bridge::stop_translation,
             // Task 9: 对话框
             pick_file,
             pick_folder,
@@ -1069,17 +576,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::sync::atomic::Ordering;
 
     #[test]
-    fn txn_defaults_are_quiescent() {
-        let t = AppTxn::default();
+    fn txn_new_is_quiescent_when_no_lock() {
+        let t = AppTxn::new(None);
         assert_eq!(t.r#gen.load(Ordering::Relaxed), 0);
         assert!(!t.cancel.load(Ordering::Relaxed));
         assert!(!t.running.load(Ordering::Relaxed));
-        assert!(t.cache.lock().unwrap().is_empty());
-        assert!(t.lock_file.lock().unwrap().is_none());
+        assert!(t.lock_file.is_none());
     }
 
     #[test]
@@ -1093,7 +598,7 @@ mod tests {
             .open(dir.join("lock"))
             .unwrap();
         let t = AppTxn::new(Some(f));
-        assert!(t.lock_file.lock().unwrap().is_some());
+        assert!(t.lock_file.is_some());
         // generation starts fresh even when a lock is held
         assert_eq!(t.r#gen.load(Ordering::Relaxed), 0);
     }
@@ -1155,35 +660,6 @@ mod tests {
     }
 
     #[test]
-    fn tree_out_and_back_preserve_structure() {
-        let inner = workspace::TreeNode {
-            name: "g.md".into(),
-            path: Some(PathBuf::from("w/docs/g.md")),
-            is_dir: false,
-            children: vec![],
-        };
-        let tree = vec![workspace::TreeNode {
-            name: "docs".into(),
-            path: Some(PathBuf::from("w/docs")),
-            is_dir: true,
-            children: vec![inner],
-        }];
-        let out = tree_out(&tree);
-        assert_eq!(out[0].name, "docs");
-        assert!(out[0].is_dir);
-        assert_eq!(out[0].children[0].name, "g.md");
-        assert!(!out[0].children[0].is_dir);
-        assert_eq!(out[0].children[0].path.as_deref(), Some("w/docs/g.md"));
-
-        let back = tree_in(&out);
-        assert_eq!(back[0].is_dir, true);
-        assert_eq!(
-            back[0].children[0].path.clone().unwrap(),
-            PathBuf::from("w/docs/g.md")
-        );
-    }
-
-    #[test]
     fn filter_workspace_dto_command_matches_and_keeps_ancestors() {
         let mk_file = |n: &str| dto::TreeNodeDTO {
             name: n.into(),
@@ -1209,182 +685,6 @@ mod tests {
         let all = filter_workspace(tree.clone(), "   ".into()); // 空查询原样返回
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].children.len(), 2);
-    }
-
-    // ---- Task 8: 翻译命令 ----
-
-    #[test]
-    fn done_payload_parts_sorts_pairs_and_picks_first_error() {
-        // 混合成败：只收集成功对，错误取首个；输出按 index 升序
-        let indices = [5usize, 2, 9];
-        let results = vec![
-            Ok("五".to_string()),
-            Err("已取消".to_string()),
-            Ok("九".to_string()),
-        ];
-        let (ok, pairs, err) = done_payload_parts(&indices, &results);
-        assert!(!ok);
-        assert_eq!(err.as_deref(), Some("已取消"));
-        assert_eq!(pairs, vec![(5usize, "五".into()), (9usize, "九".into())]);
-
-        let (_, pairs2, _) = done_payload_parts(&[3usize, 1], &[Ok("乙".into()), Ok("甲".into())]);
-        assert_eq!(pairs2, vec![(1usize, "甲".into()), (3usize, "乙".into())]);
-    }
-
-    #[test]
-    fn cached_precheck_returns_payload_only_on_full_hit() {
-        // 全命中：同步产物随返回值直达（无事件、无进度条）；形态按批次二选一
-        let mut c = Cache::new();
-        c.set(Cache::key("p", "", "a"), "甲".into());
-        c.set(Cache::key("p", "", "b"), "乙".into());
-        let evt =
-            cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "b".into()], "# t\n\na b", false)
-                .expect("全命中应返回同步产物");
-        assert!(evt.ok);
-        assert_eq!(evt.translations, Some(vec![(0usize, "甲".into()), (1usize, "乙".into())]));
-        assert!(evt.html_translation.is_some());
-        assert!(evt.html_bilingual.is_none());
-        assert!(evt.html_original.is_some());
-        assert!(evt.outline.is_some());
-        // bilingual 批次：出 html_bilingual
-        let evt2 = cached_done_evt("p", "", &c, &[0], &["a".into()], "a", true).expect("全命中");
-        assert!(evt2.html_bilingual.is_some() && evt2.html_translation.is_none());
-        // 部分未命中：None → 走正常 worker 路径
-        assert!(
-            cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "x".into()], "# t", false).is_none()
-        );
-        // provider 键空间隔离
-        assert!(cached_done_evt("q", "", &c, &[0], &["a".into()], "# t", false).is_none());
-        // variant 隔离：换模型后旧译文不能复活（否则用户会以为模型变差了）
-        c.set(Cache::key("llm", "old-model@v1", "a"), "旧译文".into());
-        assert!(cached_done_evt("llm", "old-model@v1", &c, &[0], &["a".into()], "# t", false).is_some());
-        assert!(
-            cached_done_evt("llm", "new-model@v1", &c, &[0], &["a".into()], "# t", false).is_none(),
-            "换模型必须 miss"
-        );
-        // 空批次平凡命中（空文档无需起 worker）
-        assert!(cached_done_evt("p", "", &c, &[], &[].to_vec(), "# t", false).is_some());
-    }
-
-    #[test]
-    fn translation_partial_evt_wire_shape() {
-        // Wire contract：字段名与 done 的 pair 空间一致，前端按 index 直接落表。
-        let e = TranslationPartialEvt { r#gen: 4, index: 12, text: "译文".into() };
-        let v = serde_json::to_value(&e).unwrap();
-        assert_eq!(v["gen"], 4);
-        assert_eq!(v["index"], 12);
-        assert_eq!(v["text"], "译文");
-    }
-
-    #[test]
-    fn translation_done_evt_wire_shape() {
-        // Wire contract（Task 14 绑定字段名）：{gen, ok, translations?: [[i, text]], error?}
-        // Task 8 扩展：完成路径附带 html 形态 + outline；缺席字段在 JSON 无键。
-        // 索引空间现实（task-8ext-report）：translation 批次 map 是
-        // collect_text_runs 空间 → 只出 html_translation；bilingual 批次反之
-        // → 只出 html_bilingual。原文形态 + outline 恒在。
-        let e = TranslationDoneEvt {
-            r#gen: 7,
-            ok: true,
-            translations: Some(vec![(0, "甲".into()), (1, "乙".into())]),
-            error: None,
-            html_original: Some(r#"<h1 id="h-1">T</h1>"#.into()),
-            html_translation: Some("<p>译</p>".into()),
-            html_bilingual: None,
-            outline: Some(vec![markdown::html::OutlineItem {
-                level: 1,
-                text: "T".into(),
-                id: "h-1".into(),
-            }]),
-        };
-        let v = serde_json::to_value(&e).unwrap();
-        assert_eq!(v["gen"], 7);
-        assert_eq!(v["ok"], true);
-        assert_eq!(v["translations"], serde_json::json!([[0, "甲"], [1, "乙"]]));
-        assert!(v.get("error").is_none());
-        assert_eq!(v["html_original"], r#"<h1 id="h-1">T</h1>"#);
-        assert_eq!(v["html_translation"], "<p>译</p>");
-        assert!(v.get("html_bilingual").is_none());
-        assert_eq!(
-            v["outline"],
-            serde_json::json!([{ "level": 1, "text": "T", "id": "h-1" }])
-        );
-
-        let e2 = TranslationDoneEvt {
-            r#gen: 7,
-            ok: false,
-            translations: None,
-            error: Some("已取消".into()),
-            html_original: None,
-            html_translation: None,
-            html_bilingual: None,
-            outline: None,
-        };
-        let v2 = serde_json::to_value(&e2).unwrap();
-        assert_eq!(v2["error"], "已取消");
-        assert!(v2.get("translations").is_none());
-        assert!(v2.get("html_original").is_none());
-        assert!(v2.get("html_bilingual").is_none());
-        assert!(v2.get("outline").is_none());
-    }
-
-    #[test]
-    fn html_payload_parts_follow_batch_index_space() {
-        // run 空间事实（units::collect_runs_inline）：每个 Inline::Text 计一 run，
-        // 空格含在 run 内——"Hello " 是完整 run，只有 **/链接 等才切分。
-        // "# Ti\n\nHello **world** more" → run0=Ti, run1="Hello ", run2=world,
-        // run3=" more"（与 html.rs substituted_keeps_bold_wrapper 测试同构）。
-        // translation 批次：substituted 形式可出、bilingual 形式缺席（错配空间
-        // 会把 tr-box 放错位）。
-        let mut m = HashMap::new();
-        m.insert(0usize, "标题".into());
-        m.insert(1usize, "你好".into());
-        m.insert(2usize, "世界".into());
-        m.insert(3usize, "更多".into());
-        let (html_original, tr, bi, outline) =
-            html_payload_parts("# Ti\n\nHello **world** more", &m, false);
-        assert!(html_original.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#));
-        assert!(
-            html_original.contains(
-                r#"<p data-bi="1"><span data-ri="1">Hello </span><strong><span data-ri="2">world</span></strong><span data-ri="3"> more</span></p>"#
-            )
-        );
-        let tr = tr.expect("translation batch must carry substituted form");
-        assert!(tr.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">标题</span></h1>"#));
-        assert!(
-            tr.contains(
-                r#"<p data-bi="1"><span data-ri="1">你好</span><strong><span data-ri="2">世界</span></strong><span data-ri="3">更多</span></p>"#
-            )
-        );
-        assert!(bi.is_none());
-        assert_eq!(outline.len(), 1);
-        assert_eq!(outline[0].text, "Ti");
-        assert_eq!(outline[0].id, "h-1");
-
-        // bilingual 批次：map 是 translatable 块空间（块0=标题、块1=段落），
-        // bilingual 形式可出、substituted 缺席；原文形式不受批次模式影响。
-        let mut b = HashMap::new();
-        b.insert(0usize, "中文标题".into());
-        b.insert(1usize, "中文正文".into());
-        let (orig2, tr2, bi2, _) = html_payload_parts("# Ti\n\nHello **world** more", &b, true);
-        assert!(tr2.is_none());
-        let bi2 = bi2.expect("bilingual batch must carry bilingual form");
-        assert!(bi2.contains(r#"<div class="tr-box">中文标题</div>"#));
-        assert!(bi2.contains(r#"<div class="tr-box">中文正文</div>"#));
-        assert!(
-            orig2.contains(
-                r#"<p data-bi="1"><span data-ri="1">Hello </span><strong><span data-ri="2">world</span></strong><span data-ri="3"> more</span></p>"#
-            )
-        );
-    }
-
-    #[test]
-    fn translation_progress_evt_wire_shape() {
-        let e = TranslationProgressEvt { r#gen: 3, done: 2, total: 5 };
-        let v = serde_json::to_value(&e).unwrap();
-        assert_eq!(v["gen"], 3);
-        assert_eq!(v["done"], 2);
-        assert_eq!(v["total"], 5);
     }
 
     // ---- Task 10: 单实例 handoff / 文件关联首开 ----

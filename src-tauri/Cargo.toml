@@ -25,7 +25,6 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.22"
 dirs = "6.0"
 encoding_rs = "0.8"
-fs2 = "0.4"
 hmac = "0.13"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 md-5 = "0.11"

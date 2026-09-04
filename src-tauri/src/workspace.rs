@@ -1,8 +1,13 @@
 //! Workspace file tree: recursive `.md` walk (depth/file caps, skip dirs,
 //! symlink-loop guard) and a filename search filter. Pure, testable.
+//!
+//! `TreeNode` 之前是独立 struct + 后续 DTO 互转；现在直接吐 [`dto::TreeNodeDTO`]，
+//! 端口与 IPC 共享同一形态，省掉 walk → DTO → kernel → DTO 的两趟纯结构往返。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+use crate::dto::TreeNodeDTO;
 
 const MAX_DEPTH: usize = 10;
 const MAX_FILES: usize = 3000;
@@ -12,16 +17,8 @@ const MAX_FILES: usize = 3000;
 const SKIP: &[&str] =
     &["node_modules", ".git", "dist", "build", ".vscode", ".workbuddy", ".idea", "target"];
 
-#[derive(Debug, Clone)]
-pub struct TreeNode {
-    pub name: String,
-    pub path: Option<PathBuf>, // None for directories
-    pub is_dir: bool,
-    pub children: Vec<TreeNode>,
-}
-
 /// Recursively collect Markdown documents under `root` as a tree.
-pub fn walk(root: &Path) -> Vec<TreeNode> {
+pub fn walk(root: &Path) -> Vec<TreeNodeDTO> {
     let mut seen = HashSet::new();
     if let Ok(canon) = std::fs::canonicalize(root) {
         seen.insert(canon);
@@ -30,7 +27,7 @@ pub fn walk(root: &Path) -> Vec<TreeNode> {
     walk_dir(root, 0, &mut seen, &mut counter)
 }
 
-fn walk_dir(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, counter: &mut usize) -> Vec<TreeNode> {
+fn walk_dir(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, counter: &mut usize) -> Vec<TreeNodeDTO> {
     if depth > MAX_DEPTH || *counter > MAX_FILES {
         return Vec::new();
     }
@@ -63,11 +60,21 @@ fn walk_dir(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, counter: &mut
         }
         seen.insert(canon);
         let children = walk_dir(&path, depth + 1, seen, counter);
-        out.push(TreeNode { name, path: Some(path.clone()), is_dir: true, children });
+        out.push(TreeNodeDTO {
+            name,
+            path: Some(path.to_string_lossy().into_owned()),
+            is_dir: true,
+            children,
+        });
     }
     for (name, path) in files {
         *counter += 1;
-        out.push(TreeNode { name, path: Some(path), is_dir: false, children: Vec::new() });
+        out.push(TreeNodeDTO {
+            name,
+            path: Some(path.to_string_lossy().into_owned()),
+            is_dir: false,
+            children: Vec::new(),
+        });
     }
     out
 }
@@ -79,12 +86,12 @@ fn is_md(name: &str) -> bool {
 
 /// Keep only files whose name matches `q` (case-insensitive), retaining all
 /// ancestor directories. Empty `q` returns the tree unchanged.
-pub fn filter(nodes: &[TreeNode], q: &str) -> Vec<TreeNode> {
+pub fn filter(nodes: &[TreeNodeDTO], q: &str) -> Vec<TreeNodeDTO> {
     if q.trim().is_empty() {
         return nodes.to_vec();
     }
     let lower = q.to_lowercase();
-    let keep = |n: &TreeNode| {
+    let keep = |n: &TreeNodeDTO| {
         if n.is_dir {
             let kids = filter(&n.children, q);
             if kids.is_empty() {
@@ -139,11 +146,21 @@ mod tests {
     #[test]
     fn filter_matches_by_filename_but_keeps_ancestors() {
         let tree = vec![
-            TreeNode { name: "docs".into(), path: None, is_dir: true, children: vec![
-                TreeNode { name: "readme.md".into(), path: Some(PathBuf::from("readme.md")), is_dir: false, children: vec![] },
-                TreeNode { name: "guide.md".into(), path: Some(PathBuf::from("guide.md")), is_dir: false, children: vec![] },
-            ]},
-            TreeNode { name: "other.md".into(), path: Some(PathBuf::from("other.md")), is_dir: false, children: vec![] },
+            TreeNodeDTO {
+                name: "docs".into(),
+                path: None,
+                is_dir: true,
+                children: vec![
+                    TreeNodeDTO { name: "readme.md".into(), path: Some("readme.md".into()), is_dir: false, children: vec![] },
+                    TreeNodeDTO { name: "guide.md".into(), path: Some("guide.md".into()), is_dir: false, children: vec![] },
+                ],
+            },
+            TreeNodeDTO {
+                name: "other.md".into(),
+                path: Some("other.md".into()),
+                is_dir: false,
+                children: vec![],
+            },
         ];
         let res = filter(&tree, "guide");
         assert_eq!(res.len(), 1);

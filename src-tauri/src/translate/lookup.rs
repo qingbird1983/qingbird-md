@@ -329,13 +329,9 @@ pub fn fetch_models(base_url: &str, api_key: &str, http: &dyn HttpClient) -> Res
     let url = format!("{base}/models");
     let mut headers: Vec<(&str, &str)> = Vec::new();
     let key = api_key.trim();
-    let auth_owned = if key.is_empty() {
-        String::new()
-    } else {
-        format!("Bearer {key}")
-    };
+    let auth = format!("Bearer {key}");
     if !key.is_empty() {
-        headers.push(("Authorization", auth_owned.as_str()));
+        headers.push(("Authorization", auth.as_str()));
     }
     let r = http.get_headers_timeout(&url, &headers, MODELS_TIMEOUT_MS)?;
     if r.status >= 400 {

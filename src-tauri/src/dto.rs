@@ -54,11 +54,7 @@ pub fn doc_dto(path: &std::path::Path, content: String, encoding: &str) -> DocDT
     }
 }
 
-/// Mirror of `workspace::TreeNode` for the frontend file tree.
-///
-/// `ponytail:` unused until Task 6 wires workspace commands; declared now
-/// because Task 14 ipc.ts binds these exact names.
-#[allow(dead_code)]
+/// Mirror of the workspace tree for the frontend file tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeNodeDTO {
     pub name: String,
