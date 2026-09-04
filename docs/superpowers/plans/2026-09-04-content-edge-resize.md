@@ -46,7 +46,6 @@
 import { describe, expect, it } from "vitest";
 import {
   CONTENT_WIDTH_PX,
-  MIN_CONTENT_WIDTH,
   clampContentWidth,
   contentWidthPx,
   edgeDragWidth,
