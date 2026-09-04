@@ -129,16 +129,22 @@ export default function PreviewView() {
   // ResizeObserver 跟窗口/分栏拖动实时翻转显示（面板宽 > 生效宽 + 16 才
   // 有留白可调；rAF 合并防拖分栏时高频 setState）。
   const wrapRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [paneW, setPaneW] = useState(0);
   const hasDoc = content !== null;
+  // 观察滚动容器内容宽（clientWidth 不含经典滚动条）：把手定位与拖宽钳制都以它为准；
+  // 滚动条宽 = scroller offsetWidth − clientWidth，写 --sb-w 供 CSS 定位取用——
+  // 正文栏在内容盒内居中（margin auto），不在 wrap 全宽内居中。
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el || !hasDoc) return;
+    const el = scrollerRef.current;
+    const wrap = wrapRef.current;
+    if (!el || !wrap || !hasDoc) return;
     let raf = 0;
     const ro = new ResizeObserver(() => {
       raf ||= requestAnimationFrame(() => {
         raf = 0;
         setPaneW(el.clientWidth);
+        wrap.style.setProperty("--sb-w", `${el.offsetWidth - el.clientWidth}px`);
       });
     });
     ro.observe(el);
@@ -158,11 +164,14 @@ export default function PreviewView() {
     if (!wrap) return;
     const st = useUiStore.getState();
     const base = contentWidthPx(st.contentWidth, st.customWidth);
-    const max = wrap.clientWidth;
+    const max = scrollerRef.current?.clientWidth ?? wrap.clientWidth;
     startColDrag(
       e,
       (dx) => wrap.style.setProperty("--qb-content-w", `${edgeDragWidth(side, base, dx, max)}px`),
-      (dx) => useUiStore.getState().setCustomWidth(edgeDragWidth(side, base, dx, max)),
+      (dx) => {
+        if (Math.abs(dx) < 2) return;
+        useUiStore.getState().setCustomWidth(edgeDragWidth(side, base, dx, max));
+      },
     );
   };
 
@@ -291,7 +300,7 @@ export default function PreviewView() {
       ref={wrapRef}
       style={{ "--qb-content-w": `${contentPx}px` } as CSSProperties}
     >
-      <div className="preview-scroll">
+      <div className="preview-scroll" ref={scrollerRef}>
         <div className="markdown-body" ref={ref} />
       </div>
       {showHandles && (

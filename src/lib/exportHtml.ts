@@ -4,7 +4,7 @@
 // 组成：<style> 内联 theme.css（设计令牌/明暗变量）+ katex.min.css + markdown.css
 // （?raw 原文，随源文件自动同步，无双源漂移）；正文优先取预览活 DOM（mermaid SVG
 // 与 KaTeX HTML 已渲染就位，导出即所见），预览未挂载（源码视图）时回退
-// parseResult.html。body[data-theme] 按导出时刻的明暗写入，宽度档随当前档位。
+// parseResult.html。body[data-theme] 按导出时刻的明暗写入，宽度以内联变量 --qb-content-w 随当前生效档位（含自定义）输出。
 //
 // ponytail 已知天花板：
 // - katex.min.css 内联后字体 url（woff2）不可达，公式回退系统衬线渲染，简单公式可读；
@@ -16,6 +16,7 @@ import themeCss from "../styles/theme.css?raw";
 import markdownCss from "../styles/markdown.css?raw";
 import katexCss from "katex/dist/katex.min.css?raw";
 import { api } from "./ipc";
+import { contentWidthPx } from "./contentWidth";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
@@ -49,8 +50,7 @@ export async function buildActiveDocHtml(): Promise<string | null> {
   const doc = useDocStore.getState();
   if (!doc.doc) return null;
   const dark = isDarkTheme();
-  const width = useUiStore.getState().contentWidth;
-  const widthClass = width === "normal" ? "markdown-body" : `markdown-body w-${width}`;
+  const widthPx = contentWidthPx(useUiStore.getState().contentWidth, useUiStore.getState().customWidth);
 
   const live = document.querySelector(".markdown-body");
   let bodyHtml: string;
@@ -95,7 +95,7 @@ export async function buildActiveDocHtml(): Promise<string | null> {
     "</style>",
     "</head>",
     `<body data-theme="${dark ? "dark" : "light"}">`,
-    `<div class="${widthClass}">`,
+    `<div class="markdown-body" style="--qb-content-w:${widthPx}px">`,
     bodyHtml,
     "</div>",
     "</body>",

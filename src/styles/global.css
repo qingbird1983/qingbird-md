@@ -1092,11 +1092,11 @@ button.menu-btn:disabled,
 }
 
 .content-resizer.left {
-  left: calc(50% - var(--qb-content-w, 794px) / 2 - 4px);
+  left: calc((100% - var(--sb-w, 0px)) / 2 - var(--qb-content-w, 794px) / 2 - 4px);
 }
 
 .content-resizer.right {
-  left: calc(50% + var(--qb-content-w, 794px) / 2 - 4px);
+  left: calc((100% - var(--sb-w, 0px)) / 2 + var(--qb-content-w, 794px) / 2 - 4px);
 }
 
 .content-resizer::after {
