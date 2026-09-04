@@ -58,6 +58,47 @@ static CANCELLED: AtomicBool = AtomicBool::new(false);
 /// 文件路径时先存在这里，冷重建后的前端启动阶段用 `take_pending_open` 取走。
 static PENDING_OPEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// 冷重建出来的 WebView 的前端就绪标志。
+///
+/// `false` = 窗口/页面还没跑完（React 未挂载、`document-changed` 监听未注册）。
+/// 这段窗口期里 emit 同样是「发出去就等于丢」，所以 handoff 必须先落
+/// [`PENDING_OPEN`] 缓冲；前端 `take_pending_open` 时转 `true`。
+///
+/// 初值为 `false`：进程刚启动时页面同样在加载，与冷重建是同一类窗口期。
+static FRONTEND_READY: AtomicBool = AtomicBool::new(false);
+
+/// 冷重建后等前端取走 pending 的兜底时长。
+///
+/// 超时即复位就绪标志（回落到直接 emit）：宁可极端情况下丢一次 handoff，
+/// 也不能因为前端永远不调 `take_pending_open` 而让文件关联彻底静默。
+const FRONTEND_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 标记「前端未就绪」并起超时兜底。
+///
+/// 调用点有两个：进程启动（页面在加载）与冷重建（全新 WebView 要重新加载）。
+/// 兜底线程到点无条件复位为就绪——宁可极端情况下丢一次 handoff，也不能因为
+/// 前端永远不调 `take_pending_open` 而让文件关联彻底静默。
+pub fn reset_frontend_ready() {
+    FRONTEND_READY.store(false, Ordering::SeqCst);
+    let flag: &'static AtomicBool = &FRONTEND_READY;
+    std::thread::spawn(move || {
+        std::thread::sleep(FRONTEND_READY_TIMEOUT);
+        flag.store(true, Ordering::SeqCst);
+    });
+}
+
+/// 前端已起来（调过 `take_pending_open`）：后续 handoff 可以直接 emit。
+pub fn mark_frontend_ready() {
+    FRONTEND_READY.store(true, Ordering::SeqCst);
+}
+
+/// handoff 到达时能否直接 emit `document-changed`：既要有活着的 WebView，
+/// 又要它里面的前端已经挂好监听（[`FRONTEND_READY`]）。两者缺一就该走
+/// [`push_pending_open`] 缓冲。
+pub fn can_emit_document(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window(MAIN_LABEL).is_some() && FRONTEND_READY.load(Ordering::SeqCst)
+}
+
 /// 存入一个待打开路径（休眠态 handoff 用）。
 pub fn push_pending_open(path: String) {
     PENDING_OPEN
@@ -195,6 +236,33 @@ pub fn ensure_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webvie
     spawn_main_window(app)
 }
 
+/// 冷重建窗口的导航白名单：本地资源放行，外部站点拦下。
+///
+/// **坑（本次白屏事故的根因）**：Windows 生产构建的前端资源 URL 是
+/// `http://tauri.localhost/`（macOS/Linux 才是 `tauri://localhost`，见
+/// tauri-2.11.5 `manager::get_app_url`）。早先这里的 host 白名单只认
+/// 恰为 `localhost` / `127.0.0.1` 两种，`tauri.localhost` 落空 → 发布版
+/// 冷重建窗口的**首次**导航就被拦下，页面永远是空白。
+///
+/// dev 下 URL 是 `localhost:5173`，恰好命中白名单，所以开发期怎么测都正常
+/// ——只有走 `npx tauri build` 的发布版（含开机自启驻留后双击 .md 这条路径）
+/// 才会白屏。改动此函数前先跑它的单测。
+pub fn is_local_navigation(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "asset" | "app" => true,
+        "http" | "https" => matches!(url.host_str(), Some(h) if is_local_host(h)),
+        _ => false,
+    }
+}
+
+/// 本机 host 判定：`localhost` 及其任意子域（`tauri.localhost` 靠这条放行）、
+/// 回环 IP。`.localhost` 结尾严格匹配，防 `tauri.localhost.evil.com` 混进来。
+fn is_local_host(host: &str) -> bool {
+    // IPv6 字面量在 URL 里带方括号（`[::1]`），host_str 会原样保留。
+    let h = host.trim_start_matches('[').trim_end_matches(']');
+    h == "localhost" || h == "127.0.0.1" || h == "::1" || h.ends_with(".localhost")
+}
+
 /// 从 `tauri.conf.json` 的窗口配置冷重建主窗口。
 ///
 /// **必须在主线程调用**：`create_window` 在后台线程下只是把建窗任务异步派发
@@ -207,6 +275,8 @@ pub fn spawn_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webview
     //        则重建出来的窗口仍被当作开机自启的静默窗口，同样永远不显示。
     //        症状：进程活着、托盘活着、就是看不到窗。
     crate::reset_startup_flags();
+    // 新窗口的页面要重新加载一遍：在前端取走 pending 之前，handoff 一律缓冲。
+    reset_frontend_ready();
 
     let conf = app
         .config()
@@ -221,15 +291,7 @@ pub fn spawn_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webview
         // T25：冷重建窗口是 builder 阶段，能挂导航拦截——外部站点一律拦下
         // （前端 capture 拦截失效时的兜底；初始 config 窗口运行时无 setter，
         // 只能靠前端，见 docs/）。放行：本地资源协议 + dev server localhost。
-        .on_navigation(|url| {
-            match url.scheme() {
-                "tauri" | "asset" | "app" => true,
-                "http" | "https" => {
-                    matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
-                }
-                _ => false,
-            }
-        })
+        .on_navigation(is_local_navigation)
         .build()?;
 
     // 坑 3：新窗口是全新对象，CloseRequested 钩子必须重挂，否则第二次关窗
@@ -368,6 +430,7 @@ pub fn clear_snapshot() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::Url;
 
     fn snap_with(dirty: bool) -> SessionSnapshot {
         SessionSnapshot {
@@ -435,6 +498,55 @@ mod tests {
         // 到点即触发（>=）：轮询精度 1s，边界取闭区间避免多等一轮
         let now = Instant::now();
         assert!(should_hibernate(now, Some(now)));
+    }
+
+    // ---- is_local_navigation（白屏事故回归）----
+
+    fn local(url: &str) -> bool {
+        is_local_navigation(&Url::parse(url).unwrap())
+    }
+
+    #[test]
+    fn windows_release_asset_url_must_pass() {
+        // 事故根因：发布版 app url 是 http://tauri.localhost/
+        assert!(local("http://tauri.localhost/"));
+        assert!(local("http://tauri.localhost/index.html"));
+        assert!(local("https://tauri.localhost/assets/index-a1b2c3.js"));
+    }
+
+    #[test]
+    fn macos_custom_protocol_passes() {
+        assert!(local("tauri://localhost/index.html"));
+        assert!(local("asset://localhost/foo.png"));
+        assert!(local("app://localhost/"));
+    }
+
+    #[test]
+    fn dev_server_and_loopback_pass() {
+        assert!(local("http://localhost:5173/"));
+        assert!(local("http://127.0.0.1:1420/"));
+        assert!(local("http://[::1]:5173/"));
+    }
+
+    #[test]
+    fn external_sites_are_blocked() {
+        assert!(!local("https://example.com/"));
+        assert!(!local("http://evil.com/x"));
+        assert!(!local("https://github.com/"));
+    }
+
+    #[test]
+    fn localhost_lookalike_suffix_is_blocked() {
+        // 后缀匹配必须锚在 . 上，否则子域伪造能绕过白名单
+        assert!(!local("https://tauri.localhost.evil.com/"));
+        assert!(!local("https://notlocalhost/"));
+        assert!(!local("https://localhost.evil.com/"));
+    }
+
+    #[test]
+    fn unknown_schemes_are_blocked() {
+        assert!(!local("file:///C:/Windows/x.png"));
+        assert!(!local("ftp://localhost/x"));
     }
 
     // ---- 快照 serde 往返 ----

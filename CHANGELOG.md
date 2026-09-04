@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- 修复：开机自启驻留托盘后双击 .md 打开文档，弹出的窗口是纯白屏（什么都没有），
+  只有从托盘退出、再双击才正常。根因是 T25 给休眠冷重建窗口加的 `on_navigation`
+  兜底白名单只认 host 恰为 `localhost`/`127.0.0.1`，而 Windows 发布版的前端资源
+  URL 是 `http://tauri.localhost/`（Tauri 2 的 custom protocol，见
+  `manager::get_app_url`），首屏导航被自己的兜底拦下 → 页面永远空白。dev 下 URL
+  是 `localhost:5173` 恰好命中白名单，所以开发期怎么测都正常——只有发布版走得到
+  这条路径。白名单改为本机 host 判定（`localhost` 及其子域 + 回环 IP），新增 6 条
+  离线单测锁住 `tauri.localhost` 放行与 `tauri.localhost.evil.com` 这类伪造后缀拦截。
+- 顺带修同源的 handoff 时序缺陷：冷重建的窗口对象已存在、但页面还在加载（React
+  未挂载、`document-changed` 监听未注册）时，单实例 handoff 直接 emit 必丢——emit
+  无缓冲也无重放。新增前端就绪标志，这段窗口期（含进程刚启动那几秒）的 handoff
+  一律缓冲到 `PENDING_OPEN`，等前端 `take_pending_open` 取走；附 10s 超时兜底，
+  避免前端异常时文件关联彻底静默。
+
 ## [0.1.6] - 2026-09-03
 
 预览内点击 Markdown 链接改由系统浏览器打开，主窗口不再被外部网站顶掉；

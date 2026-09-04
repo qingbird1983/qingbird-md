@@ -243,8 +243,11 @@ fn clear_session() -> Result<(), String> {
 }
 
 /// 取走休眠期间积攒的待打开路径（单实例 handoff 在休眠态的补偿）。
+///
+/// 调用本身即「前端已就绪」的信号：此后 handoff 可以直接 emit，不必再缓冲。
 #[tauri::command]
 fn take_pending_open() -> Vec<String> {
+    hibernate::mark_frontend_ready();
     hibernate::take_pending_open()
 }
 
@@ -889,6 +892,9 @@ fn changed_payload(p: &std::path::Path) -> serde_json::Value {
 }
 
 pub fn run() {
+    // 页面还在加载：这条进程生命周期里的第一批 handoff 先缓冲，等前端
+    // take_pending_open 时再放行（10s 兜底见 hibernate::reset_frontend_ready）。
+    hibernate::reset_frontend_ready();
     // 静默启动判定（--minimized，开机自启驻留托盘）：true 则 on_page_load 永不 show。
     let silent = capture::startup_arg::is_silent_launch(std::env::args());
     SILENT.store(silent, Ordering::SeqCst);
@@ -1004,11 +1010,14 @@ pub fn run() {
                     // 路径=先派发 document-changed，再把主窗口从最小化/后台拉回
                     // 前台（静默驻留被第二实例唤醒时窗口弹出）。
                     if !single_instance::is_show_wake(&p) {
-                        if h.get_webview_window(hibernate::MAIN_LABEL).is_some() {
+                        if hibernate::can_emit_document(&h) {
                             let _ = h.emit("document-changed", changed_payload(&p));
                         } else {
-                            // 已休眠：此刻没有 WebView 能接收 emit（无缓冲/重放），
-                            // 存下来等重建后的前端启动阶段主动取走。
+                            // 两类「发出去就等于丢」的窗口期，一律缓冲：
+                            // 1. 已休眠——根本没有 WebView 能接收（无缓冲/重放）；
+                            // 2. 刚冷重建——窗口对象已有，但页面在加载、前端的
+                            //    document-changed 监听还没挂上。
+                            // 存下来等前端启动阶段用 take_pending_open 取走。
                             hibernate::push_pending_open(p.to_string_lossy().into_owned());
                         }
                     }
