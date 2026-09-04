@@ -14,13 +14,15 @@
 // 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态（Task 23）：done
 // payload 附带的译文 html 经 docStore.doneHtml 流入——当前阅读模式与批次形态、
 // 内容一致时直接采用（零延迟），否则回退 parseResult.html（原文渲染）兜底。
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
+import { contentWidthPx, edgeDragWidth } from "../lib/contentWidth";
+import { startColDrag } from "../lib/colDrag";
 import { patchPartial } from "../lib/patchPartial";
 import { handlePreviewLinkClick } from "../lib/linkSafety";
 import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
@@ -120,6 +122,58 @@ export default function PreviewView() {
   const baseDir = useDocStore((s) => s.doc?.base_dir ?? null);
   const ensureParsed = useDocStore((s) => s.ensureParsed);
   const contentWidth = useUiStore((s) => s.contentWidth);
+  const customWidth = useUiStore((s) => s.customWidth);
+
+  // ── 正文栏边缘拖宽把手（DSH 式）────────────────────────────
+  // preview-wrap 是定位基准：把手贴 --qb-content-w 算出的栏边缘，
+  // ResizeObserver 跟窗口/分栏拖动实时翻转显示（面板宽 > 生效宽 + 16 才
+  // 有留白可调；rAF 合并防拖分栏时高频 setState）。
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [paneW, setPaneW] = useState(0);
+  const hasDoc = content !== null;
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !hasDoc) return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      raf ??= requestAnimationFrame(() => {
+        raf = 0;
+        setPaneW(el.clientWidth);
+      });
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [hasDoc]);
+  const contentPx = contentWidthPx(contentWidth, customWidth);
+  const showHandles = paneW > contentPx + 16;
+
+  // 边缘拖宽：起手锁基准（getState 快照，不吃闭包旧 state）；拖拽中直接写
+  // wrap 的 --qb-content-w（绕过 React——大文档回流不进 setState），松手
+  // onEnd 一次落库 setCustomWidth，重渲写回同值（幂等）。
+  const startEdgeDrag = (side: "left" | "right") => (e: ReactPointerEvent<HTMLDivElement>) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const st = useUiStore.getState();
+    const base = contentWidthPx(st.contentWidth, st.customWidth);
+    const max = wrap.clientWidth;
+    startColDrag(
+      e,
+      (dx) => wrap.style.setProperty("--qb-content-w", `${edgeDragWidth(side, base, dx, max)}px`),
+      (dx) => useUiStore.getState().setCustomWidth(edgeDragWidth(side, base, dx, max)),
+    );
+  };
+
+  // 药丸跟随：Y 直写热区 CSS 变量（零重渲），钳在热区内不出界（药丸半高 16）。
+  // 拖拽中 pointer capture 把 move 重定向到热区自身，同一监听器继续生效。
+  const trackPill = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const y = Math.max(16, Math.min(rect.height - 16, e.clientY - rect.top));
+    el.style.setProperty("--pill-y", `${y}px`);
+  };
 
   // 译文形态直用：当前阅读模式与批次形态匹配且内容未变。跑批期间的编辑/切档
   // 已在 done 落库处被 runContent 护栏拦下，这里 contentKey 再核一道（双保险）。
@@ -232,8 +286,20 @@ export default function PreviewView() {
   if (content === null) return <div className="preview-empty">未打开文档</div>;
 
   return (
-    <div className="preview-scroll">
-      <div className={contentWidth === "normal" ? "markdown-body" : `markdown-body w-${contentWidth}`} ref={ref} />
+    <div
+      className="preview-wrap"
+      ref={wrapRef}
+      style={{ "--qb-content-w": `${contentPx}px` } as CSSProperties}
+    >
+      <div className="preview-scroll">
+        <div className="markdown-body" ref={ref} />
+      </div>
+      {showHandles && (
+        <>
+          <div className="content-resizer left" onPointerDown={startEdgeDrag("left")} onPointerMove={trackPill} />
+          <div className="content-resizer right" onPointerDown={startEdgeDrag("right")} onPointerMove={trackPill} />
+        </>
+      )}
     </div>
   );
 }

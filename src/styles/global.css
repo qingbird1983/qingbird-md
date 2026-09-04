@@ -1070,6 +1070,61 @@ button.menu-btn:disabled,
   font-size: 13px;
 }
 
+/* 正文宽度拖宽把手（DSH 式）：preview-wrap 定位基准，热区贴正文栏左右边缘。
+   • 热区 8px 全高全透明，cursor col-resize；药丸 ::after 12x32 跟随指针 Y
+     （--pill-y 由 onPointerMove 直写，钳在热区内），hover 淡入、拖拽中 accent 加深。
+   • .dragging 由 lib/colDrag 开关——capture 下 :hover 随指针漂移失效，不能只靠它。
+   • 位置与正文栏吃同一个 --qb-content-w：左缘 50%-w/2、右缘 50%+w/2，
+     热区自身 8px 宽（-4px 回拉半宽），与栏边缘对齐。 */
+.preview-wrap {
+  position: relative;
+  height: 100%;
+}
+
+.content-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.content-resizer.left {
+  left: calc(50% - var(--qb-content-w, 794px) / 2 - 4px);
+}
+
+.content-resizer.right {
+  left: calc(50% + var(--qb-content-w, 794px) / 2 - 4px);
+}
+
+.content-resizer::after {
+  content: "";
+  position: absolute;
+  top: var(--pill-y, 50%);
+  left: 50%;
+  width: 12px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--bg3);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  pointer-events: none;
+}
+
+.content-resizer:hover::after,
+.content-resizer.dragging::after {
+  opacity: 1;
+}
+
+.content-resizer.dragging::after {
+  background: var(--accent);
+  box-shadow: none;
+}
+
 /* ============ 整篇翻译进度条 ============ */
 .translation-bar {
   display: flex;

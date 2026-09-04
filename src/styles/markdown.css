@@ -28,11 +28,11 @@
   --md-tr-border: #c3ccfa;
   --md-tr-fg: #2c3f8f;
 
-  /* A4 纸面定宽：794px = A4 @96dpi，border-box 含内边距；居中呈现，
-     窗口/split 分栏窄于该值时自然收缩回流式排版。宽度四档由 uiStore
-     contentWidth 驱动（标准档不挂类；紧凑 640 / 宽 1000 / 全宽 1200）。 */
+  /* 正文宽度由 --qb-content-w 驱动（挂在 .preview-wrap 上，值 = 四档或拖宽
+     自定义，四档 px 表在 src/lib/contentWidth.ts——单一事实来源）；
+     窗口/分栏窄于该值时自然收缩回流式排版。 */
   box-sizing: border-box;
-  max-width: 794px;
+  max-width: var(--qb-content-w, 794px);
   margin-inline: auto;
 
   /* 纸面留白对齐 SuperMarkdown 的阅读节奏：上 28、左右 36、下留长滚动余量 */
@@ -47,11 +47,6 @@
 /* 首尾元素的边距贴边 */
 .markdown-body > :first-child { margin-top: 0 !important; }
 .markdown-body > :last-child { margin-bottom: 0 !important; }
-
-/* 正文宽度非标准档（视图菜单四选一；工具栏按钮循环切换） */
-.markdown-body.w-compact { max-width: 640px; }
-.markdown-body.w-wide    { max-width: 1000px; }
-.markdown-body.w-full    { max-width: 1200px; }
 
 /* T30：暗色由 body[data-theme="dark"] 驱动（useSettingsStore.syncDomTheme 解析
    light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
