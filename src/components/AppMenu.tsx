@@ -124,6 +124,7 @@ export default function AppMenu() {
   const toggleOutline = useUiStore((s) => s.toggleOutline);
   const contentWidth = useUiStore((s) => s.contentWidth);
   const setContentWidth = useUiStore((s) => s.setContentWidth);
+  const customWidth = useUiStore((s) => s.customWidth);
   const openSettings = useUiStore((s) => s.openSettings);
   const addToast = useUiStore((s) => s.addToast);
   const running = useTranslationStore((s) => s.status === "running");
@@ -167,7 +168,11 @@ export default function AppMenu() {
           {showOutline ? "隐藏大纲" : "显示大纲"}
         </button>
         {CONTENT_WIDTHS.map((w) => (
-          <button key={w} className={contentWidth === w ? "active" : ""} onClick={() => { close(); setContentWidth(w); }}>
+          <button
+            key={w}
+            className={customWidth === null && contentWidth === w ? "active" : ""}
+            onClick={() => { close(); setContentWidth(w); }}
+          >
             正文宽度：{CONTENT_WIDTH_LABEL[w]}
           </button>
         ))}

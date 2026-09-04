@@ -18,6 +18,7 @@ export default function ViewMenu() {
   const toggleOutline = useUiStore((s) => s.toggleOutline);
   const contentWidth = useUiStore((s) => s.contentWidth);
   const setContentWidth = useUiStore((s) => s.setContentWidth);
+  const customWidth = useUiStore((s) => s.customWidth);
 
   return (
     <Menu label="视图">
@@ -55,7 +56,7 @@ export default function ViewMenu() {
             <MenuItem
               key={w}
               label={`正文宽度：${CONTENT_WIDTH_LABEL[w]}`}
-              active={contentWidth === w}
+              active={customWidth === null && contentWidth === w}
               onSelect={() => {
                 close();
                 setContentWidth(w);

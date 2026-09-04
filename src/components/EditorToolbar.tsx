@@ -99,6 +99,7 @@ export default function EditorToolbar() {
   const toggleOutline = useUiStore((s) => s.toggleOutline);
   const contentWidth = useUiStore((s) => s.contentWidth);
   const cycleContentWidth = useUiStore((s) => s.cycleContentWidth);
+  const customWidth = useUiStore((s) => s.customWidth);
 
   // 划词翻译开关：与设置弹窗同一持久化通道（settings.selection_translate）。
   // 关闭时 SelectionPopup 的 on 订阅失效会自动清浮窗 + 防抖定时器。
@@ -223,11 +224,14 @@ export default function EditorToolbar() {
       </button>
       <Sep />
 
-      {/* ── ⑥ 正文宽度档（循环：紧凑→标准→宽→全宽）── 图标语义：StretchHorizontal=可放宽 / FoldHorizontal=到顶收窄 */}
-      <button type="button" className={`menu-btn tool-btn${contentWidth !== "normal" ? " active" : ""}`}
-        title={`正文宽度：${CONTENT_WIDTH_LABEL[contentWidth]}（点击切换下一档）`}
+      {/* ── ⑥ 正文宽度档（循环：紧凑→标准→宽→全宽）── 图标语义：StretchHorizontal=可放宽 / FoldHorizontal=到顶收窄；
+           拖宽自定义态：四档都不算选中，title 报实时 px，图标恒可放宽 */}
+      <button type="button" className={`menu-btn tool-btn${contentWidth !== "normal" || customWidth !== null ? " active" : ""}`}
+        title={customWidth !== null
+          ? `正文宽度：自定义 ${Math.round(customWidth)}px（点击切换下一档）`
+          : `正文宽度：${CONTENT_WIDTH_LABEL[contentWidth]}（点击切换下一档）`}
         onClick={cycleContentWidth}>
-        {contentWidth === "full" ? <FoldHorizontal size={15} /> : <StretchHorizontal size={15} />}
+        {contentWidth === "full" && customWidth === null ? <FoldHorizontal size={15} /> : <StretchHorizontal size={15} />}
       </button>
       <Sep />
 
