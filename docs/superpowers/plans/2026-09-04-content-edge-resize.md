@@ -583,7 +583,7 @@ import { startColDrag } from "../lib/colDrag";
     if (!el || !hasDoc) return;
     let raf = 0;
     const ro = new ResizeObserver(() => {
-      raf ??= requestAnimationFrame(() => {
+      raf ||= requestAnimationFrame(() => {
         raf = 0;
         setPaneW(el.clientWidth);
       });
