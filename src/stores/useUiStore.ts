@@ -1,6 +1,7 @@
 // 全局 UI 杂项状态：面板折叠、分栏宽度、toast 队列、弹层开关。
 // 本 store 不读取其它 store（依赖边界的终点）。
 import { create } from "zustand";
+import { MIN_CONTENT_WIDTH } from "../lib/contentWidth";
 
 export type ToastKind = "success" | "info" | "error";
 
@@ -34,6 +35,7 @@ interface UiState {
   outlineWidth: number;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
   contentWidth: ContentWidth; // 正文宽度档（markdown.css .markdown-body.w-*）
+  customWidth: number | null; // 拖宽产物（null = 跟随四档档位）
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
@@ -41,6 +43,7 @@ interface UiState {
   toggleNav(): void;
   toggleOutline(): void;
   setContentWidth(w: ContentWidth): void;
+  setCustomWidth(px: number): void;
   cycleContentWidth(): void;
   addToast(kind: ToastKind, text: string): void;
   removeToast(id: number): void;
@@ -58,12 +61,22 @@ let toastSeq = 0;
 // 宽度偏好跨启动保留：Tauri WebView2 的 localStorage 随应用数据目录持久化，
 // 一个档位值不值得走 Rust 设置文件。旧布尔键一次性迁移（"1"→wide，"0"/缺失→normal）。
 const WIDTH_KEY = "qb.content-width";
+const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
 
 function loadContentWidth(): ContentWidth {
   const saved = localStorage.getItem(WIDTH_KEY) as ContentWidth | null;
   if (saved && CONTENT_WIDTHS.includes(saved)) return saved;
   return localStorage.getItem(LEGACY_WIDE_KEY) === "1" ? "wide" : "normal";
+}
+
+// 自定义拖宽恢复：只挡非法值（NaN / 低于下限）；大于当前面板宽不回钳——
+// CSS max-width 让列自然填满面板，存值不动（面板变宽后原值生效）。
+function loadCustomWidth(): number | null {
+  const saved = localStorage.getItem(CUSTOM_WIDTH_KEY);
+  if (saved === null) return null;
+  const px = Number(saved);
+  return Number.isFinite(px) && px >= MIN_CONTENT_WIDTH ? px : null;
 }
 
 export const useUiStore = create<UiState>()((set) => ({
@@ -73,6 +86,7 @@ export const useUiStore = create<UiState>()((set) => ({
   outlineWidth: 200,
   splitRatio: 0.5,
   contentWidth: loadContentWidth(),
+  customWidth: loadCustomWidth(),
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
@@ -81,13 +95,16 @@ export const useUiStore = create<UiState>()((set) => ({
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
   setContentWidth: (w) => {
     localStorage.setItem(WIDTH_KEY, w);
-    return set({ contentWidth: w });
+    // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清
+    localStorage.removeItem(CUSTOM_WIDTH_KEY);
+    return set({ contentWidth: w, customWidth: null });
   },
   cycleContentWidth: () =>
     set((s) => {
       const next = CONTENT_WIDTHS[(CONTENT_WIDTHS.indexOf(s.contentWidth) + 1) % CONTENT_WIDTHS.length]!;
       localStorage.setItem(WIDTH_KEY, next);
-      return { contentWidth: next };
+      localStorage.removeItem(CUSTOM_WIDTH_KEY);
+      return { contentWidth: next, customWidth: null };
     }),
 
   addToast: (kind, text) => {
@@ -106,4 +123,11 @@ export const useUiStore = create<UiState>()((set) => ({
   setSidebarWidth: (w) => set({ sidebarWidth: w }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),
   setSplitRatio: (r) => set({ splitRatio: r }),
+
+  setCustomWidth: (px) => {
+    // 上限在拖拽处钳（那里才有面板实时宽），store 只保底下限
+    const w = Math.max(MIN_CONTENT_WIDTH, px);
+    localStorage.setItem(CUSTOM_WIDTH_KEY, String(w));
+    set({ customWidth: w });
+  },
 }));
