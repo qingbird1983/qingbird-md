@@ -270,6 +270,10 @@ impl CaptureHandler {
         // Dropping the session closes the window (Arc<Window> refcount → 0).
         self.state = HandlerState::Idle;
         self._ctx_storage = None;
+        // 截图 buffer（1920×1080 RGBA + softbuffer u32 像素、PNG 编码临时缓冲、
+        // 译文图解码后 RGBA）drop 后 Windows 堆不主动归还，主动 trim 把工作集
+        // 还给 OS——下次冷启动/截图时再硬缺页回来，体感无差。
+        crate::trim::trim_working_set();
     }
 }
 

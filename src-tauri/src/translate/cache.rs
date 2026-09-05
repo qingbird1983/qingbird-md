@@ -9,7 +9,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
-const MAX: usize = 20_000;
+const MAX: usize = 5_000;
 
 #[derive(Clone)]
 pub struct Cache {
@@ -69,6 +69,32 @@ impl Cache {
         }
     }
 
+    /// Drop oldest entries (front of FIFO) until `map.len() <= target`.
+    ///
+    /// Returns the number of entries actually removed. No-op when
+    /// `target >= len()`. Sets `dirty` iff anything was dropped, so the
+    /// next [`Self::save`] persists the trimmed set.
+    ///
+    /// 用途：worker 收尾时发现用户已 N 分钟没翻译，就把内存里的 cache 砍回热 N
+    /// 条，主动收缩常驻占用。磁盘 cache.json 跟着重写，下次冷启动 load 进来
+    /// 也是小容量——一次瘦身后长期受益。
+    pub fn shrink_to(&mut self, target: usize) -> usize {
+        let mut dropped = 0;
+        while self.map.len() > target {
+            match self.order.pop_front() {
+                Some(k) => {
+                    self.map.remove(&k);
+                    dropped += 1;
+                }
+                None => break,
+            }
+        }
+        if dropped > 0 {
+            self.dirty = true;
+        }
+        dropped
+    }
+
     pub fn clear(&mut self) {
         self.map.clear();
         self.order.clear();
@@ -87,6 +113,12 @@ impl Cache {
     /// Test-only size probes (production reads the map only through get/set).
     #[cfg(test)]
     pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Production reader for size: bridge.rs needs it to decide whether to
+    /// trigger idle-shrink. Read-only, no exposed mutation path.
+    pub(crate) fn len_pub(&self) -> usize {
         self.map.len()
     }
 
@@ -201,6 +233,80 @@ mod tests {
         c.set(Cache::key("a", "v", "x"), "y".into());
         c.save(&path).unwrap();
         assert!(!c.is_dirty(), "persisted cache is clean");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- shrink_to（空闲收缩路径）----
+
+    #[test]
+    fn shrink_to_drops_oldest_until_below_target() {
+        let mut c = Cache::new();
+        for i in 0..10 {
+            c.set(Cache::key("auto", "", &format!("t{i}")), format!("v{i}"));
+        }
+        assert_eq!(c.len(), 10);
+        let dropped = c.shrink_to(3);
+        assert_eq!(dropped, 7);
+        assert_eq!(c.len(), 3);
+        // 保留的是后插入的 3 条（t7/t8/t9）——FIFO 从最老开始裁
+        assert!(c.get(&Cache::key("auto", "", "t0")).is_none());
+        assert!(c.get(&Cache::key("auto", "", "t9")).is_some());
+    }
+
+    #[test]
+    fn shrink_to_with_target_above_len_is_noop_and_clean() {
+        let mut c = Cache::new();
+        c.set(Cache::key("auto", "", "a"), "甲".into());
+        c.mark_clean();
+        let dropped = c.shrink_to(100);
+        assert_eq!(dropped, 0);
+        assert!(!c.is_dirty(), "no-op shrink must not mark dirty");
+        assert_eq!(c.len(), 1);
+    }
+
+    #[test]
+    fn shrink_to_exact_target_size_drops_nothing() {
+        let mut c = Cache::new();
+        for i in 0..5 {
+            c.set(Cache::key("auto", "", &i.to_string()), "x".into());
+        }
+        c.mark_clean();
+        let dropped = c.shrink_to(5);
+        assert_eq!(dropped, 0);
+        assert!(!c.is_dirty());
+    }
+
+    #[test]
+    fn shrink_to_persists_through_save_and_reload() {
+        // 重要契约：shrink 后 save，下次冷启动 load 进来还是小容量，
+        // 不能「内存瘦了磁盘仍臃肿」让瘦身后的版本被旧版覆盖。
+        let dir = std::env::temp_dir()
+            .join(format!("qingbird-cache-shrink-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cache.json");
+        let mut c = Cache::new();
+        for i in 0..50 {
+            c.set(Cache::key("auto", "", &format!("t{i}")), format!("v{i}"));
+        }
+        c.save(&path).unwrap();
+        let dropped = c.shrink_to(10);
+        assert_eq!(dropped, 40);
+        c.save(&path).unwrap();
+        let reloaded = Cache::load(&path);
+        assert_eq!(reloaded.len_pub(), 10);
+        // 重新 load 进来的 order 也对（最老的没了）
+        for i in 0..40 {
+            assert!(
+                reloaded.get(&Cache::key("auto", "", &format!("t{i}"))).is_none(),
+                "oldest entries must stay dropped after reload"
+            );
+        }
+        for i in 40..50 {
+            assert!(
+                reloaded.get(&Cache::key("auto", "", &format!("t{i}"))).is_some(),
+                "newest entries must survive reload"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

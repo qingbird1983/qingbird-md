@@ -9,7 +9,8 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
@@ -21,6 +22,44 @@ use super::AppTxn;
 /// 进度事件最小间隔。
 pub(super) const PROGRESS_MIN_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(80);
+
+/// 翻译 worker 收尾时检查：若距上次翻译活动已超过此阈值，把内存里的 cache
+/// 收缩到 [`SHRINK_TO`] 条。设计动机见 2026-09-05 内存诊断：cache 20000 条
+/// 全量常驻是后台占用只涨不跌的主因之一，没有 LRU / 手动提示之外的回收路径。
+/// 10 分钟阈值对应「用户离开一会儿」，不会误触翻译刚结束就要继续用的情况。
+pub(crate) const IDLE_SHRINK_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// 收缩目标：留热 1000 条，占 `cache::MAX`（5000）的 20%。中长文档的常用
+/// 翻译结果基本还在；冷条目按需重新翻译——网络代价换内存。
+pub(crate) const SHRINK_TO: usize = 1000;
+
+/// 最近一次翻译相关入口（translate_text / lookup_word / translate_document）
+/// 被调用的时间戳。进程级单例：不需要持久化，进程重启从零计。
+/// Instant 非 const 不可直填 static，用 LazyLock 延后到首次访问再 now()。
+static LAST_TRANSLATE_AT: LazyLock<Mutex<Instant>> =
+    LazyLock::new(|| Mutex::new(Instant::now()));
+
+/// 翻译相关 IPC 入口调一次：刷新「最近一次翻译活动」时间戳。
+fn note_translate_activity() {
+    *LAST_TRANSLATE_AT.lock().expect("translate-activity mutex poisoned") = Instant::now();
+}
+
+/// worker 收尾调用：若离上次翻译活动已超过 [`IDLE_SHRINK_AFTER`] 且当前
+/// cache 大于 [`SHRINK_TO`]，裁到目标。返回是否实际裁剪（裁了 dirty=true，
+/// 调用方负责 save 重写磁盘）。
+fn shrink_if_idle(cache: &mut Cache) -> bool {
+    let now = Instant::now();
+    let last = *LAST_TRANSLATE_AT
+        .lock()
+        .expect("translate-activity mutex poisoned");
+    if now.saturating_duration_since(last) >= IDLE_SHRINK_AFTER
+        && cache.len_pub() > SHRINK_TO
+    {
+        cache.shrink_to(SHRINK_TO) > 0
+    } else {
+        false
+    }
+}
 
 #[derive(Clone, serde::Serialize)]
 pub struct TranslationProgressEvt {
@@ -164,6 +203,7 @@ pub fn translate_text(
     provider: String,
     creds: HashMap<String, String>,
 ) -> Result<String, String> {
+    note_translate_activity();
     if translate::providers_meta::get(&provider).is_none() {
         return Err(format!("未知翻译源：{provider}"));
     }
@@ -183,6 +223,7 @@ pub fn lookup_word(
     app: AppHandle,
     st: tauri::State<AppTxn>,
 ) -> Result<dto::WordLookupDTO, String> {
+    note_translate_activity();
     let text = text.trim().to_string();
     let creds = translate::providers::Creds(creds);
     let variant = translate::lookup::cache_variant_for(&creds);
@@ -245,6 +286,7 @@ pub fn translate_document(
     creds: HashMap<String, String>,
     state: tauri::State<AppTxn>,
 ) -> Result<TranslateStart, String> {
+    note_translate_activity();
     let meta = translate::providers_meta::get(&provider)
         .ok_or_else(|| format!("未知翻译源：{provider}"))?;
     let blocks = markdown::parse_blocks(&content);
@@ -375,8 +417,17 @@ fn spawn_translation(
                     shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
                 }
             }
+            // 空闲收缩：worker 收尾时若距上次翻译活动已超过 IDLE_SHRINK_AFTER，
+            // 把内存 cache 砍到 SHRINK_TO 条并标记 dirty（save 一次性写回磁盘）。
+            // 收益：cache 上限 20000 条常驻 → 主动收紧后 ~2-3MB 起步。
+            let shrunk = shrink_if_idle(&mut shared);
             if shared.is_dirty() {
-                let _ = shared.save(&storage::cache_path());
+                if let Err(e) = shared.save(&storage::cache_path()) {
+                    eprintln!("[cache] save after shrink failed: {e}");
+                }
+                if shrunk {
+                    crate::trim::trim_working_set();
+                }
             }
         }
 

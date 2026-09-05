@@ -14,6 +14,7 @@ mod single_instance;
 mod storage;
 mod tray;
 mod translate;
+mod trim;
 mod workspace;
 
 use std::fs::File;

@@ -22,6 +22,22 @@ adheres to [Semantic Versioning](https://semver.org/).
   一律缓冲到 `PENDING_OPEN`，等前端 `take_pending_open` 取走；附 10s 超时兜底，
   避免前端异常时文件关联彻底静默。
 
+### Changed
+
+- 后台内存只涨不跌的三处源头同时治理（用户报告：开机自启 ~5MB，操作多后涨到
+  80MB+ 无回收）：
+  - **翻译缓存上限 20000 → 5000 条**：`cache::MAX` 下调，长期占用上限从
+    ~40MB 降到 ~10MB。超过 5000 即 FIFO 裁 1/4，命中模式不变。
+  - **空闲自动收缩**：翻译 worker 收尾时检测距离上次翻译 IPC（translate_text /
+    lookup_word / translate_document 任一）已超 10 分钟，则把内存里的 cache
+    裁到 1000 条并 save 重写磁盘，下次冷启动也保持小容量。新增 `Cache::shrink_to`
+    方法（带 4 条离线单测，含「收缩→save→reload 仍保持小容量」的回归项）。
+  - **主动 trim 工作集**：截图窗口 close 后、翻译 worker 收尾（且触发
+    shrink）后调 `SetProcessWorkingSetSize(GetCurrentProcess(), -1, -1)`，
+    把 Windows 堆保留的空闲页还给 OS——Rust 默认 HeapAlloc 不会自动 decommit，
+    这是截图流程 ~25MB 高水位、翻译中间缓冲堆积的根因。新增 `trim.rs` 与
+    `windows-sys` 显式依赖（winit 已间接引入，零新增编译量）。
+
 ## [0.1.6] - 2026-09-03
 
 预览内点击 Markdown 链接改由系统浏览器打开，主窗口不再被外部网站顶掉；
