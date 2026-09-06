@@ -106,7 +106,12 @@ pub enum TranslateStart {
     Started {
         r#gen: u64,
         /// 窗口化 run 的最小全局索引（全文=收集器首索引；空收集=0）。
+        /// 兼容保留：前端打字机已改按下方 indices 序列放行（终审 C1）。
         first_index: usize,
+        /// 本轮收集索引的完整文档序序列（= spawn_translation 收到的那份）。
+        /// 窗口化按需/文献区段跳过使收集索引带缺口（如 [1,3,5]），打字机
+        /// 按此序列放行，缺口不再被误判为"等连续前缀"而永久停摆（终审 C1）。
+        indices: Vec<usize>,
     },
     Cached {
         done: TranslationDoneEvt,
@@ -344,7 +349,7 @@ pub fn translate_document(
         app,
         r#gen,
         texts,
-        indices,
+        indices.clone(), // Started 回传前端打字机放行序列（终审 C1）
         provider,
         creds,
         meta,
@@ -354,7 +359,7 @@ pub fn translate_document(
         bilingual,
         window.is_some(),
     );
-    Ok(TranslateStart::Started { r#gen, first_index })
+    Ok(TranslateStart::Started { r#gen, first_index, indices })
 }
 
 /// 会话收口重建：用前端累积的完整 translations 表渲染整树 canonical html。
@@ -600,6 +605,31 @@ mod tests {
         assert_eq!(v["index"], 12);
         assert_eq!(v["text"], "译文");
         assert_eq!(v["from_cache"], true);
+    }
+
+    #[test]
+    fn translate_start_started_carries_indices() {
+        // 终审 C1 回归锚点：Started 必须携带本轮收集索引序列（文档序，可带
+        // 缺口）——前端打字机按此序列放行，而非"连续 +1"游标；first_index
+        // 为兼容保留（= 序列首元素；空收集为 0）。
+        let e = TranslateStart::Started {
+            r#gen: 6,
+            first_index: 1,
+            indices: vec![1, 3, 5],
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "started");
+        assert_eq!(v["gen"], 6);
+        assert_eq!(v["first_index"], 1);
+        assert_eq!(v["indices"], serde_json::json!([1, 3, 5]));
+        // 全文 run：索引连续且从收集器首索引起（此处 0 起）
+        let full = TranslateStart::Started {
+            r#gen: 7,
+            first_index: 0,
+            indices: vec![0, 1, 2],
+        };
+        let v2 = serde_json::to_value(&full).unwrap();
+        assert_eq!(v2["indices"], serde_json::json!([0, 1, 2]));
     }
 
     #[test]
