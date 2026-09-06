@@ -93,6 +93,8 @@ interface DocState {
     translations: Map<number, string>,
     doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null,
   ): void;
+  /** 窗口化 run 的增量合并：pairs 并入当前累积表（不整表 replace）。 */
+  mergeTranslations(pairs: Array<[number, string]>): void;
 }
 
 function pathParts(p: string) {
@@ -414,6 +416,7 @@ export const useDocStore = create<DocState>()((set, get) => {
     },
 
     applyEdit: (content, cursorSel) => {
+      useTranslationStore.getState().resetDisplayIfStale(content);
       patchActive((t) => ({ ...t, content, cursorSel }));
     },
 
@@ -542,6 +545,7 @@ export const useDocStore = create<DocState>()((set, get) => {
     switchMode: (m) => {
       const t = activeTab(get());
       if (!t || t.mode === m) return;
+      useTranslationStore.getState().resetDisplay(); // 旧模式显示/流全部作废（索引空间变）
       patchActive((cur) => ({
         ...cur,
         mode: m,
@@ -577,6 +581,15 @@ export const useDocStore = create<DocState>()((set, get) => {
 
     applyTranslationResult: (translations, doneHtml) => {
       patchActive((t) => ({ ...t, translations, doneHtml }));
+    },
+
+    mergeTranslations: (pairs) => {
+      if (pairs.length === 0) return;
+      patchActive((t) => {
+        const merged = new Map(t.translations);
+        for (const [i, v] of pairs) merged.set(i, v);
+        return { ...t, translations: merged };
+      });
     },
   };
 });
