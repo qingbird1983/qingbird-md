@@ -1,5 +1,5 @@
 // 整篇翻译进度条（Task 23）：仅 status==="running" 时渲染，否则完全不占位。
-// 内容：批次模式与 provider 标签、进度条(done/total)、百分比、取消按钮——
+// 内容：scope/批次模式与 provider 标签、进度条(done/total)、百分比、取消按钮——
 // stop 使 gen 前跳，同轮迟到的 done/progress 事件因子代失配而被丢弃。
 import { useEffect, useState } from "react";
 import { api } from "../lib/ipc";
@@ -8,12 +8,14 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 
 const MODE_LABEL: Record<string, string> = { translation: "译文", bilingual: "中英对照" };
+const SCOPE_LABEL: Record<string, string> = { viewport: "视口翻译", full: "全文翻译" };
 
 export default function TranslationBar() {
   const running = useTranslationStore((s) => s.status === "running");
   const progress = useTranslationStore((s) => s.progress);
   const stop = useTranslationStore((s) => s.stop);
   const mode = useDocStore((s) => s.mode);
+  const scope = useTranslationStore((s) => s.scope);
   const providerKey = useSettingsStore((s) => s.settings?.provider ?? "—");
   // T23 评审清理：显示翻译源 label 而非 key；元数据缺失时回退 key
   const [providerLabel, setProviderLabel] = useState("");
@@ -40,7 +42,7 @@ export default function TranslationBar() {
   return (
     <div className="translation-bar" role="status">
       <span className="tb-label">
-        {MODE_LABEL[mode] ?? "翻译"} · {provider}
+        {SCOPE_LABEL[scope] ?? "翻译"} · {MODE_LABEL[mode] ?? ""} · {provider}
       </span>
       <div className="tb-track" aria-hidden="true">
         <div className="tb-fill" style={{ width: `${pct ?? 0}%` }} />

@@ -1071,11 +1071,13 @@ button.menu-btn:disabled,
 }
 
 /* 正文宽度拖宽把手（DSH 式）：preview-wrap 定位基准，热区贴正文栏左右边缘。
-   • 热区 8px 全高全透明，cursor col-resize；药丸 ::after 12x32 跟随指针 Y
-     （--pill-y 由 onPointerMove 直写，钳在热区内），hover 淡入、拖拽中 accent 加深。
+   • 热区 20px 全高全透明（原 8px 用户反馈太窄），cursor col-resize；
+     药丸 ::after 4x140 梭形（border-radius 50% 椭圆 = 中间粗两头尖）跟随指针 Y
+     （--pill-y 由 onPointerMove 直写，钳在热区内），hover 淡入；灰色系，
+     拖拽中深一档灰（用户反馈：不要蓝色）。
    • .dragging 由 lib/colDrag 开关——capture 下 :hover 随指针漂移失效，不能只靠它。
    • 位置与正文栏吃同一个 --qb-content-w：左缘 50%-w/2、右缘 50%+w/2，
-     热区自身 8px 宽（-4px 回拉半宽），与栏边缘对齐。 */
+     热区自身 20px 宽（-10px 回拉半宽），与栏边缘对齐。 */
 .preview-wrap {
   position: relative;
   height: 100%;
@@ -1085,18 +1087,18 @@ button.menu-btn:disabled,
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 20px;
   cursor: col-resize;
   z-index: 5;
   touch-action: none;
 }
 
 .content-resizer.left {
-  left: calc((100% - var(--sb-w, 0px)) / 2 - var(--qb-content-w, 794px) / 2 - 4px);
+  left: calc((100% - var(--sb-w, 0px)) / 2 - var(--qb-content-w, 794px) / 2 - 10px);
 }
 
 .content-resizer.right {
-  left: calc((100% - var(--sb-w, 0px)) / 2 + var(--qb-content-w, 794px) / 2 - 4px);
+  left: calc((100% - var(--sb-w, 0px)) / 2 + var(--qb-content-w, 794px) / 2 - 10px);
 }
 
 .content-resizer::after {
@@ -1104,11 +1106,11 @@ button.menu-btn:disabled,
   position: absolute;
   top: var(--pill-y, 50%);
   left: 50%;
-  width: 12px;
-  height: 32px;
-  border-radius: 10px;
+  width: 4px;
+  height: 140px;
+  border-radius: 50%; /* 椭圆：中间最粗、两头渐收成尖 */
   background: var(--bg3);
-  box-shadow: 0 0 0 1px var(--border-strong);
+  box-shadow: 0 0 0 1px var(--border);
   transform: translate(-50%, -50%);
   opacity: 0;
   transition: opacity 0.15s, background 0.15s;
@@ -1121,7 +1123,7 @@ button.menu-btn:disabled,
 }
 
 .content-resizer.dragging::after {
-  background: var(--accent);
+  background: var(--border-strong); /* 拖拽中深灰，不再用 accent 蓝 */
   box-shadow: none;
 }
 
