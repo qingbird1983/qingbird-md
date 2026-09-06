@@ -1,4 +1,6 @@
 // 整篇翻译进度条（Task 23）：仅 status==="running" 时渲染，否则完全不占位。
+// 悬浮层（用户反馈）：absolute 钉在主区顶缘、不占文档流——出/入场不推挤
+// 正文（滚动触发翻译/翻译结束时正文不再上下跳）。
 // 内容：scope/批次模式与 provider 标签、进度条(done/total)、百分比、取消按钮——
 // stop 使 gen 前跳，同轮迟到的 done/progress 事件因子代失配而被丢弃。
 import { useEffect, useState } from "react";

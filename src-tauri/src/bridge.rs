@@ -158,6 +158,33 @@ pub(crate) fn html_payload_parts(
     (orig.html, html_translation, html_bilingual, orig.outline)
 }
 
+/// 窗口化缓存全命中的整篇扫荡：与该 run 模式同一索引空间收集全文可译单元，
+/// 逐单元查缓存，命中即带回。窗口化 precheck 只回窗口 pairs 时，文档其余
+/// 部分的缓存命中要靠滚动逐窗补齐——第二击翻译（缓存全命中）只换视口那
+/// 几行（用户实测 bug）；扫荡对让前端 merge+instant+canonical 重建一次
+/// 整屏瞬时替换（验收点 5）。未命中块不带回，维持原文走视口运行补齐。
+fn sweep_cached_pairs(
+    snapshot: &Cache,
+    provider: &str,
+    variant: &str,
+    blocks: &[markdown::model::Block],
+    bilingual: bool,
+) -> Vec<(usize, String)> {
+    let units = if bilingual {
+        markdown::units::collect_translatable(blocks)
+    } else {
+        markdown::units::collect_text_runs(blocks)
+    };
+    units
+        .into_iter()
+        .filter_map(|(i, t)| {
+            snapshot
+                .get(&Cache::key(provider, variant, &t))
+                .map(|s| (i, s.to_string()))
+        })
+        .collect()
+}
+
 fn cached_done_evt(
     provider: &str,
     variant: &str,
@@ -320,7 +347,7 @@ pub fn translate_document(
         &provider,
         creds.get("model").map(|s| s.as_str()).unwrap_or_default(),
     );
-    if let Some(done) = cached_done_evt(
+    if let Some(mut done) = cached_done_evt(
         &provider,
         &variant,
         &snapshot,
@@ -330,6 +357,13 @@ pub fn translate_document(
         bilingual,
         window.is_some(),
     ) {
+        // 窗口化缓存全命中：窗口 pairs 之外，把整篇缓存命中单元一并扫荡
+        // 回带（见 sweep_cached_pairs 注释）——前端凭完整表整屏瞬时替换，
+        // 不必滚到哪补到哪。全文（window=None）路径本就带全部 pairs，不扫。
+        if window.is_some() {
+            done.translations =
+                Some(sweep_cached_pairs(&snapshot, &provider, &variant, &blocks, bilingual));
+        }
         return Ok(TranslateStart::Cached { done });
     }
     state
@@ -590,6 +624,37 @@ mod tests {
         assert!(evt_w.html_bilingual.is_none());
         assert!(evt_w.outline.is_none());
         assert_eq!(evt_w.translations, Some(vec![(0usize, "甲".into()), (1usize, "乙".into())]));
+    }
+
+    #[test]
+    fn sweep_cached_pairs_returns_whole_document_hits() {
+        // 窗口化缓存全命中的扫荡：整篇收集（与窗口同一模式索引空间）逐单元查
+        // 缓存，命中即带回——第二击翻译时前端凭完整 pairs 整屏瞬时替换
+        //（验收点 5），而非只补视口窗口那几行。
+        let blocks = markdown::parse_blocks("One\n\nTwo\n\nThree");
+        let mut c = Cache::new();
+        c.set(Cache::key("p", "", "One"), "甲".into());
+        c.set(Cache::key("p", "", "Two"), "乙".into());
+        c.set(Cache::key("p", "", "Three"), "丙".into());
+        assert_eq!(
+            sweep_cached_pairs(&c, "p", "", &blocks, false),
+            vec![(0usize, "甲".into()), (1usize, "乙".into()), (2usize, "丙".into())]
+        );
+        // 部分命中：只带回缓存过的单元，未命中块留给滚动触发的视口运行
+        let mut c2 = Cache::new();
+        c2.set(Cache::key("p", "", "Two"), "乙".into());
+        assert_eq!(sweep_cached_pairs(&c2, "p", "", &blocks, false), vec![(1usize, "乙".into())]);
+        // bilingual：块空间（data-bi）索引；跳过区段/纯中文块不出现
+        let blocks_b = markdown::parse_blocks("# Eng\n\nAnother one\n\n## References\n\n**X** 2020.");
+        let mut c3 = Cache::new();
+        c3.set(Cache::key("p", "", "Eng"), "标题".into());
+        c3.set(Cache::key("p", "", "Another one"), "另一段".into());
+        assert_eq!(
+            sweep_cached_pairs(&c3, "p", "", &blocks_b, true),
+            vec![(0usize, "标题".into()), (1usize, "另一段".into())]
+        );
+        // 换模型 variant：缓存键不匹配 → 空
+        assert!(sweep_cached_pairs(&c3, "p", "other@v1", &blocks_b, true).is_empty());
     }
 
     #[test]

@@ -606,6 +606,7 @@ body[data-theme="dark"] .logo-dark { display: block; }
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative; /* 悬浮进度条（.translation-bar）的定位基准 */
 }
 
 /* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
@@ -1128,14 +1129,21 @@ button.menu-btn:disabled,
 }
 
 /* ============ 整篇翻译进度条 ============ */
+/* 悬浮层（用户实测反馈）：absolute 脱离文档流，出/入场不再把正文压下/
+   弹回一行（上蹿下跳）；钉在主区顶缘，滚动与正文无关。 */
 .translation-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10; /* 高于 .content-resizer(5)；热区 y 钳制 ≥70 无实际重叠 */
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: none;
   padding: 6px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--tr-box-bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); /* 悬浮分层感 */
   font-size: 12px;
   color: var(--fg2);
 }
