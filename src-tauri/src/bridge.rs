@@ -91,6 +91,7 @@ pub struct TranslationPartialEvt {
     pub r#gen: u64,
     pub index: usize,
     pub text: String,
+    pub from_cache: bool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -104,6 +105,8 @@ pub struct LookupDeltaEvt {
 pub enum TranslateStart {
     Started {
         r#gen: u64,
+        /// 窗口化 run 的最小全局索引（全文=收集器首索引；空收集=0）。
+        first_index: usize,
     },
     Cached {
         done: TranslationDoneEvt,
@@ -158,6 +161,7 @@ fn cached_done_evt(
     texts: &[String],
     content: &str,
     bilingual_batch: bool,
+    windowed: bool,
 ) -> Option<TranslationDoneEvt> {
     let results: Vec<Result<String, String>> = texts
         .iter()
@@ -173,17 +177,24 @@ fn cached_done_evt(
         return None;
     }
     let map: HashMap<usize, String> = pairs.iter().cloned().collect();
-    let (html_original, html_translation, html_bilingual, outline) =
-        html_payload_parts(content, &map, bilingual_batch);
+    let (html_original, html_translation, html_bilingual, outline) = if windowed {
+        // 窗口化载荷不携带整树 html：后端只有窗口 pairs，整树渲染会把
+        // 窗口外已译块打回原文。显示由前端 patch 承担。
+        (None, None, None, None)
+    } else {
+        let (html_original, html_translation, html_bilingual, outline) =
+            html_payload_parts(content, &map, bilingual_batch);
+        (Some(html_original), html_translation, html_bilingual, Some(outline))
+    };
     Some(TranslationDoneEvt {
         r#gen: 0,
         ok: true,
         translations: Some(pairs),
         error: None,
-        html_original: Some(html_original),
+        html_original,
         html_translation,
         html_bilingual,
-        outline: Some(outline),
+        outline,
     })
 }
 
@@ -284,15 +295,17 @@ pub fn translate_document(
     mode: String,
     provider: String,
     creds: HashMap<String, String>,
+    window: Option<[usize; 2]>,
     state: tauri::State<AppTxn>,
 ) -> Result<TranslateStart, String> {
     note_translate_activity();
     let meta = translate::providers_meta::get(&provider)
         .ok_or_else(|| format!("未知翻译源：{provider}"))?;
     let blocks = markdown::parse_blocks(&content);
+    let win_range = window.map(|[top, end]| (top, end));
     let units = match mode.as_str() {
-        "translation" => markdown::units::collect_text_runs(&blocks),
-        "bilingual" => markdown::units::collect_translatable(&blocks),
+        "translation" => markdown::units::collect_text_runs_windowed(&blocks, win_range),
+        "bilingual" => markdown::units::collect_translatable_windowed(&blocks, win_range),
         other => return Err(format!("不支持的模式：{other}")),
     };
     let snapshot = state.cache.lock().expect("cache mutex poisoned").clone();
@@ -310,6 +323,7 @@ pub fn translate_document(
         &texts,
         &content,
         bilingual,
+        window.is_some(),
     ) {
         return Ok(TranslateStart::Cached { done });
     }
@@ -319,6 +333,7 @@ pub fn translate_document(
         .map_err(|_| "已有翻译在进行".to_string())?;
     let r#gen = state.r#gen.fetch_add(1, Ordering::SeqCst) + 1;
     state.cancel.store(false, Ordering::SeqCst);
+    let first_index = indices.first().copied().unwrap_or(0);
 
     let st = WorkerState {
         cache: Arc::clone(&state.cache),
@@ -337,8 +352,26 @@ pub fn translate_document(
         snapshot,
         content,
         bilingual,
+        window.is_some(),
     );
-    Ok(TranslateStart::Started { r#gen })
+    Ok(TranslateStart::Started { r#gen, first_index })
+}
+
+/// 会话收口重建：用前端累积的完整 translations 表渲染整树 canonical html。
+/// 与 parse_markdown 同返回形态（ParseResult）；mode 决定替换形态。
+#[tauri::command(async)]
+pub fn render_translated(
+    content: String,
+    mode: String,
+    translations: Vec<(usize, String)>,
+) -> Result<markdown::html::ParseResult, String> {
+    let bilingual = match mode.as_str() {
+        "translation" => false,
+        "bilingual" => true,
+        other => return Err(format!("不支持的模式：{other}")),
+    };
+    let map: HashMap<usize, String> = translations.into_iter().collect();
+    Ok(markdown::html::render_html(&content, &map, bilingual))
 }
 
 fn spawn_translation(
@@ -353,6 +386,7 @@ fn spawn_translation(
     mut work_cache: Cache,
     content: String,
     bilingual: bool,
+    windowed: bool,
 ) {
     std::thread::spawn(move || {
         let http0 = translate::http::UreqClient::shared();
@@ -385,10 +419,10 @@ fn spawn_translation(
         let app_evt = app.clone();
         let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
         let emit = |ev: translate::engine::EngineEvent| match ev {
-            translate::engine::EngineEvent::Unit { index, text, .. } => {
+            translate::engine::EngineEvent::Unit { index, text, from_cache } => {
                 let _ = app_evt.emit(
                     "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text },
+                    TranslationPartialEvt { r#gen, index, text, from_cache },
                 );
             }
             translate::engine::EngineEvent::Progress { done, total } => {
@@ -434,17 +468,30 @@ fn spawn_translation(
         let (ok, pairs, err) = done_payload_parts(&indices, &results);
         let payload = if ok {
             let map: HashMap<usize, String> = pairs.iter().cloned().collect();
-            let (html_original, html_translation, html_bilingual, outline) =
-                html_payload_parts(&content, &map, bilingual);
-            TranslationDoneEvt {
-                r#gen,
-                ok: true,
-                translations: Some(pairs),
-                error: None,
-                html_original: Some(html_original),
-                html_translation,
-                html_bilingual,
-                outline: Some(outline),
+            if windowed {
+                TranslationDoneEvt {
+                    r#gen,
+                    ok: true,
+                    translations: Some(pairs),
+                    error: None,
+                    html_original: None,
+                    html_translation: None,
+                    html_bilingual: None,
+                    outline: None,
+                }
+            } else {
+                let (html_original, html_translation, html_bilingual, outline) =
+                    html_payload_parts(&content, &map, bilingual);
+                TranslationDoneEvt {
+                    r#gen,
+                    ok: true,
+                    translations: Some(pairs),
+                    error: None,
+                    html_original: Some(html_original),
+                    html_translation,
+                    html_bilingual,
+                    outline: Some(outline),
+                }
             }
         } else {
             TranslationDoneEvt {
@@ -498,6 +545,7 @@ mod tests {
             &["a".into(), "b".into()],
             "# t\n\na b",
             false,
+            false,
         )
         .expect("全命中应返回同步产物");
         assert!(evt.ok);
@@ -509,23 +557,34 @@ mod tests {
         assert!(evt.html_bilingual.is_none());
         assert!(evt.html_original.is_some());
         assert!(evt.outline.is_some());
-        let evt2 =
-            cached_done_evt("p", "", &c, &[0], &["a".into()], "a", true).expect("全命中");
+        let evt2 = cached_done_evt("p", "", &c, &[0], &["a".into()], "a", true, false)
+            .expect("全命中");
         assert!(evt2.html_bilingual.is_some() && evt2.html_translation.is_none());
         assert!(
-            cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "x".into()], "# t", false)
+            cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "x".into()], "# t", false, false)
                 .is_none()
         );
-        assert!(cached_done_evt("q", "", &c, &[0], &["a".into()], "# t", false).is_none());
-        c.set(Cache::key("llm", "old-model@v1", "a"), "旧译文".into());
-        assert!(cached_done_evt("llm", "old-model@v1", &c, &[0], &["a".into()], "# t", false)
-            .is_some());
         assert!(
-            cached_done_evt("llm", "new-model@v1", &c, &[0], &["a".into()], "# t", false)
+            cached_done_evt("q", "", &c, &[0], &["a".into()], "# t", false, false).is_none()
+        );
+        c.set(Cache::key("llm", "old-model@v1", "a"), "旧译文".into());
+        assert!(
+            cached_done_evt("llm", "old-model@v1", &c, &[0], &["a".into()], "# t", false, false)
+                .is_some()
+        );
+        assert!(
+            cached_done_evt("llm", "new-model@v1", &c, &[0], &["a".into()], "# t", false, false)
                 .is_none(),
             "换模型必须 miss"
         );
-        assert!(cached_done_evt("p", "", &c, &[], &[].to_vec(), "# t", false).is_some());
+        assert!(cached_done_evt("p", "", &c, &[], &[].to_vec(), "# t", false, false).is_some());
+        let evt_w = cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "b".into()], "# t\n\na b", false, true)
+            .expect("窗口化全命中");
+        assert!(evt_w.html_original.is_none());
+        assert!(evt_w.html_translation.is_none());
+        assert!(evt_w.html_bilingual.is_none());
+        assert!(evt_w.outline.is_none());
+        assert_eq!(evt_w.translations, Some(vec![(0usize, "甲".into()), (1usize, "乙".into())]));
     }
 
     #[test]
@@ -534,11 +593,13 @@ mod tests {
             r#gen: 4,
             index: 12,
             text: "译文".into(),
+            from_cache: true,
         };
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["gen"], 4);
         assert_eq!(v["index"], 12);
         assert_eq!(v["text"], "译文");
+        assert_eq!(v["from_cache"], true);
     }
 
     #[test]
@@ -586,6 +647,40 @@ mod tests {
         assert!(v2.get("html_original").is_none());
         assert!(v2.get("html_bilingual").is_none());
         assert!(v2.get("outline").is_none());
+    }
+
+    #[test]
+    fn windowed_done_evt_omits_html_fields() {
+        let e = TranslationDoneEvt {
+            r#gen: 9,
+            ok: true,
+            translations: Some(vec![(3, "窗".into())]),
+            error: None,
+            html_original: None,
+            html_translation: None,
+            html_bilingual: None,
+            outline: None,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert!(v.get("html_original").is_none());
+        assert!(v.get("html_translation").is_none());
+        assert!(v.get("html_bilingual").is_none());
+        assert!(v.get("outline").is_none());
+        assert_eq!(v["translations"], serde_json::json!([[3, "窗"]]));
+    }
+
+    #[test]
+    fn render_translated_builds_canonical_html() {
+        let r = render_translated(
+            "# Ti\n\nHello world".into(),
+            "bilingual".into(),
+            vec![(0usize, "中文标题".into()), (1usize, "你好世界".into())],
+        )
+        .unwrap();
+        assert!(r.html.contains(r#"<div class="tr-box">中文标题</div>"#));
+        assert!(r.html.contains(r#"<div class="tr-box">你好世界</div>"#));
+        let r2 = render_translated("Hi".into(), "original".into(), vec![]).unwrap_err();
+        assert!(r2.contains("不支持的模式"));
     }
 
     #[test]

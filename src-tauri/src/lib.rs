@@ -1,4 +1,4 @@
-﻿//! Tauri entry point: managed app state (`AppTxn`) + the first IPC commands
+//! Tauri entry point: managed app state (`AppTxn`) + the first IPC commands
 //! (file read/write, settings read/write). Workspace/editor commands land in
 //! Task 6, dialogs Task 9, translation Task 8 — appended to `generate_handler!`.
 
@@ -486,6 +486,8 @@ pub fn run() {
             bridge::llm_list_models,
             bridge::translate_document,
             bridge::stop_translation,
+            // Task 5: 会话收口重建（用前端累积 translations 渲染整树 canonical html）
+            bridge::render_translated,
             // Task 9: 对话框
             pick_file,
             pick_folder,
