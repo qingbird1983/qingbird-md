@@ -181,12 +181,12 @@ export default function PreviewView() {
     );
   };
 
-  // 药丸跟随：Y 直写热区 CSS 变量（零重渲），钳在热区内不出界（药丸半高 16）。
+  // 药丸跟随：Y 直写热区 CSS 变量（零重渲），钳在热区内不出界（药丸半高 70）。
   // 拖拽中 pointer capture 把 move 重定向到热区自身，同一监听器继续生效。
   const trackPill = (e: ReactPointerEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
-    const y = Math.max(16, Math.min(rect.height - 16, e.clientY - rect.top));
+    const y = Math.max(70, Math.min(rect.height - 70, e.clientY - rect.top));
     el.style.setProperty("--pill-y", `${y}px`);
   };
 
