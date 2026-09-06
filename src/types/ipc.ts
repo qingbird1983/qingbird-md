@@ -130,9 +130,12 @@ export type ViewKind = "source" | "preview" | "split";
  * started = 已起跑（gen 号，进度/完成走事件）；cached = 缓存全命中，
  * done 产物随本调用同步直达（无进度条、不经事件通道——事件/invoke
  * 到达顺序竞态从根上消除）。
+ * indices（终审 C1）：本轮收集索引的完整文档序序列——窗口化/文献区段跳过
+ * 使收集索引带缺口（如 [1,3,5]），打字机按此序列放行而非"连续 +1"游标。
+ * first_index 兼容保留 = 序列首元素（空收集为 0）。
  */
 export type TranslateStart =
-  | { kind: "started"; gen: number; first_index: number }
+  | { kind: "started"; gen: number; first_index: number; indices: number[] }
   | { kind: "cached"; done: DonePayload };
 
 /** dto.rs LookupExample */
