@@ -1,7 +1,7 @@
 # 青鸟 Markdown（qingbird-md）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release: v0.1.6](https://img.shields.io/badge/Release-v0.1.6-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases)
+[![Release: v0.1.7](https://img.shields.io/badge/Release-v0.1.7-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases)
 [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases)
 [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
 
