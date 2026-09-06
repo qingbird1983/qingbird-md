@@ -23,7 +23,7 @@ import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
 import { contentWidthPx, edgeDragWidth } from "../lib/contentWidth";
 import { startColDrag } from "../lib/colDrag";
-import { patchPartial } from "../lib/patchPartial";
+import { lockTypingHost, patchPartial, unlockTypingHost } from "../lib/patchPartial";
 import { handlePreviewLinkClick } from "../lib/linkSafety";
 import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
@@ -132,6 +132,12 @@ export default function PreviewView() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [paneW, setPaneW] = useState(0);
   const hasDoc = content !== null;
+  // Task 11：reveal patcher 与滚动观察的共享 refs——brief 要求把 d 组 refs 声明
+  // 提前到组件体顶部区域（anchorsDirtyRef 被 patcher 与观察两个 effect 共享）。
+  const typingHostRef = useRef<Map<number, HTMLElement | null>>(new Map());
+  const anchorsRef = useRef<Array<{ idx: number; top: number }> | null>(null);
+  const anchorsDirtyRef = useRef(true);
+  const scrollRafRef = useRef(0);
   // 观察滚动容器内容宽（clientWidth 不含经典滚动条）：把手定位与拖宽钳制都以它为准；
   // 滚动条宽 = scroller offsetWidth − clientWidth，写 --sb-w 供 CSS 定位取用——
   // 正文栏在内容盒内居中（margin auto），不在 wrap 全宽内居中。
@@ -210,22 +216,125 @@ export default function PreviewView() {
     void renderMermaidPlaceholders(el);
   }, [html, baseDir]);
 
-  // 流式回填：只处理上次水位之后新放行的区间，逐块查锚点 patch。
-  // gen 变化（新轮次/清空）即重置水位；innerHTML 重建 effect（上方）在
-  // done 时整树重渲，本 effect 因 partialGen=0 不再动作——两管线无缝交接。
+  // innerHTML 重建（doneHtml/parse 切换）会抹掉所有 patch——水位复位，
+  // 让下方 committed patch effect 从头重放（幂等，committed 都是完整译文）。
+  // 锚点表同步标脏（brief 未列，本任务适配）：重建后各块 offsetTop 全变，
+  // 不标脏则下次滚动上报仍用旧锚点，视口索引跨文档/跨重建错位。
   const patchedRef = useRef<{ gen: number; upto: number }>({ gen: 0, upto: 0 });
+  useEffect(() => {
+    patchedRef.current.upto = 0;
+    anchorsDirtyRef.current = true;
+  }, [html]);
+
+  // committed 回填：只处理上次水位之后新放行的已定格区间，逐块查锚点 patch。
+  // partialGen 变化（新轮次/清空）即重置水位；innerHTML 重建 effect（上方）先
+  // 整树重渲、水位 effect 再复位，本 effect 从 0 重放——三管线无缝交接。
   useEffect(() => {
     const el = ref.current;
     if (!el || partialGen === 0) return;
     if (patchedRef.current.gen !== partialGen) {
       patchedRef.current = { gen: partialGen, upto: 0 };
     }
+    // 内容过期护栏：批次期间文档被编辑/切换 → 索引错位，宁缺勿错
+    if (useDocStore.getState().doc?.content !== useTranslationStore.getState().runContent) return;
     for (let i = patchedRef.current.upto; i < partialCursor; i++) {
       const text = partialBlocks.get(i);
       if (text !== undefined) patchPartial(el, mode, i, text);
     }
     patchedRef.current.upto = Math.max(patchedRef.current.upto, partialCursor);
-  }, [partialGen, partialCursor, partialBlocks, mode]);
+  }, [partialGen, partialCursor, partialBlocks, mode, html]);
+
+  // ── reveal DOM patcher：start 锁高 / tick 切片 / done 定格解锁 / instant 直写 ──
+  useEffect(() => {
+    useTranslationStore.getState().registerPatcher((c) => {
+      const el = ref.current;
+      if (!el) return;
+      switch (c.kind) {
+        case "start": {
+          typingHostRef.current.set(c.index, lockTypingHost(el, mode, c.index));
+          break;
+        }
+        case "tick":
+          patchPartial(el, mode, c.index, c.text);
+          break;
+        case "done":
+          patchPartial(el, mode, c.index, c.text);
+          unlockTypingHost(typingHostRef.current.get(c.index) ?? null);
+          typingHostRef.current.delete(c.index);
+          anchorsDirtyRef.current = true; // 行高变化 → 锚点表标脏
+          break;
+        case "instant":
+          patchPartial(el, mode, c.index, c.text);
+          anchorsDirtyRef.current = true;
+          break;
+      }
+    });
+    return () => useTranslationStore.getState().registerPatcher(null);
+  }, [mode]);
+
+  // ── 滚动观察：rAF 节流 + data-bi 锚点 offsetTop 缓存 + 二分 → setViewport ──
+  // offsetTop 语义已验证（brief 要求先验证再选用）：.markdown-body 与
+  // .preview-scroll 的 CSS 均无定位，唯 .preview-wrap position:relative（无
+  // border/padding）——data-bi 块的 offsetParent 即 preview-wrap，其 offsetTop
+  // 与 preview-scroll 的 scrollTop 同系（同一未滚动坐标系，原点同在滚动容器
+  // 顶缘），offsetTop 版成立，无需 rect 差值。
+  // deps（brief 为 []，本任务适配）：无文档时组件早退渲染 preview-empty，
+  // scrollerRef 为 null——[] 会在开档后永久失联；html 入 deps 使整树重建
+  //（换档/换文档/canonical 重建）后立即重报一次真实视口，视口不串号。
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const topIndexAt = (y: number): number => {
+      const anchors = anchorsRef.current;
+      if (!anchors || anchors.length === 0) return 0;
+      let lo = 0;
+      let hi = anchors.length - 1;
+      let ans = anchors[0].idx;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (anchors[mid].top <= y) {
+          ans = anchors[mid].idx;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      return ans;
+    };
+    const report = () => {
+      const el = ref.current;
+      if (!el) return;
+      if (anchorsDirtyRef.current || !anchorsRef.current) {
+        const list: Array<{ idx: number; top: number }> = [];
+        el.querySelectorAll<HTMLElement>("[data-bi]").forEach((n) => {
+          const bi = Number(n.dataset.bi);
+          if (Number.isFinite(bi)) list.push({ idx: bi, top: n.offsetTop });
+        });
+        list.sort((a, b) => a.top - b.top);
+        anchorsRef.current = list;
+        anchorsDirtyRef.current = false;
+      }
+      const anchors = anchorsRef.current;
+      if (!anchors || anchors.length === 0) return;
+      const y = scroller.scrollTop;
+      const top = topIndexAt(y);
+      const bottom = topIndexAt(y + scroller.clientHeight - 1);
+      useTranslationStore.getState().setViewport(top, bottom);
+    };
+    const onScroll = () => {
+      if (scrollRafRef.current) return;
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = 0;
+        report();
+      });
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    report(); // 挂载/整树重建即上报一次（首次窗口用真实视口而非回退值）
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, [hasDoc, html]);
 
   // 划词翻译（选区查词）预览侧捕获：编辑器侧由 App.tsx 的 CM cursorSel 订阅
   // 覆盖，预览渲染 DOM 没有 CM 选区事件——这里监听 selectionchange，锚点落

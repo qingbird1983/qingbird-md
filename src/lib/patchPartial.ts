@@ -28,3 +28,32 @@ export function patchPartial(el: HTMLElement, mode: Mode, index: number, text: s
     run.textContent = text;
   }
 }
+
+/**
+ * 打字起点：bilingual 模式预创建空 tr-box 并锁定 min-height=源块当前高度，
+ * 打字期间下方内容不被逐帧推挤（行阶跃量化位移）；translation 模式的 run
+ * 是行内元素，无块级锁定意义，交由行数变化的自然阶跃。
+ * 返回锁定目标（供 done 时解锁），无需锁定返回 null。
+ */
+export function lockTypingHost(el: HTMLElement, mode: Mode, index: number): HTMLElement | null {
+  if (mode !== "bilingual") return null;
+  const host = el.querySelector(`[data-bi="${index}"]`);
+  if (!host) return null;
+  // nextElementSibling 静态类型是 Element；tr-box 恒为 div（本函数自建或既有
+  // 均出自 createElement）——断言收敛到 HTMLElement，下方 style 访问才合法
+  //（brief 原片段按 Element 推导，`box.style` 必报 TS2339，唯一类型适配点）。
+  let box = host.nextElementSibling as HTMLElement | null;
+  if (!box || !box.classList.contains("tr-box")) {
+    box = document.createElement("div");
+    box.className = "tr-box";
+    host.after(box);
+  }
+  const h = host.getBoundingClientRect().height;
+  if (h > 0) box.style.minHeight = `${h}px`;
+  return box as HTMLElement;
+}
+
+/** 打字定格后解锁高度（min-height 移除，恢复自然高度）。 */
+export function unlockTypingHost(target: HTMLElement | null) {
+  if (target) target.style.minHeight = "";
+}

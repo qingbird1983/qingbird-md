@@ -338,8 +338,10 @@ function handleDone(d: DonePayload) {
   if (contentFresh) {
     const translations = d.translations ? new Map(d.translations) : new Map<number, string>();
     useDocStore.getState().applyTranslationResult(translations, doneHtmlOf(d, st.runContent!));
+    // (Task 11-c) 完成通报随落库走：内容过期跳过 apply 时不报「翻译完成」
+    //（既有瑕疵：跳过 apply 仍 toast 成功，误导用户以为过期产物已生效）。
+    ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
   }
-  ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
   // 换挡补跑（startIfFresh 语义的收尾）：跑批期间用户切到另一翻译模式时，
   // 本轮 payload 形态与新模式不匹配 ⇒ 立刻按新模式补跑（后端缓存使重复批次近乎零成本）。
   if (dd.mode !== "original" && st.lastRunMode !== dd.mode) {
@@ -425,6 +427,12 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         runContent: dd.doc.content,
         scope: sc,
         lastWindow: win,
+        // (Task 11-b) partial 流所属轮次落定——Task 9 起此字段只清零从不置值
+        //（其报告披露的"永 0 残留字段"，重接责任在本任务）：置值后
+        // resetDisplayIfStale 的流式期门（partialGen!==0）真正生效（纯打字
+        // 期间编辑也能 clearAll），PreviewView 的 committed 重放水位同源。
+        // cached 路径无独立 gen（不入 running、无打字流），维持原值。
+        partialGen: r.gen,
       }); // 进度等首个事件
       pumpReveal();
     } catch (e) {
@@ -450,8 +458,25 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
   },
 
   resetDisplay: () => {
+    // (Task 11-a) 在途 run 一并作废：switchMode（Task 10 接线）可在 running 中
+    // 调用——只清 lastWindow 不 bump gen 时，窗口化 run 的迟到 done（payload 无
+    // 整树 html）会因 windowed 判定翻转误入全文分支：doneHtmlOf → null →
+    // applyTranslationResult 用窗口子集整表替换 translations 并清掉 doneHtml。
+    // gen 前跳使在途 progress/partial/done 全部失配丢弃；status/progress 同步
+    // 归位——否则 done 被丢弃后 status 永久卡 running，后续 translateDocument
+    // 与 startIfFresh 全被挡死。确实在跑时顺带通知后端取消（与 stop() 同通道），
+    // 不让已作废的 run 继续空烧 token。
+    const wasRunning = get().status === "running";
+    set((s) => ({
+      gen: s.gen + 1,
+      status: "idle",
+      progress: null,
+      scope: "off",
+      viewport: null,
+      lastWindow: null,
+    }));
+    if (wasRunning) api.stopTranslation().catch(() => {});
     clearAll();
-    set({ scope: "off", viewport: null, lastWindow: null });
   },
 
   resetDisplayIfStale: (content) => {
