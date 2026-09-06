@@ -65,6 +65,8 @@ struct Ctx<'t> {
     bi_counter: usize,
     heading_id: usize,
     outline: Vec<OutlineItem>,
+    /// 参考文献区段状态机：与 units.rs 收集器同源判定（Task: skip.rs）
+    ref_state: crate::translate::skip::RefSkipState,
 }
 
 pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: bool) -> ParseResult {
@@ -76,6 +78,7 @@ pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: boo
         bi_counter: 0,
         heading_id: 0,
         outline: Vec::new(),
+        ref_state: crate::translate::skip::RefSkipState::default(),
     };
     let mut html = String::new();
     ctx.render_blocks(&mut html, &blocks);
@@ -101,7 +104,7 @@ impl<'t> Ctx<'t> {
                     text: plain.clone(),
                     id: id.clone(),
                 });
-                let bi_idx = self.bi_advance(&plain);
+                let bi_idx = self.bi_advance(&plain, Some(*level));
                 match bi_idx {
                     Some(i) => write!(out, r#"<h{} id="{}" data-bi="{}">"#, level, id, i).unwrap(),
                     None => write!(out, "<h{} id=\"{}\">", level, id).unwrap(),
@@ -112,7 +115,7 @@ impl<'t> Ctx<'t> {
             }
             Block::Paragraph { text } => {
                 let plain = inline_plain_text(text);
-                let bi_idx = self.bi_advance(&plain);
+                let bi_idx = self.bi_advance(&plain, None);
                 match bi_idx {
                     Some(i) => write!(out, r#"<p data-bi="{}">"#, i).unwrap(),
                     None => out.push_str("<p>"),
@@ -172,7 +175,7 @@ impl<'t> Ctx<'t> {
                 out.push_str("<table><thead><tr>");
                 for h in headers {
                     let plain = inline_plain_text(h);
-                    let bi_idx = self.bi_advance(&plain);
+                    let bi_idx = self.bi_advance(&plain, None);
                     match bi_idx {
                         Some(i) => write!(out, r#"<th data-bi="{}">"#, i).unwrap(),
                         None => out.push_str("<th>"),
@@ -186,7 +189,7 @@ impl<'t> Ctx<'t> {
                     out.push_str("<tr>");
                     for cell in row {
                         let plain = inline_plain_text(cell);
-                        let bi_idx = self.bi_advance(&plain);
+                        let bi_idx = self.bi_advance(&plain, None);
                         match bi_idx {
                             Some(i) => write!(out, r#"<td data-bi="{}">"#, i).unwrap(),
                             None => out.push_str("<td>"),
@@ -214,9 +217,13 @@ impl<'t> Ctx<'t> {
     /// Assign the block-space index for this block/cell if it is translatable.
     /// 恒占号（与 units::collect_translatable 逐块一致），无论当前渲染形态——
     /// 原文/done 渲染的 data-bi 锚点编号因此与 partial 事件的 index 同空间。
+    /// 参考文献区段内的块不占号（skip 判定与收集器同源，Task skip.rs）。
     /// 返回 None 表示本块不占号（不开 data-bi、不追加 tr-box）。
-    fn bi_advance(&mut self, plain: &str) -> Option<usize> {
-        if !needs_translation(plain) {
+    fn bi_advance(&mut self, plain: &str, heading: Option<u8>) -> Option<usize> {
+        let blocked = self
+            .ref_state
+            .feed(heading.map(|l| (l, plain)));
+        if !needs_translation(plain) || blocked {
             return None;
         }
         let idx = self.bi_counter;
@@ -690,5 +697,62 @@ A--&gt;B
         // 自然无 target，也无需拦截。
         let r3 = render_html("https://example.com/x", &HashMap::new(), false);
         assert!(!r3.html.contains("<a "), "{}", r3.html);
+    }
+
+    // ---- 文献区段 skip：占号接入（对齐锚定）----
+
+    #[test]
+    fn reference_section_blocks_have_no_bi_anchor() {
+        // 简报断言按裸文本 HTML 写就，与实际渲染不符：所有文本恒包
+        // data-ri span，且 heading id 逐个递增（Intro=h-1、References=h-2、
+        // Acknowledgements=h-3，非简报假设的 h-4）——按实际 DOM 结构适配。
+        let md = "# Intro\n\n## References\n\nSmith 2020.\n\n## Acknowledgements\n\nThanks.";
+        let r = render_html(md, &HashMap::new(), false);
+        // 区段内段落无 data-bi 无 tr-box
+        assert!(
+            r.html.contains(r#"<p><span data-ri="2">Smith 2020.</span></p>"#),
+            "区段内段落无 data-bi 无 tr-box: {}",
+            r.html
+        );
+        // 复位后标题重新占号
+        assert!(
+            r.html
+                .contains(r#"<h2 id="h-3" data-bi="1"><span data-ri="3">Acknowledgements</span></h2>"#),
+            "复位后标题重新占号: {}",
+            r.html
+        );
+        assert!(
+            r.html.contains(r#"<p data-bi="2"><span data-ri="4">Thanks.</span></p>"#),
+            "{}",
+            r.html
+        );
+    }
+
+    #[test]
+    fn data_bi_sequence_matches_collect_translatable_with_skip() {
+        // 对齐铁律：渲染占号序列 == 收集索引序列（含 quote/list/table 混合 + 文献区段）
+        let md = concat!(
+            "# Eng Title\n\n",
+            "Hello **world**.\n\n",
+            "> quoted eng\n\n",
+            "- list eng\n- 中文跳过\n\n",
+            "| Hcol | 中文 |\n|---|---|\n| Cell eng | 中文格 |\n\n",
+            "## References\n\nSmith 2020.\n\n",
+            "## Next\n\nTail eng\n",
+        );
+        let r = render_html(md, &HashMap::new(), false);
+        // 从 html 依序抠出 data-bi 编号
+        let mut rendered = Vec::new();
+        let mut rest = r.html.as_str();
+        while let Some(p) = rest.find("data-bi=\"") {
+            let after = &rest[p + 9..];
+            let end = after.find('"').unwrap();
+            rendered.push(after[..end].parse::<usize>().unwrap());
+            rest = &after[end + 1..];
+        }
+        let blocks = crate::markdown::parse_blocks(md);
+        let collected: Vec<usize> =
+            crate::markdown::units::collect_translatable(&blocks).iter().map(|&(i, _)| i).collect();
+        assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
     }
 }
