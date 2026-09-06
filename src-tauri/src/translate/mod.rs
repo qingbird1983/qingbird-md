@@ -8,4 +8,5 @@ pub mod openai;
 pub mod providers;
 pub mod providers_meta;
 pub mod sign;
+pub mod skip;
 pub mod sse;
