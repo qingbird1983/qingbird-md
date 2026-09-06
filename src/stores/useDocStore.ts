@@ -95,6 +95,9 @@ interface DocState {
   ): void;
   /** 窗口化 run 的增量合并：pairs 并入当前累积表（不整表 replace）。 */
   mergeTranslations(pairs: Array<[number, string]>): void;
+  /** 内容与上轮 run 不符时整表作废 active tab 的 translations（终审 I2，
+   * resetDisplayIfStale 调用；已空时不动，避免无谓的 Map 身份变更）。 */
+  clearTranslations(): void;
 }
 
 function pathParts(p: string) {
@@ -549,7 +552,10 @@ export const useDocStore = create<DocState>()((set, get) => {
       patchActive((cur) => ({
         ...cur,
         mode: m,
-        translations: m === "original" ? new Map() : cur.translations,
+        // （终审 I3）任意模式切换都清表：translation 的键是 run 空间（data-ri）、
+        // bilingual 是块空间（data-bi），跨模式混表会让另一空间的旧键在
+        // render_translated 里错位到错误块/文本框。缓存使重译廉价，宁缺勿错。
+        translations: new Map(),
       }));
       if (m !== "original") useTranslationStore.getState().startIfFresh();
     },
@@ -590,6 +596,13 @@ export const useDocStore = create<DocState>()((set, get) => {
         for (const [i, v] of pairs) merged.set(i, v);
         return { ...t, translations: merged };
       });
+    },
+
+    clearTranslations: () => {
+      // （终审 I2）最小面入口：只动 translations 一个字段，走既有 patchActive
+      // 通道（投影同次 set 重算）。已空时原对象透传——避免空表清空也换 Map
+      // 身份触发无谓重渲。
+      patchActive((t) => (t.translations.size === 0 ? t : { ...t, translations: new Map() }));
     },
   };
 });

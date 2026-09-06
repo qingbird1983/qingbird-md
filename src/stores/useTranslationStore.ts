@@ -173,20 +173,28 @@ function handleProgress(p: ProgressPayload) {
 }
 
 /** reveal commit 分发：逐条喂给 PreviewView patcher（DOM 直写），done/instant
- * 另落 React state（partialBlocks 只存已定格的完整译文，tick 永不入表）。 */
+ * 另落 React state（partialBlocks 只存已定格的完整译文，tick 永不入表）。
+ * （终审 M1）纯 tick 批次零 setState：30Hz 打字期间此前每 tick 都重建
+ * partialBlocks 并 setState，徒增渲染抖动；只有批内出现 done/instant
+ * （committed 语义落表）才拷贝 Map 并 setState。 */
 function dispatchReveal(commits: RevealCommit[]) {
   if (commits.length === 0) return;
   const st = useTranslationStore.getState();
-  const blocks = new Map(st.partialBlocks);
+  let blocks = st.partialBlocks;
   let cursor = st.partialCursor;
+  let changed = false;
   for (const c of commits) {
     revealPatcher?.(c);
     if (c.kind === "done" || c.kind === "instant") {
+      if (!changed) {
+        blocks = new Map(blocks); // 首个定格条目才拷贝（tick 批次零拷贝）
+        changed = true;
+      }
       blocks.set(c.index, c.text);
       cursor = Math.max(cursor, c.index + 1);
     }
   }
-  useTranslationStore.setState({ partialBlocks: blocks, partialCursor: cursor });
+  if (changed) useTranslationStore.setState({ partialBlocks: blocks, partialCursor: cursor });
 }
 
 /** 有未排空的 reveal 队列就起 30ms tick；空闲/已在泵则不动。 */
@@ -214,7 +222,10 @@ function scheduleCanonicalRebuild() {
   rebuildTimer = setTimeout(async () => {
     const st = useTranslationStore.getState();
     const dd = useDocStore.getState();
-    if (st.status === "running" || st.gen === 0) return;
+    // （终审 I1）gen===0 守卫已删：所有调用点都保证处于翻译会话中——
+    // started 分支 gen=r.gen≥1；缓存窗口分支 gen 前跳≥1。gen 本就不递减，
+    // 旧守卫在纯缓存热会话里反而把合法重建挡死。
+    if (st.status === "running") return;
     if (!dd.doc || dd.doc.content !== st.runContent) return;
     if (dd.mode === "original" || dd.translations.size === 0) return;
     if (!revealIdle(revealState)) {
@@ -261,9 +272,11 @@ function handlePartial(p: TranslationPartialPayload) {
   pumpReveal();
 }
 
-/** 起跑时重置打字流（committed 保留——已定格译文跨窗口持续显示）。 */
-function resetStream(base: number) {
-  twState = typewriterStart(base);
+/** 起跑时重置打字流（committed 保留——已定格译文跨窗口持续显示）。
+ * 入参为本轮收集索引的完整文档序序列（终审 C1：缺口序列不再被
+ * "连续 +1"游标误卡，见 typewriter.ts）。 */
+function resetStream(indices: number[]) {
+  twState = typewriterStart(indices);
 }
 
 /** 彻底清显示（全文 done 落整树 / 切原文 / 内容过期）。 */
@@ -388,12 +401,26 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       if (r.kind === "cached") {
         const d = r.done;
         if (win) {
-          // 窗口化缓存全命中：merge + 瞬时上屏（载荷无整树 html）
+          // （终审 I1）窗口化缓存全命中：先落会话上下文，与 started 分支同口径——
+          // 此前只写 scope/lastWindow，两条失效路径：① 全新会话全缓存命中时
+          // gen/partialGen 恒 0，scheduleCanonicalRebuild 与 committed 重放
+          // 水位双双失明；② 会话跑过文档 A 再开文档 B 全命中时 runContent
+          // 停在 A，重建/重放的内容护栏误判 stale。gen 前跳开新纪元（epoch
+          // = gen），partialGen 同轮绑定；runContent/lastRunMode 供护栏比对。
+          // 不设 status/progress：无流式，状态保持 idle。
+          const epoch = get().gen + 1;
+          set({
+            scope: sc,
+            lastWindow: win,
+            gen: epoch,
+            runContent: dd.doc.content,
+            lastRunMode: dd.mode,
+            partialGen: epoch,
+          });
           useDocStore.getState().mergeTranslations(d.translations ?? []);
           dispatchReveal(
             (d.translations ?? []).map(([index, text]) => ({ kind: "instant", index, text }) as RevealCommit),
           );
-          set({ scope: sc, lastWindow: win });
           scheduleCanonicalRebuild();
           return; // 无 toast：窗口化不打扰（进度语义由后续 run 承担）
         }
@@ -404,7 +431,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         return;
       }
       // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
-      resetStream(r.first_index); // 新打字流基点（窗口化索引非 0 起）
+      resetStream(r.indices); // 新打字流放行序列（窗口化/跳过收集使索引带缺口，终审 C1）
       if (win) {
         const out = revealSetRegion(revealState, win[0], win[1]);
         revealState = out.state;
@@ -436,7 +463,9 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
       }); // 进度等首个事件
       pumpReveal();
     } catch (e) {
-      set({ status: "error" });
+      // （终审 M2）scope 一并收口：失败后 scope 若仍停在 viewport，滚动
+      // 事件会经 setViewport 的会话门反复重试 + 反复 toast，形成循环。
+      set({ status: "error", scope: "off" });
       useUiStore.getState().addToast("error", `发起翻译失败：${errText(e)}`);
     }
   },
@@ -481,9 +510,16 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
 
   resetDisplayIfStale: (content) => {
     const st = get();
-    if (st.runContent !== null && st.runContent !== content && (st.partialGen !== 0 || st.partialBlocks.size > 0)) {
-      clearAll();
-      set({ scope: "off", lastWindow: null });
+    if (st.runContent !== null && st.runContent !== content) {
+      // （终审 I2）索引对绑定的是发起批次时的内容：内容已变则 active tab 的
+      // translations 整表作废——陈旧索引对在新内容下会把错误文本渲染到错误
+      // 块（宁缺勿错；缓存使重译廉价，正确性优先）。与下方显示清流互不条件：
+      // 无流式/无定格时也要清表，否则部分编辑路径漏清。
+      useDocStore.getState().clearTranslations();
+      if (st.partialGen !== 0 || st.partialBlocks.size > 0) {
+        clearAll();
+        set({ scope: "off", lastWindow: null });
+      }
     }
   },
 
