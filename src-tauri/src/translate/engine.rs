@@ -54,8 +54,9 @@ pub fn cache_variant(provider: &str, model: &str) -> String {
 /// Events emitted while a run is in flight. Every variant is cheap and
 /// idempotent for the UI: `Unit` may arrive in any order.
 pub enum EngineEvent {
-    /// One unit's translation is ready (from cache or from the network).
-    Unit { index: usize, text: String },
+    /// One unit's translation is ready. `from_cache` = 缓存命中（前端据此
+    /// 跳过打字动画直接上屏，qingniao round2 #5 语义）。
+    Unit { index: usize, text: String, from_cache: bool },
     /// Progress across all units of the run.
     Progress { done: usize, total: usize },
     /// One unit failed; the rest of the run continues. 事件层刻意不消费
@@ -184,7 +185,7 @@ pub fn run(
         match cache.get(&key) {
             Some(v) => {
                 results[i] = Some(Ok(v.to_string()));
-                emit(EngineEvent::Unit { index: req.units[i].0, text: v.to_string() });
+                emit(EngineEvent::Unit { index: req.units[i].0, text: v.to_string(), from_cache: true });
             }
             None => pending.push(i),
         }
@@ -222,7 +223,7 @@ pub fn run(
             g[unit] = Some(r.clone());
         }
         match &r {
-            Ok(t) => emit(EngineEvent::Unit { index: doc_index, text: t.clone() }),
+            Ok(t) => emit(EngineEvent::Unit { index: doc_index, text: t.clone(), from_cache: false }),
             Err(e) => emit(EngineEvent::Failed { index: doc_index, error: e.clone() }),
         }
         let d = done.fetch_add(1, Ordering::SeqCst) + 1;
@@ -570,6 +571,36 @@ mod tests {
     }
 
     #[test]
+    fn unit_events_carry_from_cache_flag() {
+        // 预置缓存 → 命中单元 from_cache=true；网络单元 false
+        let http = MockClient::new();
+        http.script_stream(sse("<<<B0>>>你好<<<END>>>"));
+        let mut cache = Cache::new();
+        cache.set(Cache::key("llm", "m@v1", "Hello"), "你好缓存".into());
+        let creds = llm_creds();
+        let units = vec![(0usize, "Hello".to_string()), (1usize, "World".to_string())];
+        let req = EngineRequest {
+            provider: "llm",
+            creds: &creds,
+            units: &units,
+            http: &http,
+            config: EngineConfig::for_provider("llm", 3000, 6),
+            cache_variant: "m@v1",
+        };
+        let flags = Mutex::new(Vec::new());
+        let _ = run(&req, &mut cache, &|ev| {
+            if let EngineEvent::Unit { index, from_cache, .. } = ev {
+                flags.lock().unwrap().push((index, from_cache))
+            }
+        });
+        assert_eq!(
+            flags.into_inner().unwrap(),
+            vec![(0usize, true), (1usize, false)],
+            "缓存命中=true，网络=false"
+        );
+    }
+
+    #[test]
     fn results_align_with_input_order() {
         let http = MockClient::new();
         let creds = Creds::default();
@@ -625,7 +656,7 @@ mod tests {
         };
         let got = Mutex::new(Vec::<(usize, String)>::new());
         let out = run(&req, &mut cache, &|e| {
-            if let EngineEvent::Unit { index, text } = e {
+            if let EngineEvent::Unit { index, text, .. } = e {
                 got.lock().unwrap().push((index, text))
             }
         });

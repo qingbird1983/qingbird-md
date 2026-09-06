@@ -385,7 +385,7 @@ fn spawn_translation(
         let app_evt = app.clone();
         let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
         let emit = |ev: translate::engine::EngineEvent| match ev {
-            translate::engine::EngineEvent::Unit { index, text } => {
+            translate::engine::EngineEvent::Unit { index, text, .. } => {
                 let _ = app_evt.emit(
                     "translation-partial",
                     TranslationPartialEvt { r#gen, index, text },
