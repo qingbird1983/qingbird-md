@@ -333,6 +333,8 @@ export default function PreviewView() {
     return () => {
       scroller.removeEventListener("scroll", onScroll);
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+      // 取消后句柄必须清零：残留 truthy 会让 onScroll 永久 early-return，滚动上报死亡。
+      scrollRafRef.current = 0;
     };
   }, [hasDoc, html]);
 
