@@ -303,6 +303,21 @@ function handleDone(d: DonePayload) {
   }
   const windowed = st.lastWindow !== null;
   if (windowed) {
+    // 内容/模式护栏（与全文分支 contentFresh 同口径）：批次期间编辑或换档 ⇒
+    // done 的块索引与当前内容/索引空间错位，宁缺勿错不落库；窗口视为过期——
+    // 跳过 merge 且不自动续跑（内容已变时续跑无从对齐索引空间，等下一次
+    // 视口/手动触发重新起跑）。
+    const contentFresh = !!dd.doc && dd.doc.content === st.runContent;
+    const modeFresh = dd.mode === st.lastRunMode;
+    if (!contentFresh || !modeFresh) {
+      useTranslationStore.setState({ status: "idle", progress: null, lastWindow: null });
+      // 换挡补跑（镜像全文分支的 startIfFresh 收尾）：仅换档且内容未变时，
+      // 立刻按新模式补跑（后端缓存使重复批次近乎零成本）。
+      if (contentFresh && dd.mode !== "original" && !modeFresh) {
+        useTranslationStore.getState().startIfFresh();
+      }
+      return;
+    }
     // 窗口化：merge 累积（不整表 replace）；显示层继续走 committed/打字
     useDocStore.getState().mergeTranslations(d.translations ?? []);
     useTranslationStore.setState({ status: "idle", progress: null });
@@ -392,6 +407,15 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         const out = revealSetRegion(revealState, win[0], win[1]);
         revealState = out.state;
         dispatchReveal(out.commits);
+      } else {
+        // 全文 run：重开区域为缺省全区 [0, ∞)。上一窗口化 run 的区域若无此
+        // 重置会残留：区域外的 partial 卡在队首，revealTick 空转分支既不上屏
+        // 也不出队，只能等 done 的 clearAll→drain 兜底；中途停止时队列永排
+        // 不空，30ms tick 空转泄漏。极端情形下残留项会被重锚 flush 成
+        // done/instant 立即上屏（均为同内容合法译文，全文 done 随后整树替换）。
+        const out = revealSetRegion(revealState, 0, Infinity);
+        revealState = out.state;
+        dispatchReveal(out.commits);
       }
       set({
         gen: r.gen,
@@ -474,6 +498,11 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null, scope: "off", lastWindow: null }));
     // 打字流等位丢弃（缺口永不再来），已定格/打字中保留自然收尾
     twState = typewriterStart();
+    // 区域无界放开（±∞ 内不存在区域外索引 ⇒ 重锚 flush 集恒空，故不 dispatch）：
+    // 已定格/打字中按 30ms 节奏自然排空；也排除「区域外残项卡住队首 →
+    // revealIdle 恒 false → interval 30Hz 空转直到下次 setRegion/clearAll」的泄漏。
+    const out = revealSetRegion(revealState, -Infinity, Infinity);
+    revealState = out.state;
     api.stopTranslation().catch(() => {});
   },
 
