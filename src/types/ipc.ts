@@ -89,13 +89,15 @@ export interface ProgressPayload {
   total: number;
 }
 
-/** lib.rs TranslationPartialEvt：{gen, index, text}（r#gen → "gen"）。
+/** lib.rs TranslationPartialEvt：{gen, index, text, from_cache}。
  * index 与 translation-done 的 pair 首元素同一索引空间：
- * translation 模式 = text runs（data-ri），bilingual 模式 = translatable 块（data-bi）。 */
+ * translation 模式 = text runs（data-ri），bilingual 模式 = translatable 块（data-bi）。
+ * from_cache = 缓存命中（前端跳过打字动画直接上屏）。 */
 export interface TranslationPartialPayload {
   gen: number;
   index: number;
   text: string;
+  from_cache: boolean;
 }
 
 /**
@@ -107,6 +109,7 @@ export interface TranslationPartialPayload {
  * 译文形态只出与批次索引空间匹配的一种：translation 批次出 html_translation
  * （run 空间替换渲染），bilingual 批次出 html_bilingual（块空间 tr-box 渲染），
  * 另一种缺席；html_original 与 outline 恒在（ok=true 时）。
+ * 窗口化 run 的 done 不携带 html_*／outline 字段（键整体缺席，非 null）。
  */
 export interface DonePayload {
   gen: number;
@@ -129,7 +132,7 @@ export type ViewKind = "source" | "preview" | "split";
  * 到达顺序竞态从根上消除）。
  */
 export type TranslateStart =
-  | { kind: "started"; gen: number }
+  | { kind: "started"; gen: number; first_index: number }
   | { kind: "cached"; done: DonePayload };
 
 /** dto.rs LookupExample */

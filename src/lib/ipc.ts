@@ -59,8 +59,26 @@ export const api = {
   getProviderMeta: (k: string) => invoke<ProviderInfo | null>("get_provider_meta", { key: k }),
   translateText: (t: string, p: string, c: Record<string, string>) =>
     invoke<string>("translate_text", { text: t, provider: p, creds: c }),
-  translateDocument: (c: string, m: Mode, p: string, creds: Record<string, string>) =>
-    invoke<TranslateStart>("translate_document", { content: c, mode: m, provider: p, creds }),
+  translateDocument: (
+    c: string,
+    m: Mode,
+    p: string,
+    creds: Record<string, string>,
+    window: [number, number] | null,
+  ) =>
+    invoke<TranslateStart>("translate_document", {
+      content: c,
+      mode: m,
+      provider: p,
+      creds,
+      window,
+    }),
+  /** 会话收口重建：用累积 translations 渲染整树 canonical html（Task: 收口） */
+  renderTranslated: (
+    c: string,
+    m: "translation" | "bilingual",
+    translations: Array<[number, string]>,
+  ) => invoke<ParseResult>("render_translated", { content: c, mode: m, translations }),
   stopTranslation: () => invoke<void>("stop_translation"),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
