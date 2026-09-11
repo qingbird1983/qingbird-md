@@ -11,3 +11,6 @@ node_modules/
 dist/
 /.workbuddy/
 /package-lock.json
+/%SystemDrive%/
+/.pnpm-store/
+/.pnpm-store

@@ -33,6 +33,10 @@ interface UiState {
   showOutline: boolean;
   sidebarWidth: number;
   outlineWidth: number;
+  // 工作区最小宽度：由 TitleBar 按标签条归位临界实测写入（baseX+3，见
+  // TitleBar.tsx），拖拽钳制用它——拉到最小时分隔线正好是标签条贴最左的位置。
+  // 初值 160 为兜底（测量完成前的一帧）。
+  minSidebarWidth: number;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
   contentWidth: ContentWidth; // 正文宽度档（markdown.css .markdown-body.w-*）
   customWidth: number | null; // 拖宽产物（null = 跟随四档档位）
@@ -54,6 +58,7 @@ interface UiState {
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
   setSplitRatio(r: number): void;
+  setMinSidebarWidth(px: number): void;
 }
 
 let toastSeq = 0;
@@ -84,6 +89,7 @@ export const useUiStore = create<UiState>()((set) => ({
   showOutline: true,
   sidebarWidth: 240,
   outlineWidth: 200,
+  minSidebarWidth: 160,
   splitRatio: 0.5,
   contentWidth: loadContentWidth(),
   customWidth: loadCustomWidth(),
@@ -123,6 +129,7 @@ export const useUiStore = create<UiState>()((set) => ({
   setSidebarWidth: (w) => set({ sidebarWidth: w }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),
   setSplitRatio: (r) => set({ splitRatio: r }),
+  setMinSidebarWidth: (px) => set({ minSidebarWidth: px }),
 
   setCustomWidth: (px) => {
     // 上限在拖拽处钳（那里才有面板实时宽），store 只保底下限

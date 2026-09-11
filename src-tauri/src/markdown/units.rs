@@ -8,12 +8,15 @@ pub fn inline_plain_text(inlines: &[Inline]) -> String {
     for il in inlines {
         match il {
             Inline::Text(t) => s.push_str(t),
-            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) => s.push_str(&inline_plain_text(x)),
+            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
+                s.push_str(&inline_plain_text(x))
+            }
             Inline::Code(c) => s.push_str(c),
             Inline::Link { text, .. } => s.push_str(&inline_plain_text(text)),
             Inline::Image { alt, .. } => s.push_str(alt),
             Inline::LineBreak => s.push(' '),
-            Inline::Math(_) => {} // LaTeX 不进翻译 plain text
+            Inline::FootnoteRef(_) => {} // 编号引用不进翻译 plain text
+            Inline::Math(_) => {}        // LaTeX 不进翻译 plain text
             Inline::DisplayMath(_) => {}
         }
     }
@@ -93,7 +96,7 @@ fn walk_run_collect(
                     walk_run_collect(&it.blocks, counter, bi, st, window, out);
                 }
             }
-            Block::Table { headers, rows } => {
+            Block::Table { headers, rows, .. } => {
                 for h in headers {
                     let plain = inline_plain_text(h);
                     let trans = block_translatable(st, None, &plain);
@@ -120,6 +123,11 @@ fn walk_run_collect(
                 }
             }
             Block::Math { .. } => {}
+            // 脚注定义的内容照常参与 bi/run 占号（渲染时移到文末但 walk
+            // 顺序不变，索引与 html.rs 渲染保持逐位一致）
+            Block::FootnoteDef { blocks, .. } => {
+                walk_run_collect(blocks, counter, bi, st, window, out)
+            }
             _ => {}
         }
     }
@@ -141,11 +149,12 @@ fn collect_runs_inline(
                     out.push((idx, t.clone()));
                 }
             }
-            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) => {
+            Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
                 collect_runs_inline(x, counter, out, collect)
             }
             Inline::Link { text, .. } => collect_runs_inline(text, counter, out, collect),
             Inline::Math(_) => {}
+            Inline::FootnoteRef(_) => {} // 编号引用不占 run 号
             _ => {}
         }
     }
@@ -201,7 +210,7 @@ fn walk_collect(
                     walk_collect(&it.blocks, counter, st, window, out);
                 }
             }
-            Block::Table { headers, rows } => {
+            Block::Table { headers, rows, .. } => {
                 for h in headers {
                     let p = inline_plain_text(h);
                     if block_translatable(st, None, &p) {
@@ -224,6 +233,7 @@ fn walk_collect(
                 }
             }
             Block::Math { .. } => {}
+            Block::FootnoteDef { blocks, .. } => walk_collect(blocks, counter, st, window, out),
             _ => {}
         }
     }
@@ -304,5 +314,40 @@ mod tests {
         let blocks = parse_blocks("## References\n\n纯中文\n\n## 结论\n\nResult text");
         let u = collect_translatable(&blocks);
         assert_eq!(u, vec![(0usize, "Result text".into())]);
+    }
+
+    // ---- 语法全覆盖测试.md 补齐项（2026-09-11）----
+
+    #[test]
+    fn footnote_def_blocks_participate_in_bi() {
+        // 定义内容照常占 bi 号（渲染时搬运到文末但 walk 顺序不变）
+        let blocks = parse_blocks("Hello[^1]\n\n[^1]: The Eng note");
+        let u = collect_translatable(&blocks);
+        assert_eq!(
+            u,
+            vec![(0usize, "Hello".into()), (1usize, "The Eng note".into())]
+        );
+    }
+
+    #[test]
+    fn mark_children_recursed_in_runs() {
+        // Mark 内的 Text 照常占 run 号（与 html.rs push_inlines 递归一致）
+        let blocks = parse_blocks("==Eng one== Eng two");
+        let r = collect_text_runs(&blocks);
+        assert_eq!(
+            r,
+            vec![(0usize, "Eng one".into()), (1usize, " Eng two".into())]
+        );
+    }
+
+    #[test]
+    fn footnote_ref_occupies_no_run() {
+        // FootnoteRef 是编号引用，不占 run 号；定义内容照常占号
+        let blocks = parse_blocks("See[^1] this\n\n[^1]: x");
+        let r = collect_text_runs(&blocks);
+        assert_eq!(
+            r,
+            vec![(0usize, "See".into()), (1usize, " this".into()), (2usize, "x".into())]
+        );
     }
 }

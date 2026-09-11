@@ -11,11 +11,11 @@
 // showDirtyConfirm 覆盖正在显示的弹窗并使首个 promise 永不 settle。
 //
 // 样式全部走 .tabbar/.tab/.tab.active/.tab-close/.tab-add/.tab-dirty（见 global.css）。
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Plus, X } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
 
-export default function TabBar() {
+export default function TabBar({ style }: { style?: CSSProperties }) {
   const tabs = useDocStore((s) => s.tabs);
   const activeId = useDocStore((s) => s.activeId);
   // 正在 closeTab 的标签 id 集合；期间屏蔽对应关闭入口。
@@ -45,6 +45,7 @@ export default function TabBar() {
       className="tabbar"
       role="tablist"
       aria-label="打开的文档"
+      style={style}
     >
       {tabs.map((t) => {
         const isActive = t.id === activeId;

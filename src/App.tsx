@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, type CSSProperties, useEffect } from "react";
+import { type PointerEvent as ReactPointerEvent, type CSSProperties, useEffect, useState } from "react";
 import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
@@ -24,6 +24,26 @@ import { collectSnapshot } from "./lib/session";
 const PANEL_MIN = 160;
 const PANEL_MAX = 480;
 
+// 面板收展过渡时长：与 global.css 的 --panel-anim 保持一致。--col-main 的
+// 切换必须等收起动画播完（否则主区提前跨列会盖住正在收缩的面板），所以
+// JS 侧比 CSS 略长 40ms 兜底。
+const PANEL_ANIM_MS = 340;
+
+/** 延迟确认：hidden 变 true 后等 ms 再返回 true（展开时立即 false）。
+ *  用于把「主区跨列吸收空列」推迟到面板宽度过渡播完之后。 */
+function useSettled(hidden: boolean, ms: number) {
+  const [settled, setSettled] = useState(hidden);
+  useEffect(() => {
+    if (!hidden) {
+      setSettled(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSettled(true), ms);
+    return () => window.clearTimeout(t);
+  }, [hidden, ms]);
+  return settled;
+}
+
 // 休眠握手（docs/webview-hibernate-plan.md 步骤 6）：关窗后空闲 5 分钟，Rust
 // 侧下发 session-hibernate，前端同步收集快照落盘再回 hibernateReady，随后
 // WebView 被销毁。Rust 只等 3s，超时就强杀（内存释放优先于草稿完整性），
@@ -46,13 +66,16 @@ function listenHibernateOnce() {
 
 // 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
 // 左栏向右拖增宽，右大纲向左拖增宽，方向用 side 翻转；宽度存 uiStore，跨视图切换保持。
-function PanelResizer({ side }: { side: "left" | "right" }) {
+function PanelResizer({ side, hidden }: { side: "left" | "right"; hidden: boolean }) {
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     const st = useUiStore.getState();
     const startW = side === "left" ? st.sidebarWidth : st.outlineWidth;
+    // 左侧下限动态（标签条归位临界，TitleBar 实测写入 store，兜底 PANEL_MIN）；
+    // 右侧大纲面板无对齐诉求，保持静态下限。
+    const min = side === "left" ? Math.max(PANEL_MIN, st.minSidebarWidth) : PANEL_MIN;
     startColDrag(e, (dx) => {
       const w = side === "left" ? startW + dx : startW - dx;
-      const clamped = Math.min(PANEL_MAX, Math.max(PANEL_MIN, w));
+      const clamped = Math.min(PANEL_MAX, Math.max(min, w));
       if (side === "left") useUiStore.getState().setSidebarWidth(clamped);
       else useUiStore.getState().setOutlineWidth(clamped);
     });
@@ -60,10 +83,12 @@ function PanelResizer({ side }: { side: "left" | "right" }) {
   return (
     <div
       className={`resizer app-resizer ${side === "left" ? "res-left" : "res-right"}`}
+      style={hidden ? { width: 0, opacity: 0 } : undefined}
       role="separator"
       aria-orientation="vertical"
       aria-label={side === "left" ? "调整文件栏宽度" : "调整大纲栏宽度"}
-      onPointerDown={startDrag}
+      aria-hidden={hidden || undefined}
+      onPointerDown={hidden ? undefined : startDrag}
     />
   );
 }
@@ -198,8 +223,11 @@ function App() {
   // 一起左移，不会出现「左侧 2 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
   // 与 --main-span：--main-span=1 时 main-area 占 col 3 一列（1fr）；
   // --main-span=3 时 main-area 占 col 1-3（吸收掉隐藏的侧栏与左 resizer 两列）。
-  const mainColStart = showNav ? 3 : 1;
-  const mainSpan = showNav ? 1 : 3;
+  // 面板改为常挂载 + 宽度过渡后，跨列切换必须等收起动画播完（navGone），
+  // 否则主区提前占 col 1-3 会盖住正在收缩的侧栏——动画就看不见了。
+  const navGone = useSettled(!showNav, PANEL_ANIM_MS);
+  const mainColStart = navGone ? 1 : 3;
+  const mainSpan = navGone ? 3 : 1;
   const mainStyle = {
     ["--col-main" as string]: String(mainColStart),
     ["--main-span" as string]: String(mainSpan),
@@ -213,29 +241,42 @@ function App() {
           撤销/重做依赖 cmRef，preview 时为 no-op；格式按钮读 store.cursorSel，
           preview 时用上次切走前的选区位置——点击行为视为已知约束。 */}
       <EditorToolbar />
-      {/* T18 Sidebar 挂入点；ui.showNav 折叠 */}
-      {showNav && (
-        <>
-          <nav className="sidebar" style={{ width: sidebarWidth }}>
-            <Sidebar />
-          </nav>
-          {/* 面板与主区的分隔/拖宽条（1px 发丝线 + 7px 热区，悬停提示可拖拽） */}
-          <PanelResizer side="left" />
-        </>
-      )}
+      {/* T18 Sidebar 挂入点；ui.showNav 折叠。
+          面板常挂载，宽度/透明度过渡做平滑收展（--panel-anim）；内容包在
+          .panel-clip 里保持固定宽（store 值），收缩时只被裁切不被挤压。
+          隐藏态 width:0 + overflow:hidden，无残留热区。 */}
+      <nav
+        className="sidebar"
+        style={{
+          width: showNav ? sidebarWidth : 0,
+          opacity: showNav ? 1 : 0,
+          ["--panel-w" as string]: `${sidebarWidth}px`,
+        }}
+      >
+        <div className="panel-clip">
+          <Sidebar />
+        </div>
+      </nav>
+      {/* 面板与主区的分隔/拖宽条（1px 发丝线 + 7px 热区，悬停提示可拖拽） */}
+      <PanelResizer side="left" hidden={!showNav} />
       {/* T22 MainArea：source/preview/split 路由（格式工具栏已上移至 tab 条下）；T23 TranslationBar 宿主 */}
       <main className="main-area">
         <MainArea />
       </main>
-      {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠 */}
-      {showOutline && (
-        <>
-          <PanelResizer side="right" />
-          <aside className="outline-panel" style={{ width: outlineWidth }}>
-            <OutlinePanel />
-          </aside>
-        </>
-      )}
+      {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡） */}
+      <PanelResizer side="right" hidden={!showOutline} />
+      <aside
+        className="outline-panel"
+        style={{
+          width: showOutline ? outlineWidth : 0,
+          opacity: showOutline ? 1 : 0,
+          ["--panel-w" as string]: `${outlineWidth}px`,
+        }}
+      >
+        <div className="panel-clip">
+          <OutlinePanel />
+        </div>
+      </aside>
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
       <SelectionPopup />

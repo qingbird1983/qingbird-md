@@ -44,35 +44,46 @@ async function rewriteImages(scope: HTMLElement, baseDir: string | null) {
   );
 }
 
-/** 每个代码块右上注入复制按钮（一次性 mutation）；成功显示 ✓ 2s。 */
+/** 复制/成功态图标：静态常量（非文档派生内容），遵循本文件 XSS 边界约定。 */
+const ICON_COPY =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const ICON_CHECK =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>';
+
+/**
+ * 每个代码卡片头栏右侧注入复制按钮（一次性 mutation）；成功显示 ✓ 2s。
+ * 行号 .ln 是 .lc 内容列的兄弟节点，code.textContent 天然不含行号——
+ * 复制零处理（html.rs flex 行契约）。
+ */
 function addCopyButtons(scope: HTMLElement) {
-  const blocks = scope.querySelectorAll<HTMLPreElement>("pre.code-block");
-  for (const pre of Array.from(blocks)) {
-    if (pre.querySelector(".copy-btn")) continue; // StrictMode 双跑防重复
-    const code = pre.querySelector("code");
-    if (!code) continue;
+  const cards = scope.querySelectorAll<HTMLElement>(".code-card");
+  for (const card of Array.from(cards)) {
+    if (card.querySelector(".copy-btn")) continue; // StrictMode 双跑防重复
+    const head = card.querySelector<HTMLElement>(".code-head");
+    const code = card.querySelector("code");
+    if (!head || !code) continue;
+    const actions = document.createElement("div");
+    actions.className = "code-actions";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "copy-btn";
-    btn.textContent = "⧉";
     btn.title = "复制代码";
+    btn.innerHTML = ICON_COPY;
     btn.addEventListener("click", () => {
-      // 剥离 .ln 行号：克隆 code 节点并移除行号 span，再取纯代码文本。
-      const clone = code.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll(".ln").forEach((n) => n.remove());
-      navigator.clipboard.writeText(clone.textContent ?? "").then(
+      navigator.clipboard.writeText(code.textContent ?? "").then(
         () => {
           btn.classList.add("ok");
-          btn.textContent = "✓";
+          btn.innerHTML = ICON_CHECK;
           setTimeout(() => {
             btn.classList.remove("ok");
-            btn.textContent = "⧉";
+            btn.innerHTML = ICON_COPY;
           }, 2000);
         },
         () => {}, // 剪贴板不可用：静默放弃，按钮还原
       );
     });
-    pre.appendChild(btn);
+    actions.appendChild(btn);
+    head.appendChild(actions);
   }
 }
 

@@ -1,9 +1,11 @@
 /* 预览排版（Task 20）：GitHub 风格的类，覆盖 markdown/html.rs 的元素契约 ——
    h1-h6（id="h-N"）、p、ul/ol、li.task done|todo、table/thead/tbody、
-   blockquote、行内 code、pre.code-block（.code-lang 标签 + span.ln 行号 +
-   syntect 双主题彩色 span：--cl=InspiredGitHub 浅色 / --cd=base16-ocean.dark
-   暗色，由这里按 body[data-theme] 选边，底色走 --md-pre-bg）、
-   del、a、hr、.tr-box（双语对照浮出块）。颜色经变量集中在文件头部，暗色主题仅换一组值。 */
+   blockquote、行内 code、代码块卡片（.code-card > .code-head（.code-lang
+   标签 + 注入的 .code-actions/.copy-btn）+ pre.code-block；行结构 .cl =
+   .ln 行号 gutter + .lc 内容列，syntect 双主题彩色 span：--cl=InspiredGitHub
+   浅色 / --cd=base16-ocean.dark 暗色，由这里按 body[data-theme] 选边，
+   底色走 --md-pre-bg）、del、a、hr、.tr-box（双语对照浮出块）。
+   颜色经变量集中在文件头部，暗色主题仅换一组值。 */
 
 .markdown-body {
   --md-fg: #1f2328;
@@ -23,6 +25,10 @@
   --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（浅色 span 同源） */
   --md-pre-fg: #1f2328;
   --md-pre-muted: #6e778e; /* 行号 */
+  --md-head-bg: #edf0f3;  /* 代码卡片头栏底：比 pre 底再深半档，划出两段式布局 */
+  --md-gutter-line: #d8dee4; /* 行号列右侧分隔线 */
+  --md-hover-bg: rgba(0, 0, 0, 0.06); /* 头栏按钮 hover 底 */
+  --md-mark-bg: rgba(250, 200, 60, 0.45); /* ==高亮== 琥珀底 */
   /* 双语对照块走主色系，与全局 accent 同源 */
   --md-tr-bg: #eef1fe;
   --md-tr-border: #c3ccfa;
@@ -69,7 +75,11 @@ body[data-theme="dark"] .markdown-body {
   --md-pre-bg: #2b303b;
   --md-pre-fg: #c0c5ce;
   --md-pre-muted: #65737e;
-  /* code-lang 药丸/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
+  --md-head-bg: #242933; /* 头栏比 pre 底再深半档 */
+  --md-gutter-line: #3d4552;
+  --md-hover-bg: rgba(255, 255, 255, 0.09);
+  --md-mark-bg: rgba(250, 200, 60, 0.32);
+  /* code-lang 标签/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
   --md-ok-fg: #8fce9f;
 }
 
@@ -113,14 +123,74 @@ body[data-theme="dark"] .markdown-body {
 
 .markdown-body a:hover {
   text-decoration: underline;
+  text-underline-offset: 2px; /* 下划线离字面远一点，CJK 下不糊字 */
 }
 
 .markdown-body img {
   max-width: 100%;
+  border-radius: 6px; /* 截图类图片贴卡片观感；小图标无视觉边界不受影响 */
 }
 
 .markdown-body del {
   color: var(--md-muted);
+}
+
+/* ==高亮== 标记：琥珀底不换字色，明暗两档变量 */
+.markdown-body mark {
+  padding: 0.1em 0.25em;
+  border-radius: 3px;
+  background: var(--md-mark-bg);
+  color: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* 脚注：正文上标编号 + 文末定义区 */
+.markdown-body sup.fn-ref {
+  font-size: 75%;
+  line-height: 0;
+  margin: 0 1px;
+}
+
+.markdown-body sup.fn-ref a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+
+.markdown-body sup.fn-ref a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body section.footnotes {
+  margin-top: 2.2em;
+  padding-top: 0.8em;
+  border-top: 1px solid var(--md-border);
+  font-size: 0.88em;
+  color: var(--md-muted);
+}
+
+.markdown-body section.footnotes ol {
+  padding-left: 1.6em;
+  margin: 0;
+}
+
+.markdown-body section.footnotes li {
+  margin-top: 0.35em;
+}
+
+.markdown-body section.footnotes .fn-num {
+  margin-right: 0.35em;
+  font-variant-numeric: tabular-nums;
+}
+
+.markdown-body section.footnotes .fn-back {
+  margin-left: 0.4em;
+  text-decoration: none;
+  color: var(--md-pre-muted);
+}
+
+.markdown-body section.footnotes .fn-back:hover {
+  color: var(--md-link);
 }
 
 .markdown-body hr {
@@ -189,7 +259,12 @@ body[data-theme="dark"] .markdown-body {
   margin-bottom: 0;
 }
 
-/* ---- 行内代码 / 代码块 ---- */
+/* ---- 行内代码 / 代码块 ----
+   布局对齐 openchamber 的两段式划分：外层 .code-card 圆角卡片（边框 +
+   overflow hidden 裁圆角），上头栏（语言标签居左、复制按钮居右、底部
+   分隔线），下主体 pre 横向滚动——滚动/溢出只发生在代码区，头栏恒定。
+   行结构 .cl（flex 行）= .ln 行号 gutter 列 + .lc 内容列，长行折行对齐
+   内容列起始线而非 gutter 下面。 */
 
 .markdown-body code {
   padding: 0.15em 0.4em;
@@ -197,15 +272,62 @@ body[data-theme="dark"] .markdown-body {
   font-size: 87%;
   background: var(--md-code-bg);
   border-radius: 5px;
+  overflow-wrap: anywhere; /* 长 token 在句中断行，不撑破段落/表格 */
+}
+
+.markdown-body .code-card {
+  margin: 1.2em 0;
+  border: 1px solid var(--md-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--md-pre-bg);
+}
+
+.markdown-body .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px 5px 13px;
+  border-bottom: 1px solid var(--md-border);
+  background: var(--md-head-bg);
+}
+
+.markdown-body .code-lang {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--md-ok-fg); /* 品牌绿标签延续旧药丸基因 */
+}
+
+.markdown-body .code-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .markdown-body pre.code-block {
-  position: relative;
-  margin: 1.2em 0;
-  padding: 38px 16px 14px;
-  border-radius: 10px;
-  background: var(--md-pre-bg);
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 0;
+  background: transparent;
   overflow-x: auto;
+  scrollbar-width: thin; /* Firefox 语义；Chromium 走下方 webkit 细滚动条 */
+}
+
+.markdown-body pre.code-block::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.markdown-body pre.code-block::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--md-gutter-line);
+}
+
+.markdown-body pre.code-block::-webkit-scrollbar-thumb:hover {
+  background: var(--md-pre-muted);
 }
 
 .markdown-body pre.code-block code {
@@ -214,39 +336,75 @@ body[data-theme="dark"] .markdown-body {
   font-size: 13.5px;
   line-height: 1.65;
   color: var(--md-pre-fg);
-  white-space: pre-wrap; /* 保持缩进；高亮路径行尾 \n 即换行，mono 路径已对齐同构输出 */
   background: transparent;
   border-radius: 0;
 }
 
+/* 行 = flex：行号列 + 内容列。行号 user-select none，右对齐 tabular 数字，
+   右侧半透明分隔线随行高拉伸（默认 stretch），折行/空行处也连续。列宽由
+   后端烘进 code 的 --ln-digits（该块总行数的位数）统一决定——逐行 2ch 的
+   min-width 会在 9→10、99→100 位数进位处让分隔线错位断开。 */
+.markdown-body pre.code-block .cl {
+  display: flex;
+}
+
 .markdown-body pre.code-block .ln {
-  display: inline-block;
-  min-width: 2ch;
+  /* 全局 * 是 border-box：min-width 连 padding 一起算——两位数行停在
+     N ch，三位数行内容(N ch 文本 + 10px padding)把盒撑宽 10px，分隔线
+     在位数进位处错位断开。显式 content-box 让 min-width 只约束数字列，
+     padding/border 对每行等量外挂，整列右缘严格共线。 */
+  box-sizing: content-box;
+  flex: none;
+  min-width: calc(var(--ln-digits, 2) * 1ch);
   margin-right: 12px;
+  padding-right: 10px;
   text-align: right;
   color: var(--md-pre-muted);
+  border-right: 1px solid var(--md-gutter-line);
+  font-variant-numeric: tabular-nums;
   user-select: none;
+  white-space: nowrap;
+}
+
+.markdown-body pre.code-block .lc {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 /* syntect 双主题 token span：亮/暗两色由后端配对烘进内联 --cl/--cd，
-   这里按 body[data-theme] 选边。:not(.ln) 保住行号自身的 muted 色
-   （其选择器特异性更低，且 .ln 无变量，否则暗色下会被 inherit 覆盖）。 */
-.markdown-body pre.code-block code span:not(.ln) {
+   这里按 body[data-theme] 选边。token 是 .lc 的直接子 span（行号 .ln 在
+   .cl 下、不占 .lc），mono 路径 .lc 内无 span，天然不误伤。 */
+.markdown-body pre.code-block .lc > span {
   color: var(--cl, inherit);
 }
 
-body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
+body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   color: var(--cd, inherit);
 }
 
-.markdown-body pre.code-block .code-lang {
-  position: absolute;
-  top: 9px;
-  left: 14px;
-  padding: 1px 9px;
-  font-size: 11px;
+/* 复制按钮：注入到头栏 actions 区（PreviewView），SVG 图标态，成功短暂变 ✓ */
+.markdown-body .copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
   border-radius: 5px;
-  background: rgba(26, 127, 55, 0.1); /* 浅灰 pre 底上的淡绿药丸，不随主题 */
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--md-pre-muted);
+  opacity: 0.85;
+}
+
+.markdown-body .copy-btn:hover {
+  opacity: 1;
+  background: var(--md-hover-bg);
+}
+
+.markdown-body .copy-btn.ok {
+  opacity: 1;
   color: var(--md-ok-fg);
 }
 
@@ -265,33 +423,6 @@ body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
 
 .markdown-body .h-toggle:hover {
   color: var(--md-fg);
-}
-
-/* 复制按钮：注入一次（PreviewView），图标态，成功短暂变 ✓ */
-.markdown-body .copy-btn {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  padding: 3px 7px;
-  border-radius: 5px;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  color: var(--md-pre-muted);
-  opacity: 0.85;
-}
-
-.markdown-body .copy-btn:hover {
-  opacity: 1;
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.markdown-body .copy-btn.ok {
-  opacity: 1;
-  color: var(--md-ok-fg);
 }
 
 /* ---- 表格：斑马纹 ---- */
@@ -318,6 +449,11 @@ body[data-theme="dark"] .markdown-body pre.code-block code span:not(.ln) {
 
 .markdown-body tbody tr:nth-child(2n) {
   background: var(--md-stripe);
+}
+
+/* 悬停行高亮：长表逐行扫读时的定位锚 */
+.markdown-body tbody tr:hover {
+  background: var(--md-hover-bg);
 }
 
 /* ---- 双语对照浮出块：浅蓝底圆角，缀在原文块后 ---- */

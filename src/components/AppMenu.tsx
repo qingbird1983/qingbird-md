@@ -31,15 +31,20 @@ export default function AppMenu() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<CatKey | null>(null);
   const [pos, setPos] = useState({ left: 8, top: 42 });
-  const ref = useRef<HTMLDivElement>(null);
+  // 二级是独立卡片：fixed 定位在激活分类右侧（与一级面板分离，互不重叠）
+  const [subPos, setSubPos] = useState({ left: 0, top: 0 });
+  const rootRef = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
+  const catRefs = useRef<Partial<Record<CatKey, HTMLButtonElement | null>>>({});
   const hoverTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
 
-  // 点击外部关闭
+  // 点击外部关闭（一级与二级是兄弟节点，两处都要认）
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const t = e.target as Node;
+      if (!rootRef.current?.contains(t) && !subRef.current?.contains(t)) {
         setOpen(false);
       }
     };
@@ -73,13 +78,23 @@ export default function AppMenu() {
     return () => document.removeEventListener("click", onClick);
   }, []);
 
+  // 激活分类：二级卡片对齐该分类按钮（贴其右缘 0px、顶与其顶对齐）
+  const activate = (k: CatKey) => {
+    const btn = catRefs.current[k];
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      setSubPos({ left: r.right, top: r.top });
+    }
+    setActive(k);
+  };
+
   // 悬停分类：短暂停留后切换二级；快速扫过（leave 先于计时器到点）不切换
   const hoverCat = (k: CatKey) => {
     if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
     if (active === k) return;
     hoverTimer.current = window.setTimeout(() => {
       hoverTimer.current = null;
-      setActive(k);
+      activate(k);
     }, HOVER_OPEN_MS);
   };
   // 移出分类：取消挂起的切换（已激活的分类保持展开）
@@ -88,7 +103,7 @@ export default function AppMenu() {
   };
   const clickCat = (k: CatKey) => {
     if (hoverTimer.current !== null) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-    setActive(k);
+    activate(k);
   };
 
   // 鼠标离开整个面板：宽限一段（穿过条目间隙/轻微抖动不算）后整体收回
@@ -107,6 +122,17 @@ export default function AppMenu() {
     if (hoverTimer.current !== null) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
     setActive(null);
   };
+
+  // 二级卡片底缘防溢出：渲染后实测高度，超出视口则上收（内容随分类变化需重测）
+  useEffect(() => {
+    if (active === null) return;
+    const el = subRef.current;
+    if (!el) return;
+    const maxTop = window.innerHeight - el.offsetHeight - 8;
+    if (subPos.top > maxTop) {
+      setSubPos((p) => ({ ...p, top: Math.max(8, maxTop) }));
+    }
+  }, [active, subPos.top]);
 
   const hasDoc = useDocStore((s) => !!s.doc);
   const openTab = useDocStore((s) => s.openTab);
@@ -201,40 +227,44 @@ export default function AppMenu() {
   };
 
   return (
-    <div className="app-menu" ref={ref} style={{ left: pos.left, top: pos.top }}
-      onMouseLeave={menuMouseLeave} onMouseEnter={menuMouseEnter}>
-      {/* ── 一级：三个带二级的分类 + 三个直接动作 ── */}
-      <div className="app-menu-root">
-        {CATS.map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            className={"app-menu-cat" + (active === c.key ? " active" : "")}
-            onMouseEnter={() => hoverCat(c.key)}
-            onMouseLeave={leaveCat}
-            onClick={() => clickCat(c.key)}
-          >
-            <span>{c.label}</span>
-            <ChevronRight size={14} className="app-menu-chev" />
+    <>
+      <div className="app-menu" ref={rootRef} style={{ left: pos.left, top: pos.top }}
+        onMouseLeave={menuMouseLeave} onMouseEnter={menuMouseEnter}>
+        {/* ── 一级：三个带二级的分类 + 三个直接动作 ── */}
+        <div className="app-menu-root">
+          {CATS.map((c) => (
+            <button
+              key={c.key}
+              ref={(el) => { catRefs.current[c.key] = el; }}
+              type="button"
+              className={"app-menu-cat" + (active === c.key ? " active" : "")}
+              onMouseEnter={() => hoverCat(c.key)}
+              onMouseLeave={leaveCat}
+              onClick={() => clickCat(c.key)}
+            >
+              <span>{c.label}</span>
+              <ChevronRight size={14} className="app-menu-chev" />
+            </button>
+          ))}
+          <div className="app-menu-root-sep" aria-hidden />
+          <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); openSettings(); }}>
+            <span>设置</span>
           </button>
-        ))}
-        <div className="app-menu-root-sep" aria-hidden />
-        <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); openSettings(); }}>
-          <span>设置</span>
-        </button>
-        <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); addToast("info", "青鸟 Markdown —— Rust 内核 · Tauri v2 前端"); }}>
-          <span>关于</span>
-        </button>
-        <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); window.close(); }}>
-          <span>退出</span>
-        </button>
+          <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); addToast("info", "青鸟 Markdown —— Rust 内核 · Tauri v2 前端"); }}>
+            <span>关于</span>
+          </button>
+          <button type="button" className="app-menu-cat" onMouseEnter={hoverDirect} onClick={() => { close(); window.close(); }}>
+            <span>退出</span>
+          </button>
+        </div>
       </div>
-      {/* ── 二级菜单：仅在悬停/点击分类后展开 ── */}
+      {/* ── 二级菜单：独立卡片，贴在激活分类的右侧 ── */}
       {active !== null && (
-        <div className="app-menu-sub">
+        <div className="app-menu-sub" ref={subRef} style={{ left: subPos.left, top: subPos.top }}
+          onMouseLeave={menuMouseLeave} onMouseEnter={menuMouseEnter}>
           {subMenus[active]}
         </div>
       )}
-    </div>
+    </>
   );
 }

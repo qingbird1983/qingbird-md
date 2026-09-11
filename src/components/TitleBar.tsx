@@ -4,8 +4,8 @@
 // 汉堡菜单点击后由 AppMenu 弹出二级分类面板覆盖在下层。
 // 工作区切换按钮：图标为 lucide PanelLeft（方框内偏左一根竖线），toggleNav
 // 控制 showNav；隐藏工作区时本按钮依旧留在标题栏可见——视觉锚点不丢。
-import { useState, useEffect } from "react";
-import { Minus, Square, X, Maximize2, Moon, PanelLeft, Sun } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Minus, Square, X, Maximize2, Moon, PanelLeft, Settings, Sun } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { sysDark, useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
@@ -19,6 +19,44 @@ export default function TitleBar() {
   const [maximized, setMaximized] = useState(false);
   const showNav = useUiStore((s) => s.showNav);
   const toggleNav = useUiStore((s) => s.toggleNav);
+  const sidebarWidth = useUiStore((s) => s.sidebarWidth);
+  // ── 标签条起点跟随工作区分割线 ──
+  // 下方工作区右缘分割线的窗口 x = sidebarWidth + 7（col1 面板 + col2 resizer 热区，
+  // 7px 与 global.css .app-resizer 宽度一致）。标签条左缘 = max(分割线x, 标题栏
+  // 分割线x)：工作区拉宽标签条跟着右移（与主区左缘对齐），拉窄/隐藏到小于
+  // 标题栏左侧（汉堡按钮后的分割线）时归位到分割线。位移差用 margin-left 实现，
+  // 过渡时长与面板收展动画一致（--panel-anim），视觉同步滑动。
+  const leftRef = useRef<HTMLDivElement>(null);
+  const dividerRef = useRef<HTMLSpanElement>(null);
+  const [baseX, setBaseX] = useState(0);
+  // baseX = 标题栏分割线右缘（titlebar 已 position:relative，offsetLeft 即窗口系 x）
+  const measure = () => {
+    const d = dividerRef.current;
+    if (d) setBaseX(d.offsetLeft + d.offsetWidth);
+  };
+  useEffect(() => {
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (leftRef.current) ro.observe(leftRef.current);
+    return () => ro.disconnect();
+  }, []);
+  // 补偿：divider 流内还有 margin-right 8px（把 TabBar 往右推），tabbar 自身
+  // padding-left 2px（第一个标签再右移）——合计 10px；再加 1px 视觉微调
+  // （offsetLeft 整数舍入 + 分割线右缘 vs 线体中心的感知差），共 11px。
+  const TAB_ALIGN_COMPENSATION = 11;
+  const tabMargin = showNav
+    ? Math.max(0, sidebarWidth + 7 - baseX - TAB_ALIGN_COMPENSATION)
+    : 0;
+
+  // 工作区最小宽度 = 标签条贴最左（margin=0）时的临界分割线位置：
+  // 分割线 x = sidebarWidth + 7，临界 x = baseX + 10（补偿后），
+  // 反解 min = baseX + 10 - 7 = baseX + 3。拖拽钳制（PanelResizer）读它，
+  // 工作区拉到最小时分隔线正好落在标签条归位线上，没有「小于归位线」的死区。
+  useEffect(() => {
+    if (baseX > 0) {
+      useUiStore.getState().setMinSidebarWidth(baseX + TAB_ALIGN_COMPENSATION - 7);
+    }
+  }, [baseX]);
   // 明暗主题按钮（自 EditorToolbar 搬入）：解析后的明暗态仅决定图标/提示，
   // 切换走 setTheme；sysMatches 订阅让 auto 档随系统变化时图标实时刷新。
   const theme = useSettingsStore((s) => s.theme);
@@ -45,7 +83,7 @@ export default function TitleBar() {
           窗控间隙落在无属性子 div 上全部失效。deep 让整个标题栏子树可拖，
           BUTTON 类（工作区切换/汉堡/窗控）仍自动豁免走自身点击。 */}
       {/* 左侧：应用名 + 工作区切换按钮 + 汉堡菜单按钮 —— AppMenu 在汉堡按钮下方绝对定位弹出 */}
-      <div className="titlebar-left">
+      <div className="titlebar-left" ref={leftRef}>
         <span className="titlebar-brand">
           {/* 双图随主题显隐（CSS body[data-theme] 切换，无 JS 分支） */}
           <img src={qingniaoLogoLight} className="titlebar-logo logo-light" alt="青鸟" />
@@ -80,15 +118,16 @@ export default function TitleBar() {
       {/* 汉堡按钮之后的竖向分割线：分隔左侧「应用名/工作区切换/菜单」与标签条。
           aria-hidden 纯装饰；非 BUTTON，位于 deep 拖拽区但空白处可拖窗，不影响
           两侧 button 的豁免。 */}
-      <span className="titlebar-divider" aria-hidden="true" />
+      <span className="titlebar-divider" aria-hidden="true" ref={dividerRef} />
 
       {/* 中部：标签条（已并入标题栏）。tab 元素带 role="tab"、关闭/新建按钮为
           button，均属 Tauri drag-region 的 clickable 元素 → 点击不触发窗口拖动；
           标签条的空白处（无标签/尾部空隙）才作为可拖拽区域，满足「按住菜单栏
-          自由拖动窗口」。 */}
-      <TabBar />
+          自由拖动窗口」。
+          marginLeft：标签条起点跟随下方工作区分割线（拉宽右移、过窄归位）。 */}
+      <TabBar style={{ marginLeft: tabMargin }} />
 
-      {/* 右侧窗控按钮；最前为明暗主题切换（与窗控同款 win-btn 样式） */}
+      {/* 右侧窗控按钮；最前为明暗主题切换 + 设置入口（与窗控同款 win-btn 样式） */}
       <div className="window-controls">
         <button
           type="button"
@@ -97,6 +136,15 @@ export default function TitleBar() {
           onClick={() => useSettingsStore.getState().setTheme(dark ? "light" : "dark")}
         >
           {dark ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        <button
+          type="button"
+          className="win-btn"
+          title="设置"
+          aria-label="设置"
+          onClick={() => useUiStore.getState().openSettings()}
+        >
+          <Settings size={14} />
         </button>
         <button
           type="button"

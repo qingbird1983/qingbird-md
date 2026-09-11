@@ -1,4 +1,4 @@
-//! Render the Block model to standalone HTML for the webview preview,
+﻿//! Render the Block model to standalone HTML for the webview preview,
 //! mirroring the deleted egui renderer's traversal orders exactly.
 //!
 //! Modes:
@@ -67,6 +67,12 @@ struct Ctx<'t> {
     outline: Vec<OutlineItem>,
     /// 参考文献区段状态机：与 units.rs 收集器同源判定（Task: skip.rs）
     ref_state: crate::translate::skip::RefSkipState,
+    /// 脚注：label → 编号（1 起，按定义出现顺序）；fn_html 聚合 `<li>` 条目，
+    /// 主渲染走完后包上 `<section class="footnotes">` 追加到文档末尾。
+    fn_nums: HashMap<String, usize>,
+    fn_html: String,
+    /// 已分配锚点 id 的引用 label（多次引用同一脚注只给首个 id，防重复）
+    fn_refs: std::collections::HashSet<String>,
 }
 
 pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: bool) -> ParseResult {
@@ -79,10 +85,43 @@ pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: boo
         heading_id: 0,
         outline: Vec::new(),
         ref_state: crate::translate::skip::RefSkipState::default(),
+        fn_nums: HashMap::new(),
+        fn_html: String::new(),
+        fn_refs: std::collections::HashSet::new(),
     };
+    // 预扫：脚注定义按出现顺序编号（引用在定义之前渲染，需先备好映射）。
+    // 预扫递归顺序与渲染 walk 一致，编号即文档顺序。
+    collect_fn_labels(&blocks, &mut ctx.fn_nums);
     let mut html = String::new();
     ctx.render_blocks(&mut html, &blocks);
+    if !ctx.fn_html.is_empty() {
+        html.push_str("<section class=\"footnotes\"><ol>");
+        html.push_str(&ctx.fn_html);
+        html.push_str("</ol></section>");
+    }
     ParseResult { html, outline: std::mem::take(&mut ctx.outline) }
+}
+
+/// 递归收集脚注定义 label（文档顺序），编号 1 起。
+fn collect_fn_labels(blocks: &[Block], nums: &mut HashMap<String, usize>) {
+    for b in blocks {
+        match b {
+            Block::FootnoteDef { label, blocks } => {
+                if !nums.contains_key(label) {
+                    let next = nums.len() + 1;
+                    nums.insert(label.clone(), next);
+                }
+                collect_fn_labels(blocks, nums);
+            }
+            Block::Quote { blocks } => collect_fn_labels(blocks, nums),
+            Block::List { items, .. } => {
+                for it in items {
+                    collect_fn_labels(&it.blocks, nums);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 impl<'t> Ctx<'t> {
@@ -171,14 +210,15 @@ impl<'t> Ctx<'t> {
                     escape_html(alt)
                 );
             }
-            Block::Table { headers, rows } => {
+            Block::Table { headers, rows, aligns } => {
                 out.push_str("<table><thead><tr>");
-                for h in headers {
+                for (ci, h) in headers.iter().enumerate() {
                     let plain = inline_plain_text(h);
                     let bi_idx = self.bi_advance(&plain, None);
+                    let sty = align_style(aligns.get(ci).copied().unwrap_or(0));
                     match bi_idx {
-                        Some(i) => write!(out, r#"<th data-bi="{}">"#, i).unwrap(),
-                        None => out.push_str("<th>"),
+                        Some(i) => write!(out, r#"<th data-bi="{}"{}>"#, i, sty).unwrap(),
+                        None => write!(out, "<th{}>", sty).unwrap(),
                     }
                     self.push_inlines(out, h);
                     self.maybe_tr_box(out, bi_idx);
@@ -187,12 +227,13 @@ impl<'t> Ctx<'t> {
                 out.push_str("</tr></thead><tbody>");
                 for row in rows {
                     out.push_str("<tr>");
-                    for cell in row {
+                    for (ci, cell) in row.iter().enumerate() {
                         let plain = inline_plain_text(cell);
                         let bi_idx = self.bi_advance(&plain, None);
+                        let sty = align_style(aligns.get(ci).copied().unwrap_or(0));
                         match bi_idx {
-                            Some(i) => write!(out, r#"<td data-bi="{}">"#, i).unwrap(),
-                            None => out.push_str("<td>"),
+                            Some(i) => write!(out, r#"<td data-bi="{}"{}>"#, i, sty).unwrap(),
+                            None => write!(out, "<td{}>", sty).unwrap(),
                         }
                         self.push_inlines(out, cell);
                         self.maybe_tr_box(out, bi_idx);
@@ -210,6 +251,25 @@ impl<'t> Ctx<'t> {
                     cls,
                     escape_html(tex)
                 );
+            }
+            Block::FootnoteDef { label, blocks } => {
+                // 定义不原地渲染——聚合进 fn_html，主流程走完后统一包
+                // `<section class="footnotes">` 追加到文末。内容照常过
+                // render_blocks 推进 bi/sub 计数，walk 顺序与 units 收集器
+                // 一致，索引空间不受搬运影响。
+                let num = self.fn_nums.get(label).copied().unwrap_or(0);
+                let esc = escape_html(label);
+                let mut buf = std::mem::take(&mut self.fn_html);
+                let _ = write!(
+                    buf,
+                    "<li id=\"fn-{esc}\"><span class=\"fn-num\">{num}</span>"
+                );
+                self.render_blocks(&mut buf, blocks);
+                let _ = write!(
+                    buf,
+                    "<a class=\"fn-back\" href=\"#fnref-{esc}\" aria-label=\"返回正文\">↩</a></li>"
+                );
+                self.fn_html = buf;
             }
         }
     }
@@ -273,6 +333,34 @@ impl<'t> Ctx<'t> {
                     self.push_inlines(out, x);
                     out.push_str("</del>");
                 }
+                Inline::Mark(x) => {
+                    out.push_str("<mark>");
+                    self.push_inlines(out, x);
+                    out.push_str("</mark>");
+                }
+                Inline::FootnoteRef(label) => {
+                    // 上标编号跳到文末定义；无定义的悬空引用退回字面 [^label]
+                    let esc = escape_html(label);
+                    match self.fn_nums.get(label).copied() {
+                        Some(n) => {
+                            // 多次引用同一脚注只给首个锚点 id（重复 id 非法）
+                            if self.fn_refs.insert(label.clone()) {
+                                let _ = write!(
+                                    out,
+                                    r##"<sup class="fn-ref" id="fnref-{esc}"><a href="#fn-{esc}">{n}</a></sup>"##
+                                );
+                            } else {
+                                let _ = write!(
+                                    out,
+                                    r##"<sup class="fn-ref"><a href="#fn-{esc}">{n}</a></sup>"##
+                                );
+                            }
+                        }
+                        None => {
+                            let _ = write!(out, r#"<sup class="fn-ref">[^{esc}]</sup>"#);
+                        }
+                    }
+                }
                 Inline::Code(c) => {
                     let _ = write!(out, "<code>{}</code>", escape_html(c));
                 }
@@ -315,15 +403,21 @@ impl<'t> Ctx<'t> {
         }
     }
 
-    /// `<pre class="code-block"><div class="code-lang">{lang}</div><code>
-    /// {line-numbered highlighted spans}</code></pre>`. Unknown/absent lang
-    /// renders the whole block monochrome-escaped.
+    /// 卡片结构（对齐 openchamber 的代码块布局划分）：
+    /// `<div class="code-card"><div class="code-head"><span
+    /// class="code-lang">{lang}</span></div><pre class="code-block"><code
+    /// style="--ln-digits:{n}">{flex 行}</code></pre></div>`。
+    ///
+    /// 每行一个 `<span class="cl"><span class="ln">{n}</span><span
+    /// class="lc">{tokens}</span></span>`（CSS flex：行号 gutter 列 + 内容
+    /// 列两段划分，长行折行对齐内容列、不再顶到 gutter 下面）。gutter 列宽
+    /// 由 --ln-digits（总行数的十进制位数）统一决定——若按 2ch 逐行
+    /// min-width，行号进到三位数时列宽突变，行号列分隔线会在 9→10、
+    /// 99→100 等位数进位处断开/错位。行内不渲染游离 '\n' 文本节点
+    /// （white-space 下会多出空行）；除末行外每个 .lc 以 '\n' 结尾——
+    /// code.textContent 恰好等于源代码，前端复制/划选零处理。
+    /// Unknown/absent lang 以 "text" 标签渲染整块 monochrome-escaped。
     fn push_code_block(&self, out: &mut String, lang: Option<&str>, code: &str) {
-        out.push_str("<pre class=\"code-block\">");
-        if let Some(l) = lang {
-            let _ = write!(out, "<div class=\"code-lang\">{}</div>", escape_html(l));
-        }
-        out.push_str("<code>");
         match highlight_spans(code, lang) {
             Some(spans) => {
                 // Regroup spans into per-line token lists. Spans may carry
@@ -342,13 +436,14 @@ impl<'t> Ctx<'t> {
                 while lines.len() > 1 && lines.last().unwrap().is_empty() {
                     lines.pop();
                 }
+                let n = lines.len();
+                self.emit_code_open(out, lang, n);
                 for (i, toks) in lines.iter().enumerate() {
-                    // 与 mono 路径同构：每个行边界恰好一个 '\n'（首行前除外），
-                    // 否则高亮块所有行连成一段、CSS 的行号 gutter 无法成行。
-                    if i > 0 {
-                        out.push('\n');
-                    }
-                    let _ = write!(out, "<span class=\"ln\">{}</span>", i + 1);
+                    let _ = write!(
+                        out,
+                        "<span class=\"cl\"><span class=\"ln\">{}</span><span class=\"lc\">",
+                        i + 1
+                    );
                     for (cl, cd, piece) in toks {
                         // 双主题颜色对烘进 CSS 变量：亮色取 --cl，暗色取 --cd
                         // （选择逻辑在 markdown.css，按 body[data-theme] 切换）。
@@ -359,30 +454,69 @@ impl<'t> Ctx<'t> {
                             escape_html(piece)
                         );
                     }
+                    // 行分隔 '\n' 收进 .lc 尾部（非游离节点）：textContent
+                    // 逐行带换行，复制与划选语义与源码一致。
+                    if i + 1 < n {
+                        out.push('\n');
+                    }
+                    out.push_str("</span></span>");
                 }
             }
             None => {
-                // 与高亮路径同构：每个行边界恰好一个 '\n'（此处分隔符插入），
-                // 否则 mono 块所有行连成一段、CSS 的行号 gutter 无法成行。
+                // 与高亮路径同构：mono 行也是 .cl/.ln/.lc flex 行，行尾 '\n'
+                // 收进 .lc（末行除外），textContent 与源码一致。
                 let mut ls: Vec<&str> = code.split('\n').collect();
                 if ls.len() > 1 && ls.last() == Some(&"") {
                     ls.pop();
                 }
+                let n = ls.len();
+                self.emit_code_open(out, lang, n);
                 for (i, l) in ls.iter().enumerate() {
-                    if i > 0 {
+                    let _ = write!(
+                        out,
+                        "<span class=\"cl\"><span class=\"ln\">{}</span><span class=\"lc\">{}",
+                        i + 1,
+                        escape_html(l)
+                    );
+                    if i + 1 < n {
                         out.push('\n');
                     }
-                    let _ = write!(out, "<span class=\"ln\">{}</span>{}", i + 1, escape_html(l));
+                    out.push_str("</span></span>");
                 }
             }
         }
-        out.push_str("</code></pre>");
+        out.push_str("</code></pre></div>");
+    }
+
+    /// 卡片与头栏开标签 + 带行号位数变量的 code 开标签（两条渲染路径共用，
+    /// n 必须在产出任何行之前已知）。`--ln-digits` 是**总行数的十进制位数**
+    /// （不是行数本身——行数直接烘进 calc(var*1ch) 会把 gutter 撑到天上去）。
+    fn emit_code_open(&self, out: &mut String, lang: Option<&str>, lines: usize) {
+        out.push_str(
+            "<div class=\"code-card\"><div class=\"code-head\"><span class=\"code-lang\">",
+        );
+        out.push_str(&escape_html(lang.unwrap_or("text")));
+        let digits = lines.to_string().len();
+        let _ = write!(
+            out,
+            "</span></div><pre class=\"code-block\"><code style=\"--ln-digits:{}\">",
+            digits
+        );
     }
 }
 
 fn push_tok(lines: &mut Vec<Vec<(Color, Color, String)>>, c: (Color, Color), piece: &str) {
     if !piece.is_empty() {
         lines.last_mut().unwrap().push((c.0, c.1, piece.to_string()));
+    }
+}
+
+/// 列对齐 → th/td 的 style 属性片段（0=default/left 不发样式）。
+fn align_style(a: u8) -> &'static str {
+    match a {
+        1 => " style=\"text-align:center\"",
+        2 => " style=\"text-align:right\"",
+        _ => "",
     }
 }
 
@@ -515,8 +649,15 @@ mod tests {
     fn code_block_highlight_with_line_numbers() {
         let md = "```rust\nfn main() {}\n```";
         let r = render_html(md, &HashMap::new(), false);
-        assert!(r.html.contains("class=\"code-block\""));
-        assert!(r.html.contains("class=\"ln\">1</span>"));
+        // 卡片结构：code-card > (code-head > code-lang) + pre.code-block；
+        // --ln-digits = 总行数位数（1 行块为 1）
+        assert!(
+            r.html.contains(
+                r#"<div class="code-card"><div class="code-head"><span class="code-lang">rust</span></div><pre class="code-block"><code style="--ln-digits:1">"#
+            )
+        );
+        assert!(r.html.contains(r#"<span class="ln">1</span>"#));
+        assert!(r.html.contains("</code></pre></div>"));
         // Should contain dual-theme colored spans (syntect --cl/--cd pair)
         assert!(r.html.contains("--cl:#"), "light color var");
         assert!(r.html.contains("--cd:#"), "dark color var");
@@ -524,29 +665,64 @@ mod tests {
 
     #[test]
     fn known_lang_code_block_lines_newline_separated() {
-        // 高亮路径与 mono 路径同构：每个行边界恰好一个 '\n'，否则高亮块
-        // 所有行连成一段，CSS（white-space: pre-wrap + .ln 行号）无法断行。
+        // flex 行契约：每行一个 .cl（.ln 行号 + .lc 内容），行尾 '\n' 收进
+        // .lc（末行除外）——textContent 逐行带换行、pre 内无游离换行节点。
         let r = render_html("```rust\nfn a() {}\nfn b() {}\n```", &HashMap::new(), false);
         assert!(r.html.contains("--cl:#"), "must take highlight path");
-        assert!(r.html.contains(r#"<span class="ln">1</span>"#));
-        assert!(
-            r.html.contains("\n<span class=\"ln\">2</span>"),
-            "highlighted lines must be newline-separated"
-        );
-        let code = r.html.split("</code>").next().unwrap();
-        assert_eq!(code.matches("<span class=\"ln\">").count(), 2);
+        let body = r
+            .html
+            .split(r#"<pre class="code-block"><code style="--ln-digits:1">"#)
+            .nth(1)
+            .unwrap()
+            .split("</code>")
+            .next()
+            .unwrap();
+        assert_eq!(body.matches(r#"<span class="cl">"#).count(), 2);
+        assert_eq!(body.matches(r#"<span class="ln">"#).count(), 2);
+        // 首行 .lc 以 '\n' 结尾，末行不带
+        assert!(body.contains(r#"<span class="ln">1</span><span class="lc">"#));
+        assert!(body.contains("\n</span></span>"));
+        assert!(body.ends_with("</span></span>"));
+        assert!(!body.contains("\n<span"), "pre 内不得有游离换行节点");
     }
 
     #[test]
     fn unknown_lang_code_block_lines_newline_separated() {
-        // Task 20 gutter 前提：mono 路径必须与高亮路径同构——行边界恰好一个
-        // '\n'，否则所有行连成一段，CSS（white-space: pre-wrap + .ln 行号）
-        // 无法断行。
+        // mono 路径与高亮路径同构（.cl/.ln/.lc flex 行 + .lc 尾 '\n'）；
+        // 无 lang 时头栏标签回退 "text"。
         let r = render_html("```\nalpha\nbeta\n```", &HashMap::new(), false);
-        assert!(r.html.contains(r#"<span class="ln">1</span>alpha"#));
-        assert!(r.html.contains("\n<span class=\"ln\">2</span>beta"));
-        let code = r.html.split("</code>").next().unwrap();
-        assert_eq!(code.matches("<span class=\"ln\">").count(), 2);
+        assert!(r.html.contains(r#"<span class="code-lang">text</span>"#));
+        assert!(r.html.contains("<span class=\"ln\">1</span><span class=\"lc\">alpha\n</span></span>"));
+        assert!(r.html.contains(r#"<span class="ln">2</span><span class="lc">beta</span></span>"#));
+        let body = r
+            .html
+            .split(r#"<pre class="code-block"><code style="--ln-digits:1">"#)
+            .nth(1)
+            .unwrap()
+            .split("</code>")
+            .next()
+            .unwrap();
+        assert_eq!(body.matches(r#"<span class="cl">"#).count(), 2);
+        // textContent 语义：alpha\nbeta（行号 .ln 是 .lc 的兄弟节点，不计入）
+        assert!(body.contains(r#"<span class="lc">alpha
+</span></span><span class="cl"><span class="ln">2</span><span class="lc">beta</span>"#));
+    }
+
+    #[test]
+    fn code_block_ln_digits_is_digit_count_not_line_count() {
+        // 回归：--ln-digits 必须是总行数的十进制位数。曾误传行数本身——
+        // 100+ 行的块被算成 calc(行数 * 1ch)，gutter 占掉九成宽度挤没代码。
+        for (lines, digits) in [(2usize, 1), (9, 1), (10, 2), (99, 2), (100, 3), (123, 3)] {
+            let md = format!("```\n{}\n```", vec!["x"; lines].join("\n"));
+            let r = render_html(&md, &HashMap::new(), false);
+            assert!(
+                r.html.contains(&format!(r#"--ln-digits:{}"#, digits)),
+                "{} 行块应得 {} 位，实际: {}",
+                lines,
+                digits,
+                &r.html[..r.html.len().min(400)]
+            );
+        }
     }
 
     #[test]
@@ -697,6 +873,82 @@ A--&gt;B
         // 自然无 target，也无需拦截。
         let r3 = render_html("https://example.com/x", &HashMap::new(), false);
         assert!(!r3.html.contains("<a "), "{}", r3.html);
+    }
+
+    // ---- 语法全覆盖测试.md 补齐项（2026-09-11）----
+
+    #[test]
+    fn footnote_renders_refs_and_end_section() {
+        let md = "See[^a] and [^a] again.\n\n[^a]: The note.";
+        let r = render_html(md, &HashMap::new(), false);
+        // 首个引用带锚点 id，后续引用复用编号但不重复 id
+        assert!(
+            r.html.contains(
+                r##"<sup class="fn-ref" id="fnref-a"><a href="#fn-a">1</a></sup>"##
+            ),
+            "{}",
+            r.html
+        );
+        assert!(r.html.contains(r##"<sup class="fn-ref"><a href="#fn-a">1</a></sup>"##));
+        // 定义聚合到文末脚注区
+        let tail = r.html.split(r#"<section class="footnotes">"#).nth(1).unwrap();
+        assert!(tail.contains(r#"<li id="fn-a"><span class="fn-num">1</span>"#), "{}", tail);
+        assert!(tail.contains(r##"<a class="fn-back" href="#fnref-a""##));
+        assert!(tail.contains("The note."));
+        assert!(!r.html.split("<section class=\"footnotes\">").next().unwrap().contains("The note."));
+    }
+
+    #[test]
+    fn footnote_dangling_ref_renders_literal_label() {
+        let r = render_html("Lonely[^nope] ref", &HashMap::new(), false);
+        // pulldown-cmark 对未定义引用不发 FootnoteReference 事件：
+        // `[^nope]` 按字面文本渲染（`[` 作潜在链接起始被劈成多个 Text run，
+        // 对应多个 data-ri span，故逐片段断言）
+        assert!(r.html.contains(r#">[</span><span data-ri="2">^nope</span><span data-ri="3">]</span>"#), "{}", r.html);
+        assert!(!r.html.contains("fn-ref"), "{}", r.html);
+        assert!(!r.html.contains("footnotes"));
+    }
+
+    #[test]
+    fn mark_renders_mark_element() {
+        let r = render_html("==hi== now", &HashMap::new(), false);
+        assert!(r.html.contains("<mark><span data-ri=\"0\">hi</span></mark>"), "{}", r.html);
+    }
+
+    #[test]
+    fn table_alignment_styles() {
+        let md = "| l | c | r |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |";
+        let r = render_html(md, &HashMap::new(), false);
+        // 居中/右对齐各出现在 th 与 td 上；左对齐（:---）不发 style
+        assert_eq!(r.html.matches("style=\"text-align:center\"").count(), 2, "{}", r.html);
+        assert_eq!(r.html.matches("style=\"text-align:right\"").count(), 2, "{}", r.html);
+        assert!(r.html.contains(r#"<th data-bi="0"><span data-ri="0">l</span></th>"#), "{}", r.html);
+    }
+
+    #[test]
+    fn front_matter_absent_from_html() {
+        let r = render_html("---\ntitle: T\n---\n\nBody", &HashMap::new(), false);
+        assert!(!r.html.contains("title:"), "{}", r.html);
+        assert!(r.html.contains("Body"));
+    }
+
+    #[test]
+    fn data_bi_parity_with_footnotes_and_marks() {
+        // 新变体（FootnoteDef 内容参与占号）不破坏渲染/收集对齐铁律
+        let md = "Hello[^1] ==world==\n\n[^1]: Eng footnote body\n";
+        let r = render_html(md, &HashMap::new(), false);
+        let mut rendered = Vec::new();
+        let mut rest = r.html.as_str();
+        while let Some(p) = rest.find("data-bi=\"") {
+            let after = &rest[p + 9..];
+            let end = after.find('"').unwrap();
+            rendered.push(after[..end].parse::<usize>().unwrap());
+            rest = &after[end + 1..];
+        }
+        let blocks = crate::markdown::parse_blocks(md);
+        let collected: Vec<usize> =
+            crate::markdown::units::collect_translatable(&blocks).iter().map(|&(i, _)| i).collect();
+        assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
     }
 
     // ---- 文献区段 skip：占号接入（对齐锚定）----

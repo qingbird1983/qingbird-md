@@ -35,6 +35,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
+  position: relative; /* TabBar 分割线对齐测量：让 divider 的 offsetParent 稳定为 titlebar */
   height: var(--h-topbar, 38px);
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
@@ -168,8 +169,6 @@ body[data-theme="dark"] .logo-dark { display: block; }
   top: var(--h-topbar, 38px); /* 标题栏高度 */
   left: 8px;
   z-index: 1100;
-  display: flex;
-  align-items: stretch;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
@@ -182,7 +181,6 @@ body[data-theme="dark"] .logo-dark { display: block; }
   flex-shrink: 0;
   width: 136px;
   padding: 6px 0;
-  border-right: 1px solid var(--sep-bg);
 }
 
 /* 分类条目：横向布局（文字居左 + 箭头居右） */
@@ -212,12 +210,18 @@ body[data-theme="dark"] .logo-dark { display: block; }
   background: var(--sep-bg);
 }
 
-/* 二级菜单列（随激活分类向右展开） */
+/* 二级菜单卡片：独立弹层，fixed 定位在激活分类右侧（AppMenu.tsx 计算 left/top） */
 .app-menu-sub {
+  position: fixed;
+  z-index: 1101;
   width: 208px;
   max-height: calc(100vh - 70px);
   overflow-y: auto;
   padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
 }
 
 .app-menu-label {
@@ -230,7 +234,8 @@ body[data-theme="dark"] .logo-dark { display: block; }
   margin-bottom: 2px;
 }
 
-.app-menu button {
+.app-menu button,
+.app-menu-sub button {
   display: block;
   width: 100%;
   padding: 6px 16px;
@@ -244,23 +249,35 @@ body[data-theme="dark"] .logo-dark { display: block; }
   cursor: pointer;
 }
 
-.app-menu button:hover:not(:disabled) {
+.app-menu button:hover:not(:disabled),
+.app-menu-sub button:hover:not(:disabled) {
   background: var(--item-hover-bg);
 }
 
-.app-menu button.active::before {
+.app-menu button.active::before,
+.app-menu-sub button.active::before {
   content: "✓";
   float: left;
   margin-left: -14px;
   color: var(--accent);
 }
 
-.app-menu button.active {
+.app-menu button.active,
+.app-menu-sub button.active {
   padding-left: 20px;
   position: relative;
 }
 
-.app-menu button:disabled {
+/* 一级分类激活态只做高亮：不带 ✓ 前缀、不缩进（✓ 仅用于二级选项类条目） */
+.app-menu .app-menu-cat.active {
+  padding-left: 12px;
+}
+.app-menu .app-menu-cat.active::before {
+  content: none;
+}
+
+.app-menu button:disabled,
+.app-menu-sub button:disabled {
   color: var(--muted-fg);
   cursor: default;
 }
@@ -409,6 +426,9 @@ body[data-theme="dark"] .logo-dark { display: block; }
   gap: 4px;
   height: 100%;
   padding: 0 6px 0 2px;
+  /* 标签条起点跟随工作区分割线（TitleBar.tsx 算 marginLeft）：收展面板时
+     margin 与面板 width 同步过渡（同时长 ease），视觉上一起滑动 */
+  transition: margin-left var(--panel-anim, 300ms) ease;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-user-select: none;
@@ -642,7 +662,21 @@ body[data-theme="dark"] .logo-dark { display: block; }
   flex-direction: column;
   overflow: hidden;
   background: var(--bg2);
+  /* 收展过渡（App.tsx 常挂载 + inline width/opacity 切换）；
+     拖拽调宽时由 body:has(.app-resizer.dragging) 关闭过渡保证跟手 */
+  transition:
+    width var(--panel-anim, 300ms) ease,
+    opacity var(--panel-anim, 300ms) ease;
   /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-right——会双线 */
+}
+
+/* 面板内容固定宽容器：收缩时内容只被 overflow 裁切、不被挤压变形。
+   --panel-w 由 App.tsx 写在面板节点上（store 里的栏宽，与显隐无关） */
+.panel-clip {
+  flex: none;
+  width: var(--panel-w, 240px);
+  height: 100%;
+  min-width: 0;
 }
 
 /* 分区小标题（对齐 SuperMarkdown 的 .sb-section-title） */
@@ -828,6 +862,10 @@ button.menu-btn:disabled,
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  /* 收展过渡（同 .sidebar） */
+  transition:
+    width var(--panel-anim, 300ms) ease,
+    opacity var(--panel-anim, 300ms) ease;
   /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
 }
 
@@ -989,6 +1027,21 @@ button.menu-btn:disabled,
 .app-resizer {
   width: 7px;
   background: transparent;
+  /* 跟随面板收展：隐藏态 width/opacity 归零（App.tsx inline style 切换），
+     让 1fr 主区逐帧吸收空列而不是跳变 */
+  transition:
+    width var(--panel-anim, 300ms) ease,
+    opacity var(--panel-anim, 300ms) ease;
+}
+
+/* 拖宽条拖拽中：面板宽度过渡必须关闭，否则 store 宽度逐帧更新会被 300ms
+   缓动吞掉，拖拽严重迟滞。:has 从 resizer 的 .dragging 反向通知两个面板；
+   标签条的 margin 跟随同理（拖宽时要实时贴分割线，不走过渡） */
+body:has(.app-resizer.dragging) .sidebar,
+body:has(.app-resizer.dragging) .outline-panel,
+body:has(.app-resizer.dragging) .app-resizer,
+body:has(.app-resizer.dragging) .tabbar {
+  transition: none;
 }
 
 .app-resizer.res-left {
