@@ -31,16 +31,10 @@ import {
   Undo2,
   Workflow,
   Sigma,
-  Eye,
-  Code2,
-  Columns,
-  Type,
-  Languages,
-  Rows2,
+  TextSelect,
   StretchHorizontal,
   FoldHorizontal,
   PanelRightClose,
-  TextSelect,
 } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
 import { useUiStore, CONTENT_WIDTH_LABEL } from "../stores/useUiStore";
@@ -186,34 +180,45 @@ export default function EditorToolbar() {
       </Menu>
       <Sep />
 
-      {/* ── ④ 阅读模式 ── 两个 toggle 单钮：默认原文（未激活），点击进对应
-           模式（switchMode 到非 original 自动 startIfFresh），再点退出回原文。
-           图标语义：Languages=去翻译 / Type=回原文字符；对照钮 active 高亮 */}
-      <button type="button" className={`menu-btn tool-btn${mode === "translation" ? " active" : ""}`}
-        title={mode === "translation" ? "退出译文（回到原文）" : "翻译为译文"} disabled={disabled}
-        onClick={() => switchMode(mode === "translation" ? "original" : "translation")}>
-        {mode === "translation" ? <Type size={15} /> : <Languages size={15} />}
-      </button>
-      <button type="button" className={`menu-btn tool-btn${mode === "bilingual" ? " active" : ""}`}
-        title={mode === "bilingual" ? "退出中英对照（回到原文）" : "阅读模式：中英对照"} disabled={disabled}
-        onClick={() => switchMode(mode === "bilingual" ? "original" : "bilingual")}>
-        <Rows2 size={15} />
-      </button>
+      {/* ── ④ 阅读模式（下划线文字分段，DESIGN.md §4 modeseg）──
+           点击非激活项进对应模式（switchMode 到非 original 自动 startIfFresh）；
+           点击激活项退回原文——保留旧 toggle 的退出语义。 */}
+      <div className="modeseg" role="group" aria-label="阅读模式">
+        <button type="button" className={mode === "original" ? "on" : ""}
+          title="阅读原文" disabled={disabled}
+          onClick={() => switchMode("original")}>
+          原文
+        </button>
+        <button type="button" className={mode === "translation" ? "on" : ""}
+          title={mode === "translation" ? "退出译文（回到原文）" : "翻译为译文"} disabled={disabled}
+          onClick={() => switchMode(mode === "translation" ? "original" : "translation")}>
+          译文
+        </button>
+        <button type="button" className={mode === "bilingual" ? "on" : ""}
+          title={mode === "bilingual" ? "退出中英对照（回到原文）" : "阅读模式：中英对照"} disabled={disabled}
+          onClick={() => switchMode(mode === "bilingual" ? "original" : "bilingual")}>
+          双语
+        </button>
+      </div>
 
       {/* 弹性占位：从此处之后的按钮全部右对齐（源码视图起） */}
       <span className="tb-gap" />
 
-      {/* ── ⑤ 视图切换：源码⇄预览合并为单钮（默认预览=未激活，按下进源码，
-           再点退出回预览）；分栏保持独立按钮 ── */}
-      <button type="button" className={`menu-btn tool-btn${view === "source" ? " active" : ""}`}
-        title={view === "source" ? "退出源码视图（回到预览）" : "源码视图"}
-        onClick={() => switchView(view === "source" ? "preview" : "source")}>
-        {view === "source" ? <Eye size={15} /> : <Code2 size={15} />}
-      </button>
-      <button type="button" className={`menu-btn tool-btn${view === "split" ? " active" : ""}`} title="分栏视图"
-        onClick={() => switchView("split")}>
-        <Columns size={15} />
-      </button>
+      {/* ── ⑤ 视图切换（胶囊分段：源码/分栏/预览，DESIGN.md §4 viewseg）── */}
+      <div className="viewseg" role="group" aria-label="视图">
+        <button type="button" className={view === "source" ? "on" : ""}
+          title="源码视图" onClick={() => switchView("source")}>
+          源码
+        </button>
+        <button type="button" className={view === "split" ? "on" : ""}
+          title="分栏视图" onClick={() => switchView("split")}>
+          分栏
+        </button>
+        <button type="button" className={view === "preview" ? "on" : ""}
+          title="预览视图" onClick={() => switchView("preview")}>
+          预览
+        </button>
+      </div>
       <Sep />
 
       {/* ── ⑤b 划词翻译开关（选中即译；复制文字前先关掉，省 token）── */}

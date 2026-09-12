@@ -684,10 +684,123 @@ body {
   cursor: default;
 }
 
-/* 工具栏按钮持续激活态（视图切换/面板开关，active class 由组件加） */
+/* 工具栏按钮持续激活态（面板开关等，active class 由组件加） */
 .editor-toolbar button.active {
   background: var(--accent-weak);
   color: var(--accent);
+}
+
+/* ---- 视图分段（胶囊：源码/分栏/预览）——DESIGN.md §4 viewseg ----
+   放工具条右端；.editor-toolbar button 的通配钮样式必须逐项覆盖回来。 */
+.editor-toolbar .viewseg {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--bg3);
+}
+
+.editor-toolbar .viewseg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: auto;
+  padding: 3px 12px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--fg3);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: color 0.16s var(--ease), background 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
+}
+
+.editor-toolbar .viewseg button:hover:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .viewseg button:active:not(:disabled) {
+  background: none;
+  color: var(--fg);
+}
+
+.editor-toolbar .viewseg button.on {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.editor-toolbar .viewseg button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- 阅读模式分段（下划线文字：原文/译文/双语）——DESIGN.md §4 modeseg ----
+   青花只在此处出现：模式切换属于翻译语义（色彩铁律的正面清单）。 */
+.editor-toolbar .modeseg {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.editor-toolbar .modeseg button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: auto;
+  padding: 4px 11px 6px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--fg3);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  transition: color 0.14s;
+}
+
+.editor-toolbar .modeseg button::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.editor-toolbar .modeseg button:hover:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .modeseg button:active:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .modeseg button.on {
+  background: none;
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.editor-toolbar .modeseg button.on::after {
+  background: var(--accent);
+}
+
+.editor-toolbar .modeseg button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ============ 主区 ============ */
@@ -753,7 +866,8 @@ body {
   min-width: 0;
 }
 
-/* 分区小标题（对齐 SuperMarkdown 的 .sb-section-title） */
+/* 分区小标题 → 微标签（DESIGN.md §3 Micro：9.5px / .18em 字距，
+   花笺式「眉批」层级；中文无大写变换，字距即节奏） */
 .sb-title {
   display: flex;
   align-items: center;
@@ -761,10 +875,10 @@ body {
   gap: 8px;
   flex: none;
   padding: 12px 14px 5px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 9.5px;
+  font-weight: 500;
   color: var(--fg3);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
 }
 
 .sb-action {
@@ -797,12 +911,12 @@ body {
 .ws-filter {
   flex: 1;
   min-width: 0;
-  padding: 5px 10px;
+  padding: 5.5px 12px;
   font: inherit;
   font-size: 12.5px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--field-bg);
+  border-radius: var(--r-pill); /* 胶囊搜索框（DESIGN.md §4 Inputs） */
+  background: var(--surface);
   color: inherit;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -962,17 +1076,17 @@ button.menu-btn:disabled,
   /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
 }
 
-/* T19：大纲面板 —— 标题 + 缩进列表（对齐 SuperMarkdown 的 .ol-title/.ol-item） */
+/* T19：大纲面板 —— 标题微标签 + 缩进列表 */
 .outline-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex: none;
   padding: 12px 14px 5px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 9.5px;
+  font-weight: 500;
   color: var(--fg3);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
 }
 
 .outline-list {
