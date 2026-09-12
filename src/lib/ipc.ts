@@ -45,6 +45,16 @@ export const api = {
     invoke<TreeNodeDTO[]>("filter_workspace", { tree: t, query: q }),
   createFile: (p: string) => invoke<void>("create_file", { path: p }),
   createFolder: (p: string) => invoke<void>("create_folder", { path: p }),
+  // 树右键菜单（2026-09-12）：重命名返回新路径；删除走回收站；移动返回新路径
+  renamePath: (p: string, newName: string) =>
+    invoke<string>("rename_path", { path: p, newName }),
+  deletePath: (p: string) => invoke<void>("delete_path", { path: p }),
+  revealPath: (p: string) => invoke<void>("reveal_path", { path: p }),
+  openTerminal: (p: string) => invoke<void>("open_terminal", { path: p }),
+  movePath: (p: string, destDir: string) =>
+    invoke<string>("move_path", { path: p, destDir }),
+  createFromTemplate: (dir: string, name: string, kind: string) =>
+    invoke<string>("create_from_template", { dir, name, kind }),
 
   // ---- 编辑器 / 预览 ----
   applyOp: (o: EditOp) => invoke<EditResult>("apply_op", { op: o }),

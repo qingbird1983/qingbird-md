@@ -45,5 +45,5 @@ tauri-plugin-notification = "2"
 ureq = "2"
 # winit/wry 已间接引入 windows-sys 0.59；显式声明以在 trim.rs 里调
 # SetProcessWorkingSetSize。features 严格匹配零冗余。
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_Shell"] }
 winit = { version = "0.30", features = ["rwh_06"] }

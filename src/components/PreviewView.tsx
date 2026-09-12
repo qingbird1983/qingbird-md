@@ -14,9 +14,19 @@
 // 随之清空，天然幂等防重复），再异步改写图片。翻译/对照形态（Task 23）：done
 // payload 附带的译文 html 经 docStore.doneHtml 流入——当前阅读模式与批次形态、
 // 内容一致时直接采用（零延迟），否则回退 parseResult.html（原文渲染）兜底。
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { ClipboardCopy, Copy, Plus, SquareCode, TextSelect } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../lib/ipc";
+import ContextMenu, { type CtxEntry } from "./ContextMenu";
+import { insertFormula, insertFromPreview, insertMermaid, insertSnippet } from "../lib/inserts";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
@@ -172,6 +182,100 @@ export default function PreviewView() {
   }, [hasDoc]);
   const contentPx = contentWidthPx(contentWidth, customWidth);
   const showHandles = paneW > contentPx + 16;
+
+  // ── 右键菜单（2026-09-12）────────────────────────────
+  // 预览是只读渲染层：复制/全选作用于渲染结果，插入类动作落到源码光标处
+  // （insertFromPreview 会先切到源码视图等编辑器挂载）。
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
+
+  const onCtxMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!hasDoc) return; // 无文档时不弹（欢迎页自己接管）
+    e.preventDefault();
+    setCtx({ x: e.clientX, y: e.clientY });
+  };
+
+  const selectionInPreview = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !ref.current) return "";
+    const node = sel.anchorNode;
+    return node && ref.current.contains(node) ? sel.toString() : "";
+  };
+
+  const copySelection = () => {
+    const text = selectionInPreview();
+    if (!text) return;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => useUiStore.getState().addToast("success", "已复制选中内容"))
+      .catch(() => useUiStore.getState().addToast("error", "复制失败"));
+  };
+
+  const copyWholeDoc = () => {
+    const text = useDocStore.getState().doc?.content ?? "";
+    navigator.clipboard
+      .writeText(text)
+      .then(() => useUiStore.getState().addToast("success", "已复制全文 Markdown"))
+      .catch(() => useUiStore.getState().addToast("error", "复制失败"));
+  };
+
+  const selectAllRendered = () => {
+    const host = ref.current;
+    if (!host) return;
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+
+  const ctxEntries = (): CtxEntry[] => [
+    {
+      label: "复制",
+      icon: <Copy size={14} />,
+      disabled: !selectionInPreview(),
+      onSelect: copySelection,
+    },
+    { label: "复制全文 Markdown", icon: <ClipboardCopy size={14} />, onSelect: copyWholeDoc },
+    { label: "全选", icon: <TextSelect size={14} />, onSelect: selectAllRendered },
+    { kind: "sep" },
+    {
+      label: "插入",
+      icon: <Plus size={14} />,
+      children: [
+        { label: "段落", onSelect: () => void insertFromPreview(() => insertSnippet("\n\n"), "段落") },
+        { label: "一级标题", onSelect: () => void insertFromPreview(() => insertSnippet("\n# "), "一级标题") },
+        { label: "二级标题", onSelect: () => void insertFromPreview(() => insertSnippet("\n## "), "二级标题") },
+        { label: "三级标题", onSelect: () => void insertFromPreview(() => insertSnippet("\n### "), "三级标题") },
+        { label: "引用", onSelect: () => void insertFromPreview(() => insertSnippet("\n> "), "引用") },
+        {
+          label: "代码块",
+          onSelect: () =>
+            void insertFromPreview(() => insertSnippet("\n```\n\n```\n", "\n```\n".length), "代码块"),
+        },
+        { kind: "sep" },
+        { label: "分割线", onSelect: () => void insertFromPreview(() => insertSnippet("\n---\n"), "分割线") },
+        {
+          label: "表格",
+          onSelect: () =>
+            void insertFromPreview(
+              () => insertSnippet("\n| 列 1 | 列 2 |\n| --- | --- |\n|  |  |\n"),
+              "表格",
+            ),
+        },
+        { label: "公式", onSelect: () => void insertFromPreview(insertFormula, "公式") },
+        { label: "Mermaid 图表", onSelect: () => void insertFromPreview(insertMermaid, "Mermaid 图表") },
+        { kind: "sep" },
+        { label: "图片", onSelect: () => void insertFromPreview(() => insertSnippet("![](https://)"), "图片") },
+        { label: "链接", onSelect: () => void insertFromPreview(() => insertSnippet("[](https://)"), "链接") },
+      ],
+    },
+    { kind: "sep" },
+    {
+      label: "在源码中编辑",
+      icon: <SquareCode size={14} />,
+      onSelect: () => useDocStore.getState().switchView("source"),
+    },
+  ];
 
   // 边缘拖宽：起手锁基准（getState 快照，不吃闭包旧 state）；拖拽中直接写
   // wrap 的 --qb-content-w（绕过 React——大文档回流不进 setState），松手
@@ -421,6 +525,7 @@ export default function PreviewView() {
       className="preview-wrap"
       ref={wrapRef}
       style={{ "--qb-content-w": `${contentPx}px` } as CSSProperties}
+      onContextMenu={onCtxMenu}
     >
       <div className="preview-scroll" ref={scrollerRef}>
         <div className="markdown-body" ref={ref} />
@@ -430,6 +535,9 @@ export default function PreviewView() {
           <div className="content-resizer left" onPointerDown={startEdgeDrag("left")} onPointerMove={trackPill} />
           <div className="content-resizer right" onPointerDown={startEdgeDrag("right")} onPointerMove={trackPill} />
         </>
+      )}
+      {ctx && (
+        <ContextMenu anchor={{ x: ctx.x, y: ctx.y }} entries={ctxEntries()} onClose={() => setCtx(null)} />
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
+import { useWorkspaceStore } from "./stores/useWorkspaceStore";
 import StatusBar from "./components/StatusBar";
 import TitleBar from "./components/TitleBar";
 import AppMenu from "./components/AppMenu";
@@ -154,6 +155,12 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyP") {
         e.preventDefault();
         useUiStore.getState().openPalette();
+        return;
+      }
+      // Mod+Shift+O：打开文件夹作为工作区（欢迎页提示的快捷键，与 Ctrl+O 成对）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyO") {
+        e.preventDefault();
+        void useWorkspaceStore.getState().openWorkspace();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {

@@ -866,6 +866,8 @@ body {
 /* 面板内容固定宽容器：收缩时内容只被 overflow 裁切、不被挤压变形。
    --panel-w 由 App.tsx 写在面板节点上（store 里的栏宽，与显隐无关） */
 .panel-clip {
+  display: flex;
+  flex-direction: column;
   flex: none;
   width: var(--panel-w, 240px);
   height: 100%;
@@ -1065,6 +1067,146 @@ button.menu-btn:disabled,
 
 .ws-empty .modal-btn {
   padding: 5px 14px;
+}
+
+/* ---- 文件树改版（2026-09-12）---- */
+/* 树区自身做滚动容器：panel-clip 是 flex 列，树区吃掉剩余高度。
+   （与大纲同款：flex:1 + min-height:0 需要有 flex 父级才生效） */
+.ws-tree-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ws-tree-area .tree-root {
+  flex: none;
+  overflow: visible;
+}
+
+/* 空态：图标 + 文案 + 主按钮 + 快捷键提示 */
+.ws-empty .ws-empty-btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ws-empty .ws-empty-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
+}
+
+.ws-empty-tip {
+  font-size: 11px;
+  color: var(--fg3);
+  letter-spacing: 0.02em;
+}
+
+/* 树行 hover 操作条：默认隐藏，行 hover / 键盘聚焦时浮现 */
+.tree-acts {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  flex: none;
+}
+
+.tree-row:hover .tree-acts,
+.tree-row:focus-within .tree-acts {
+  display: inline-flex;
+}
+
+.tree-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.tree-act:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.tree-act.danger:hover {
+  color: var(--danger);
+}
+
+/* 行内重命名输入 */
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+/* ---- 右键菜单（树 / 预览共用）---- */
+/* 外层只做锚定与关闭，pointer-events:none 让下层元素仍可点（点外部即关） */
+.ctx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.menu-pop.ctx-pop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  padding: 4px;
+  min-width: 168px;
+}
+
+.menu-pop.ctx-pop .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.menu-pop.ctx-pop .menu-item:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.menu-pop.ctx-pop .menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-pop.ctx-pop .menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-pop.ctx-pop .menu-item-arrow {
+  margin-left: auto;
+  color: var(--fg3);
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ============ 大纲 ============ */
@@ -2137,7 +2279,7 @@ body:has(.app-resizer.dragging) .tabbar {
   --sb-thumb: var(--scrollbar-thumb);
 }
 
-.tree-root::-webkit-scrollbar,
+.ws-tree-area::-webkit-scrollbar,
 .outline-list::-webkit-scrollbar,
 .preview-scroll::-webkit-scrollbar,
 .editor-cm .cm-scroller::-webkit-scrollbar,
@@ -2147,7 +2289,7 @@ body:has(.app-resizer.dragging) .tabbar {
   height: 10px;
 }
 
-.tree-root::-webkit-scrollbar-thumb,
+.ws-tree-area::-webkit-scrollbar-thumb,
 .outline-list::-webkit-scrollbar-thumb,
 .preview-scroll::-webkit-scrollbar-thumb,
 .editor-cm .cm-scroller::-webkit-scrollbar-thumb,
@@ -2159,11 +2301,138 @@ body:has(.app-resizer.dragging) .tabbar {
   background-clip: padding-box;
 }
 
-.tree-root::-webkit-scrollbar-track,
+.ws-tree-area::-webkit-scrollbar-track,
 .outline-list::-webkit-scrollbar-track,
 .preview-scroll::-webkit-scrollbar-track,
 .editor-cm .cm-scroller::-webkit-scrollbar-track,
 .modal-body::-webkit-scrollbar-track,
 .palette-list::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ============ 欢迎页（新开空白 / 无文档）============ */
+/* 层级全部用墨色深浅 + 发丝线，不引入新色；朱砂只出现在品牌印上。 */
+.welcome {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.welcome-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 32px 64px;
+  text-align: center;
+  max-width: 520px;
+}
+
+/* 朱砂「青」印：与应用内印章同源（圆角方 + 内描边 + 宋体字） */
+.welcome-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--zhu);
+  color: #f9f3ea;
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.welcome-title {
+  margin: 4px 0 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: 0.01em;
+}
+
+.welcome-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--fg3);
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.welcome-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
+}
+
+.welcome-btn.primary {
+  border-color: transparent;
+  background: var(--zhu);
+  color: #f9f3ea;
+}
+
+.welcome-btn.primary:hover {
+  background: var(--zhu-deep, var(--zhu));
+  filter: brightness(1.05);
+}
+
+.welcome-tips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg2);
+  color: var(--fg3);
+  font-size: 11.5px;
+}
+
+.welcome-tips kbd {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 2px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg2);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.welcome-dot {
+  opacity: 0.5;
 }

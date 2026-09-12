@@ -270,6 +270,154 @@ fn create_folder(path: String) -> Result<(), String> {
     std::fs::create_dir(&path).map_err(|e| create_err("创建文件夹失败", &path, e))
 }
 
+/// 同目录重命名，返回新的完整路径（前端据此更新标签/树）。
+#[tauri::command]
+fn rename_path(path: String, new_name: String) -> Result<String, String> {
+    let target = workspace::renamed_path(&path, &new_name)?;
+    let src = std::path::Path::new(&path);
+    if !src.exists() {
+        return Err("原路径不存在".into());
+    }
+    if target != path && std::path::Path::new(&target).exists() {
+        return Err("已存在同名文件或文件夹".into());
+    }
+    std::fs::rename(&path, &target).map_err(|e| format!("重命名失败 {path}: {e}"))?;
+    Ok(target)
+}
+
+/// 删除文件/文件夹（Windows 走回收站，可撤销）。
+#[tauri::command]
+fn delete_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("路径不存在".into());
+    }
+    #[cfg(windows)]
+    {
+        delete_to_trash(&path)
+    }
+    #[cfg(not(windows))]
+    {
+        Err("当前平台不支持删除到回收站".into())
+    }
+}
+
+/// Windows：SHFileOperationW + FOF_ALLOWUNDO = 删除到回收站（无二次确认弹窗）。
+#[cfg(windows)]
+fn delete_to_trash(path: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+        SHFileOperationW, SHFILEOPSTRUCTW,
+    };
+
+    // pFrom 是需要双 NUL 结尾的宽字符列表（支持一次多项）。
+    let mut from: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().collect();
+    from.push(0);
+    from.push(0);
+
+    let mut op = SHFILEOPSTRUCTW {
+        hwnd: std::ptr::null_mut(),
+        wFunc: FO_DELETE as u32,
+        pFrom: from.as_ptr(),
+        pTo: std::ptr::null(),
+        fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as u16,
+        fAnyOperationsAborted: 0,
+        hNameMappings: std::ptr::null_mut(),
+        lpszProgressTitle: std::ptr::null(),
+    };
+    let rc = unsafe { SHFileOperationW(&mut op) };
+    if rc != 0 {
+        return Err(format!("删除失败（系统错误 {rc}）"));
+    }
+    if op.fAnyOperationsAborted != 0 {
+        return Err("删除已取消".into());
+    }
+    Ok(())
+}
+
+/// 在资源管理器中定位：文件选中该文件，目录直接打开。
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("路径不存在".into());
+    }
+    let mut cmd = std::process::Command::new("explorer");
+    if p.is_dir() {
+        cmd.arg(&path);
+    } else {
+        // explorer 需要 /select,"路径" 一整枚参数（路径含空格时手动补引号）
+        cmd.arg(format!("/select,\"{path}\""));
+    }
+    cmd.spawn().map_err(|e| format!("打开资源管理器失败：{e}"))?;
+    Ok(())
+}
+
+/// 在该路径所在目录打开系统终端（cmd，新窗口继承该工作目录）。
+#[tauri::command]
+fn open_terminal(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    let dir = if p.is_dir() { p.to_path_buf() } else { p.parent().map(|d| d.to_path_buf()).ok_or_else(|| "无法定位目录".to_string())? };
+    if !dir.exists() {
+        return Err("目录不存在".into());
+    }
+    std::process::Command::new("cmd")
+        .current_dir(&dir)
+        .args(["/c", "start", "", "cmd"])
+        .spawn()
+        .map_err(|e| format!("打开终端失败：{e}"))?;
+    Ok(())
+}
+
+/// 移动文件/目录到目标目录（同名冲突拒绝覆盖），返回新路径。
+#[tauri::command]
+fn move_path(path: String, dest_dir: String) -> Result<String, String> {
+    let src = std::path::Path::new(&path);
+    if !src.exists() {
+        return Err("原路径不存在".into());
+    }
+    let dest = std::path::Path::new(&dest_dir);
+    if !dest.is_dir() {
+        return Err("目标不是文件夹".into());
+    }
+    let target = workspace::moved_path(&path, &dest_dir)?;
+    if std::path::Path::new(&target).exists() {
+        return Err("目标目录已存在同名项".into());
+    }
+    match std::fs::rename(&path, &target) {
+        Ok(()) => Ok(target),
+        Err(e) => {
+            // 跨卷 rename 失败：文件退化为复制 + 删除源
+            if src.is_file() {
+                std::fs::copy(src, &target).map_err(|e2| format!("移动失败：{e2}"))?;
+                std::fs::remove_file(src).map_err(|e2| format!("移动失败：{e2}"))?;
+                Ok(target)
+            } else {
+                Err(format!("移动失败：{e}"))
+            }
+        }
+    }
+}
+
+/// 从模板新建文档（模板正文见 workspace::template_body），返回新文件路径。
+#[tauri::command]
+fn create_from_template(dir: String, name: String, kind: String) -> Result<String, String> {
+    let clean = name.trim();
+    workspace::validate_name(clean)?;
+    let file_name = if clean.to_lowercase().ends_with(".md") { clean.to_string() } else { format!("{clean}.md") };
+    let target = std::path::Path::new(&dir).join(&file_name);
+    let body = workspace::template_body(&kind);
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+        Ok(mut f) => {
+            use std::io::Write;
+            f.write_all(body.as_bytes()).map_err(|e| format!("写入模板失败：{e}"))?;
+            Ok(target.to_string_lossy().into_owned())
+        }
+        Err(e) => Err(create_err("新建文件失败", &target.to_string_lossy(), e)),
+    }
+}
+
 /// Wire-contract error text: "已存在" when the target exists (the frontend
 /// may match on it), contextual message for any other IO failure.
 fn create_err(what: &str, path: &str, e: std::io::Error) -> String {
@@ -472,6 +620,13 @@ pub fn run() {
             filter_workspace,
             create_file,
             create_folder,
+            // 树右键菜单（2026-09-12）：重命名/删除(回收站)/定位/终端/移动/模板
+            rename_path,
+            delete_path,
+            reveal_path,
+            open_terminal,
+            move_path,
+            create_from_template,
             apply_op,
             parse_markdown,
             resolve_image,

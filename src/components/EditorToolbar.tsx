@@ -39,42 +39,8 @@ import {
 import { useDocStore } from "../stores/useDocStore";
 import { useUiStore, CONTENT_WIDTH_LABEL } from "../stores/useUiStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
+import { insertFormula, insertMermaid } from "../lib/inserts";
 import Menu, { MenuItem } from "./menus/Menu";
-
-// ── 插入工具：mermaid 围栏 / $...$ 公式 ──
-function insertMermaid() {
-  const v = useDocStore.getState().cmRef.current;
-  if (!v) return;
-  const from = v.state.selection.main.from;
-  // 模板：\n```mermaid\n\n```\n（光标落在中间空行开头）
-  const template = "\n```mermaid\n\n```\n";
-  v.dispatch({
-    changes: { from, insert: template },
-    selection: { anchor: from + "\n```mermaid\n".length },
-  });
-  v.focus();
-}
-
-function insertFormula() {
-  const v = useDocStore.getState().cmRef.current;
-  if (!v) return;
-  const { from, to } = v.state.selection.main;
-  const sel = v.state.sliceDoc(from, to);
-  if (sel) {
-    // wrap 选区为 $...$；新光标落在 $ 之后（即 sel 末尾 + 1）
-    v.dispatch({
-      changes: { from, to, insert: `$${sel}$` },
-      selection: { anchor: from + sel.length + 1 },
-    });
-  } else {
-    // 无选区：插入 $$ 光标留中间（$$$ 会留下一个字面 $，渲染为 $x$ + $）
-    v.dispatch({
-      changes: { from, insert: "$$" },
-      selection: { anchor: from + 1 },
-    });
-  }
-  v.focus();
-}
 
 // ── 分隔线 ──
 function Sep() {

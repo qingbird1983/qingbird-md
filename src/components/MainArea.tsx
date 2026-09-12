@@ -14,6 +14,7 @@ import { useUiStore } from "../stores/useUiStore";
 import { startColDrag } from "../lib/colDrag";
 import EditorView from "./EditorView";
 import PreviewView from "./PreviewView";
+import WelcomeView from "./WelcomeView";
 import TranslationBar from "./TranslationBar";
 
 // 分栏比例钳制（brief 未给数值，取常规经验值：两侧各留至少 20%）
@@ -62,14 +63,22 @@ function SplitBody() {
 export default function MainArea() {
   const view = useDocStore((s) => s.view);
   const activeId = useDocStore((s) => s.activeId);
+  // 没有任何打开的文档（含「新建文档」前的空白态）→ 欢迎页；有文档才进编辑器/预览
+  const hasDoc = useDocStore((s) => s.doc !== null);
   return (
     <>
       {/* T23：整篇翻译进度条（仅翻译进行中占位） */}
       <TranslationBar />
       <div className="main-body">
-        {view === "source" && <EditorView key={activeId ?? "empty"} />}
-        {view === "preview" && <PreviewView />}
-        {view === "split" && <SplitBody />}
+        {!hasDoc ? (
+          <WelcomeView />
+        ) : (
+          <>
+            {view === "source" && <EditorView key={activeId ?? "empty"} />}
+            {view === "preview" && <PreviewView />}
+            {view === "split" && <SplitBody />}
+          </>
+        )}
       </div>
     </>
   );

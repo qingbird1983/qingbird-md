@@ -78,6 +78,8 @@ interface DocState {
   applyEdit(content: string, cursorSel: [number, number]): void;
   /** 滚动事件落库到指定 tab；切回本标签时恢复。 */
   setScrollTop(id: string, n: number): void;
+  /** 磁盘重命名/移动后同步标签路径与显示名（内容/撤销栈不动）。 */
+  retargetPath(oldPath: string, newPath: string): void;
   applyFormat(op: string): Promise<void>;
   saveDoc(as: boolean): Promise<boolean>;     // 返回值变了：true=写盘成功，false=用户取消
   /** 从磁盘重读指定标签（T6「重新加载」）：内容/解析/翻译态全量重置。 */
@@ -350,6 +352,11 @@ export const useDocStore = create<DocState>()((set, get) => {
       } catch (e) {
         useUiStore.getState().addToast("error", `打开文件失败：${errText(e)}`);
       }
+      // 树记忆兜底（放在快照恢复之后）：没有休眠快照（正常退出启动）时，
+      // 按上次打开的目录恢复工作区；已有 root 则幂等跳过。
+      // 动态 import：useWorkspaceStore 反向依赖本 store，静态导入会成环。
+      const { useWorkspaceStore: ws } = await import("./useWorkspaceStore");
+      await ws.getState().restoreLastWorkspace();
     },
 
     restoreSession: async () => {
@@ -425,6 +432,17 @@ export const useDocStore = create<DocState>()((set, get) => {
 
     setScrollTop: (id, n) => {
       patchTab(id, (t) => (t.scrollTop === n ? t : { ...t, scrollTop: n }));
+    },
+
+    // 磁盘重命名/移动后同步标签（路径 + 显示名）；内容与撤销栈保持不动，
+    // 否则保存会把内容写回已失效的旧路径。
+    retargetPath: (oldPath, newPath) => {
+      set((s) => {
+        if (!s.tabs.some((t) => t.path === oldPath)) return {};
+        const name = pathParts(newPath).name;
+        const tabs = s.tabs.map((t) => (t.path === oldPath ? { ...t, path: newPath, name } : t));
+        return commit(tabs, s.activeId);
+      });
     },
 
     applyFormat: async (op) => {
