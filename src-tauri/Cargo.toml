@@ -1,6 +1,6 @@
 [package]
 name = "qingbird-md"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 description = "Markdown editor & reader with bilingual EN↔ZH translation (Tauri 2 + Rust core + React/TypeScript UI)"
 license = "MIT"
