@@ -4,7 +4,9 @@
 // （html 元素带同名 id h-N，译文两形态均保留）；preview 尚未挂载时 optional
 // chaining 静默跳过。
 import { useEffect, useMemo, useState } from "react";
+import { ChevronsDownUp, ChevronsUpDown, PanelLeft, PanelRight } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
+import { useUiStore } from "../stores/useUiStore";
 import type { OutlineItem } from "../types/ipc";
 
 // 译文 html 的大纲提取：只读解析受信 HTML（XSS 边界见 PreviewView 头注释），
@@ -77,8 +79,58 @@ export default function OutlinePanel() {
     return { visible, withChildren };
   }, [outline, collapsed]);
 
-  // 分区标题常驻（对齐 SuperMarkdown 的 .ol-title），空态也保持面板形态
-  const title = <div className="outline-title">大纲</div>;
+  const outlineSide = useUiStore((s) => s.outlineSide);
+  const setOutlineSide = useUiStore((s) => s.setOutlineSide);
+  // 全部折叠/全部展开：一键在「只留顶层」与「全展」之间切。
+  // 判据 = 所有可折叠项是否都已折叠（全折 → 按钮转为展开）。
+  const foldable = items?.withChildren;
+  const allFolded = !!foldable && foldable.size > 0 && [...foldable].every((id) => collapsed.has(id));
+  const toggleAll = () =>
+    setCollapsed(allFolded ? new Set() : new Set(foldable ?? []));
+
+  // 分区标题常驻（对齐 SuperMarkdown 的 .ol-title），空态也保持面板形态。
+  // 右侧工具：一键收展全部 + 停靠靠左/靠右（左 = 吸附在工作区左缘）。
+  const title = (
+    <div className="outline-title">
+      <span className="outline-title-text">大纲</span>
+      <div className="outline-tools">
+        <button
+          type="button"
+          className="outline-tool"
+          disabled={!foldable || foldable.size === 0}
+          title={allFolded ? "展开全部" : "折叠全部"}
+          aria-label={allFolded ? "展开全部" : "折叠全部"}
+          onClick={toggleAll}
+        >
+          {allFolded ? (
+            <ChevronsUpDown size={13} strokeWidth={1.9} />
+          ) : (
+            <ChevronsDownUp size={13} strokeWidth={1.9} />
+          )}
+        </button>
+        <button
+          type="button"
+          className={`outline-tool${outlineSide === "left" ? " active" : ""}`}
+          title="停靠到左侧（吸附工作区）"
+          aria-label="停靠到左侧"
+          aria-pressed={outlineSide === "left"}
+          onClick={() => setOutlineSide("left")}
+        >
+          <PanelLeft size={13} strokeWidth={1.9} />
+        </button>
+        <button
+          type="button"
+          className={`outline-tool${outlineSide === "right" ? " active" : ""}`}
+          title="停靠到右侧（窗口右缘）"
+          aria-label="停靠到右侧"
+          aria-pressed={outlineSide === "right"}
+          onClick={() => setOutlineSide("right")}
+        >
+          <PanelRight size={13} strokeWidth={1.9} />
+        </button>
+      </div>
+    </div>
+  );
   if (content === null || !items || items.visible.length === 0) {
     return (
       <>

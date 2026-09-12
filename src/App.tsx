@@ -65,28 +65,37 @@ function listenHibernateOnce() {
 }
 
 // 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
-// 左栏向右拖增宽，右大纲向左拖增宽，方向用 side 翻转；宽度存 uiStore，跨视图切换保持。
-function PanelResizer({ side, hidden }: { side: "left" | "right"; hidden: boolean }) {
+// place 决定「条贴在哪块面板的哪条边」，同时决定拖拽方向的符号：
+// - sidebar：贴文件栏右缘，右拖增宽（+dx）
+// - outline-right：贴大纲栏（右停靠）左缘，左拖增宽（-dx）
+// - outline-left：贴大纲栏（左停靠）右缘，右拖增宽（+dx）
+// 宽度存 uiStore，跨视图切换保持。
+type ResizerPlace = "sidebar" | "outline-right" | "outline-left";
+
+function PanelResizer({ place, hidden }: { place: ResizerPlace; hidden: boolean }) {
+  const cls =
+    place === "sidebar" ? "res-left" : place === "outline-left" ? "res-olutl" : "res-right";
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     const st = useUiStore.getState();
-    const startW = side === "left" ? st.sidebarWidth : st.outlineWidth;
+    const toSidebar = place === "sidebar";
+    const startW = toSidebar ? st.sidebarWidth : st.outlineWidth;
     // 左侧下限动态（标签条归位临界，TitleBar 实测写入 store，兜底 PANEL_MIN）；
-    // 右侧大纲面板无对齐诉求，保持静态下限。
-    const min = side === "left" ? Math.max(PANEL_MIN, st.minSidebarWidth) : PANEL_MIN;
+    // 大纲面板无对齐诉求，保持静态下限。
+    const min = toSidebar ? Math.max(PANEL_MIN, st.minSidebarWidth) : PANEL_MIN;
     startColDrag(e, (dx) => {
-      const w = side === "left" ? startW + dx : startW - dx;
+      const w = place === "outline-right" ? startW - dx : startW + dx;
       const clamped = Math.min(PANEL_MAX, Math.max(min, w));
-      if (side === "left") useUiStore.getState().setSidebarWidth(clamped);
+      if (toSidebar) useUiStore.getState().setSidebarWidth(clamped);
       else useUiStore.getState().setOutlineWidth(clamped);
     });
   };
   return (
     <div
-      className={`resizer app-resizer ${side === "left" ? "res-left" : "res-right"}`}
+      className={`resizer app-resizer ${cls}`}
       style={hidden ? { width: 0, opacity: 0 } : undefined}
       role="separator"
       aria-orientation="vertical"
-      aria-label={side === "left" ? "调整文件栏宽度" : "调整大纲栏宽度"}
+      aria-label={place === "sidebar" ? "调整文件栏宽度" : "调整大纲栏宽度"}
       aria-hidden={hidden || undefined}
       onPointerDown={hidden ? undefined : startDrag}
     />
@@ -214,23 +223,32 @@ function App() {
 
   const showNav = useUiStore((s) => s.showNav);
   const showOutline = useUiStore((s) => s.showOutline);
+  const outlineSide = useUiStore((s) => s.outlineSide);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const outlineWidth = useUiStore((s) => s.outlineWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
 
+  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 大纲栏·左停靠 /
+  // col4 该停靠的拖宽条 / col5 主区(1fr) / col6 大纲栏·右停靠的拖宽条 /
+  // col7 大纲栏·右停靠。未使用的空列（auto 且无在流项）恒为 0 宽。
   // 工作区隐藏时主内容区左缘直接顶到 col1；这样 TabBar/EditorToolbar/MainArea
-  // 一起左移，不会出现「左侧 2 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
-  // 与 --main-span：--main-span=1 时 main-area 占 col 3 一列（1fr）；
-  // --main-span=3 时 main-area 占 col 1-3（吸收掉隐藏的侧栏与左 resizer 两列）。
+  // 一起左移，不会出现「左侧 4 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
+  // 与 --main-span：--main-span=1 时 main-area 占 col5 一列（1fr）；
+  // --main-span=5 时 main-area 占 col1-5（吸收掉隐藏的侧栏、拖宽条与空列）。
   // 面板改为常挂载 + 宽度过渡后，跨列切换必须等收起动画播完（navGone），
-  // 否则主区提前占 col 1-3 会盖住正在收缩的侧栏——动画就看不见了。
+  // 否则主区提前跨列会盖住正在收缩的侧栏——动画就看不见了。
+  // 大纲栏左停靠时 col3 有实体面板，不能再跨列吸收（会被主区盖住），
+  // 此时主区固定占 col5，靠空列自然收窄。
   const navGone = useSettled(!showNav, PANEL_ANIM_MS);
-  const mainColStart = navGone ? 1 : 3;
-  const mainSpan = navGone ? 3 : 1;
+  const outlineDockedLeft = showOutline && outlineSide === "left";
+  const absorb = navGone && !outlineDockedLeft;
   const mainStyle = {
-    ["--col-main" as string]: String(mainColStart),
-    ["--main-span" as string]: String(mainSpan),
+    ["--col-main" as string]: String(absorb ? 1 : 5),
+    ["--main-span" as string]: String(absorb ? 5 : 1),
+    // 工具条左缘：与「工作区带」左端对齐（侧栏拖宽条之后，含左停靠大纲栏），
+    // 右端 -1 覆盖到窗口右缘（第 2 行只有侧栏与工具条，无面板占位冲突）。
+    ["--col-ws" as string]: String(absorb ? 1 : 3),
   } as CSSProperties;
 
   return (
@@ -258,15 +276,24 @@ function App() {
         </div>
       </nav>
       {/* 面板与主区的分隔/拖宽条（1px 发丝线 + 7px 热区，悬停提示可拖拽） */}
-      <PanelResizer side="left" hidden={!showNav} />
+      <PanelResizer place="sidebar" hidden={!showNav} />
       {/* T22 MainArea：source/preview/split 路由（格式工具栏已上移至 tab 条下）；T23 TranslationBar 宿主 */}
       <main className="main-area">
         <MainArea />
       </main>
-      {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡） */}
-      <PanelResizer side="right" hidden={!showOutline} />
+      {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡）。
+          ui.outlineSide 切换停靠侧：左停靠吸附在工作区左缘（侧栏与主区之间），
+          拖宽条随之换到 col4，主区仍在 col5。 */}
+      <PanelResizer
+        place="outline-left"
+        hidden={!outlineDockedLeft}
+      />
+      <PanelResizer
+        place="outline-right"
+        hidden={!showOutline || outlineSide !== "right"}
+      />
       <aside
-        className="outline-panel"
+        className={`outline-panel${outlineDockedLeft ? " dock-left" : ""}`}
         style={{
           width: showOutline ? outlineWidth : 0,
           opacity: showOutline ? 1 : 0,

@@ -20,12 +20,15 @@ body {
 
 /* AppShell 网格骨架：行 = TitleBar(auto，内嵌标签条) / EditorToolbar auto /
    中部 1fr / StatusBar auto，
-   列 = sidebar auto / 拖宽条 auto / main 1fr / 拖宽条 auto / outline auto */
+   列 = 文件栏 auto / 其拖宽条 auto / 大纲栏(左停靠) auto / 其拖宽条 auto /
+        主区 1fr / 大纲栏(右停靠)拖宽条 auto / 大纲栏(右停靠) auto
+   未使用的空列（auto 且无在流项）恒为 0 宽：左停靠时 col6/col7 归零，
+   右停靠时 col3/col4 归零。 */
 #app-shell {
   display: grid;
   height: 100%;
   grid-template-rows: auto auto 1fr auto;
-  grid-template-columns: auto auto 1fr auto auto;
+  grid-template-columns: auto auto auto auto 1fr auto auto;
 }
 
 /* ── 自定义标题栏（替代 Tauri 原生标题栏）── */
@@ -611,7 +614,9 @@ body {
    var(--col-main) 起（默认 3 = 工作区右侧）；showNav=false 时同样左移。 */
 .editor-toolbar {
   grid-row: 2;
-  grid-column: var(--col-main, 3) / -1;
+  /* 左缘跟「工作区带」左端（侧栏拖宽条之后，含左停靠大纲栏的列），
+     右端 -1 = 窗口右缘（第 2 行只有侧栏与工具条，不与面板列冲突） */
+  grid-column: var(--col-ws, 3) / -1;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -806,8 +811,9 @@ body {
 /* ============ 主区 ============ */
 .main-area {
   grid-row: 3;
-  grid-column-start: var(--col-main, 3);
-  /* --main-span: 侧栏显示时=1（占 col 3 一列），侧栏隐藏时=3（占 col 1-3 吸掉空列） */
+  grid-column-start: var(--col-main, 5);
+  /* --main-span: 侧栏显示时=1（占 col5 一列，1fr），侧栏隐藏时=5（占 col1-5
+     吸掉空列）；大纲栏左停靠时恒为 1（col3 有实体面板，不能跨列盖住） */
   grid-column-end: span var(--main-span, 1);
   display: flex;
   flex-direction: column;
@@ -1064,7 +1070,8 @@ button.menu-btn:disabled,
 /* ============ 大纲 ============ */
 .outline-panel {
   grid-row: 3;
-  grid-column: 5;
+  /* 右停靠 = col7（窗口右缘）；左停靠 = col3（吸附在工作区左缘，见 .dock-left） */
+  grid-column: 7;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1074,6 +1081,11 @@ button.menu-btn:disabled,
     width var(--panel-anim, 300ms) ease,
     opacity var(--panel-anim, 300ms) ease;
   /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
+}
+
+/* 左停靠：吸附在工作区左缘（侧栏拖宽条之后），拖宽条换到 col4 */
+.outline-panel.dock-left {
+  grid-column: 3;
 }
 
 /* T19：大纲面板 —— 标题微标签 + 缩进列表 */
@@ -1089,12 +1101,54 @@ button.menu-btn:disabled,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   flex: none;
-  padding: 12px 14px 5px;
+  padding: 12px 10px 6px 14px;
+  /* 标题下的细分割线（DESIGN.md：贴面零阴影，层级一律用发丝线） */
+  border-bottom: 1px solid var(--border);
   font-size: 9.5px;
   font-weight: 500;
   color: var(--fg3);
   letter-spacing: 0.18em;
+}
+
+.outline-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  /* 微标签带字距，按钮内图标不需要——归零防图标被推开 */
+  letter-spacing: 0;
+}
+
+.outline-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.outline-tool:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+/* 当前停靠侧高亮（青花只给翻译语义，这里用主文本色 + 底色区分） */
+.outline-tool.active {
+  color: var(--fg);
+  background: var(--bg3);
+}
+
+.outline-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .outline-list {
@@ -1315,12 +1369,18 @@ body:has(.app-resizer.dragging) .tabbar {
 }
 
 .app-resizer.res-right {
+  grid-column: 6;
+  grid-row: 3;
+}
+
+/* 大纲栏左停靠时的拖宽条（col4，贴面板右缘 = 工作区左缘） */
+.app-resizer.res-olutl {
   grid-column: 4;
   grid-row: 3;
 }
 
 /* 左条线贴右缘（col 2 / col 3 边）——正好是工具栏底部分割线与主区左缘的
-   交汇位，让工具栏分割线「顶到」工作区分割线；右条线贴左缘（col 3 / col 4 边）。 */
+   交汇位，让工具栏分割线「顶到」工作区分割线；右条线贴左缘（col 5 / col 6 边）。 */
 .app-resizer.res-left::before {
   left: auto;
   right: 0;
@@ -1328,6 +1388,12 @@ body:has(.app-resizer.dragging) .tabbar {
 
 .app-resizer.res-right::before {
   left: 0;
+}
+
+/* 左停靠大纲栏的条：面板在条左侧，线贴条右缘（朝向主区） */
+.app-resizer.res-olutl::before {
+  left: auto;
+  right: 0;
 }
 
 /* ============ 编辑器 ============ */

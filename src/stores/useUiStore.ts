@@ -19,6 +19,9 @@ export interface Toast {
 /** 正文宽度四档（markdown.css .w-*；标准档不挂类，恒 A4 794px） */
 export type ContentWidth = "compact" | "normal" | "wide" | "full";
 
+/** 大纲栏停靠侧：right = 窗口右缘（默认）；left = 吸附在工作区左缘（侧栏与主区之间） */
+export type OutlineSide = "left" | "right";
+
 export const CONTENT_WIDTHS: ContentWidth[] = ["compact", "normal", "wide", "full"];
 
 export const CONTENT_WIDTH_LABEL: Record<ContentWidth, string> = {
@@ -31,6 +34,7 @@ export const CONTENT_WIDTH_LABEL: Record<ContentWidth, string> = {
 interface UiState {
   showNav: boolean;
   showOutline: boolean;
+  outlineSide: OutlineSide;
   sidebarWidth: number;
   outlineWidth: number;
   // 工作区最小宽度：由 TitleBar 按标签条归位临界实测写入（baseX+3，见
@@ -57,6 +61,7 @@ interface UiState {
   closeSettings(): void;
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
+  setOutlineSide(s: OutlineSide): void;
   setSplitRatio(r: number): void;
   setMinSidebarWidth(px: number): void;
 }
@@ -68,6 +73,12 @@ let toastSeq = 0;
 const WIDTH_KEY = "qb.content-width";
 const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
+// 大纲栏停靠侧：纯 UI 偏好，走 localStorage（不进 Rust 会话快照，避免动契约）
+const OUTLINE_SIDE_KEY = "qb.outline-side";
+
+function loadOutlineSide(): OutlineSide {
+  return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
+}
 
 function loadContentWidth(): ContentWidth {
   const saved = localStorage.getItem(WIDTH_KEY) as ContentWidth | null;
@@ -87,6 +98,7 @@ function loadCustomWidth(): number | null {
 export const useUiStore = create<UiState>()((set) => ({
   showNav: true,
   showOutline: true,
+  outlineSide: loadOutlineSide(),
   sidebarWidth: 240,
   outlineWidth: 200,
   minSidebarWidth: 160,
@@ -128,6 +140,10 @@ export const useUiStore = create<UiState>()((set) => ({
 
   setSidebarWidth: (w) => set({ sidebarWidth: w }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),
+  setOutlineSide: (s) => {
+    localStorage.setItem(OUTLINE_SIDE_KEY, s);
+    return set({ outlineSide: s });
+  },
   setSplitRatio: (r) => set({ splitRatio: r }),
   setMinSidebarWidth: (px) => set({ minSidebarWidth: px }),
 
