@@ -37,10 +37,13 @@ interface UiState {
   outlineSide: OutlineSide;
   sidebarWidth: number;
   outlineWidth: number;
-  // 工作区最小宽度：由 TitleBar 按标签条归位临界实测写入（baseX+3，见
-  // TitleBar.tsx），拖拽钳制用它——拉到最小时分隔线正好是标签条贴最左的位置。
-  // 初值 160 为兜底（测量完成前的一帧）。
+  // 侧栏最小宽度：由 TitleBar 实测写入（baseX - RESIZER_W，见 TitleBar.tsx）——
+  // 拉到最小时侧栏那条分割线正好与标题栏的竖线共线。初值 160 兜底（测量完成前一帧）。
   minSidebarWidth: number;
+  // 首启默认宽度是否还待回填（见 applyDefaultSidebarWidth）。任何宽度来源
+  // ——用户拖拽、休眠快照恢复——都会把它置 false：「有记忆」永远压过默认值。
+  // 放 state 里而非模块级变量，是为了测试能复位它。
+  bootWidthPending: boolean;
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
   contentWidth: ContentWidth; // 正文宽度档（markdown.css .markdown-body.w-*）
   customWidth: number | null; // 拖宽产物（null = 跟随四档档位）
@@ -64,6 +67,8 @@ interface UiState {
   setOutlineSide(s: OutlineSide): void;
   setSplitRatio(r: number): void;
   setMinSidebarWidth(px: number): void;
+  /** 首次启动回填侧栏宽度（只在「无宽度记忆」时生效一次，见实现）。 */
+  applyDefaultSidebarWidth(px: number): void;
 }
 
 let toastSeq = 0;
@@ -97,11 +102,15 @@ function loadCustomWidth(): number | null {
 
 export const useUiStore = create<UiState>()((set) => ({
   showNav: true,
-  showOutline: true,
+  // 大纲默认收起：全新安装的首屏是空白欢迎页（没有文档，大纲本来就是空的），
+  // 开着只是白占一列。用户的开/关状态跨启动由 Rust 休眠快照带（show_outline），
+  // 所以这里只决定「第一次启动」长什么样，老用户照旧恢复自己的选择。
+  showOutline: false,
   outlineSide: loadOutlineSide(),
   sidebarWidth: 240,
   outlineWidth: 200,
   minSidebarWidth: 160,
+  bootWidthPending: true,
   splitRatio: 0.5,
   contentWidth: loadContentWidth(),
   customWidth: loadCustomWidth(),
@@ -138,8 +147,18 @@ export const useUiStore = create<UiState>()((set) => ({
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
 
-  setSidebarWidth: (w) => set({ sidebarWidth: w }),
+  setSidebarWidth: (w) => set({ sidebarWidth: w, bootWidthPending: false }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),
+  /* 首启回填：全新安装（无休眠快照、用户也没拖过）把侧栏直接落在默认最小宽度上
+     ——首屏就是「侧栏最窄 + 上下两条分割线共线」的形态。由 TitleBar 首次实测出
+     baseX 后调用；只生效一次，之后任何实测变化都不再覆盖（避免字体加载等引发的
+     二次测量把用户后来拖的宽度改回去）。px<=0 = 尚未测出，忽略。 */
+  applyDefaultSidebarWidth: (px) =>
+    set((s) =>
+      s.bootWidthPending && px > 0
+        ? { sidebarWidth: px, bootWidthPending: false }
+        : {},
+    ),
   setOutlineSide: (s) => {
     localStorage.setItem(OUTLINE_SIDE_KEY, s);
     return set({ outlineSide: s });

@@ -59,10 +59,14 @@ export default function TitleBar() {
   // 代价：sidebarWidth ∈ [baseX - 7, baseX + 4] 这 11px 区间内 tabMargin 恒为 0，
   // 标签条停在「分割线右侧」的静止位、不再跟着线左移。这是共线必须付的代价，且
   // 静止位下标签条左缘距线 8px，与标题栏那一行（divider margin-right 8px）同规格。
+  // 全新安装的首屏宽度：侧栏直接落在上面这个最小宽度上（首启即「最窄 + 共线」形态）。
+  // 「只做一次」由 store 侧保证——applyDefaultSidebarWidth 自带 bootWidthPending
+  // 门，用户拖拽 / 休眠快照回填都会关门；这里重复调用（字体加载引发的重测）是空操作。
   useEffect(() => {
-    if (baseX > 0) {
-      useUiStore.getState().setMinSidebarWidth(baseX - RESIZER_W);
-    }
+    if (baseX <= 0) return;
+    const min = baseX - RESIZER_W;
+    useUiStore.getState().setMinSidebarWidth(min);
+    useUiStore.getState().applyDefaultSidebarWidth(min);
   }, [baseX]);
   // 明暗主题按钮（自 EditorToolbar 搬入）：解析后的明暗态仅决定图标/提示，
   // 切换走 setTheme；sysMatches 订阅让 auto 档随系统变化时图标实时刷新。

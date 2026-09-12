@@ -884,9 +884,14 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  /* gap/右内边距比 2026-09-12 首版略收：首启默认宽度 = 侧栏最小宽度（≈197px，
+     即上下分割线共线处），这一排预算很紧。实测「Markdown」13px/600 = 65px，
+     四个 26px 图标 + 8px 间距的旧版会把品牌列挤到溢出（文字吃掉间隙贴到图标）。
+     收紧后 197px 下品牌列可用 ≈70px，留 ~4px 余量。左内边距 14px 不动——
+     与下方分区标题左对齐。 */
+  gap: 6px;
   flex: none;
-  padding: 12px 10px 9px 14px;
+  padding: 12px 8px 9px 14px;
 }
 
 .ws-brand {
@@ -896,11 +901,16 @@ body {
   min-width: 0;
 }
 
+/* nowrap + 省略号：品牌名是单个词，正常换行模式下不会被折断、只会溢出压到图标上。
+   窄栏时宁可截断也不许压图标（够宽时完全不触发）。 */
 .ws-brand-name {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 版本号：朱砂小圆点 + vX.Y.Z（与分区微标签同一层级） */
@@ -925,7 +935,9 @@ body {
 .ws-head-acts {
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* 2 → 1px：同上，窄栏预算压出来的一点缝；静止态无边框、看不出来，
+     hover 底色间只隔 1px，读作一组的紧凑工具条。 */
+  gap: 1px;
   flex: none;
 }
 
@@ -933,8 +945,10 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  /* 26 → 24（2026-09-12）：为「首启默认 = 最小宽度 ≈197px」腾出 4×2px。
+     24px 命中区仍在舒适范围，只用于头部四枚按钮（分区标题的钮走各自样式）。 */
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: var(--r-sm);
