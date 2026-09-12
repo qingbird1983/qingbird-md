@@ -20,10 +20,10 @@ export default function TitleBar() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   // ── 标签条起点跟随工作区分割线 ──
   // 下方工作区右缘分割线的窗口 x = sidebarWidth + 7（col1 面板 + col2 resizer 热区，
-  // 7px 与 global.css .app-resizer 宽度一致）。标签条左缘 = max(分割线x, 标题栏
-  // 分割线x)：工作区拉宽标签条跟着右移（与主区左缘对齐），拉窄/隐藏到小于
-  // 标题栏左侧（汉堡按钮后的分割线）时归位到分割线。位移差用 margin-left 实现，
-  // 过渡时长与面板收展动画一致（--panel-anim），视觉同步滑动。
+  // 7px 与 global.css .app-resizer 宽度一致，见下方 RESIZER_W）。标签条左缘 =
+  // max(分割线x, 标题栏分割线x)：工作区拉宽标签条跟着右移（与主区左缘对齐），
+  // 拉窄到最小宽度（见下）或隐藏时归位到分割线右侧的静止位。位移差用 margin-left
+  // 实现，过渡时长与面板收展动画一致（--panel-anim），视觉同步滑动。
   const leftRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLSpanElement>(null);
   const [baseX, setBaseX] = useState(0);
@@ -42,17 +42,26 @@ export default function TitleBar() {
   // padding-left 2px（第一个标签再右移）——合计 10px；再加 1px 视觉微调
   // （offsetLeft 整数舍入 + 分割线右缘 vs 线体中心的感知差），共 11px。
   const TAB_ALIGN_COMPENSATION = 11;
+  // 左侧拖宽条热区宽度，须与 global.css `.app-resizer { width }` 一致：
+  // 工作区分割线由 `.app-resizer.res-left::before`（left:auto / right:0 / 1px）
+  // 贴其右缘绘制，故线体 = [sidebarWidth + RESIZER_W - 1, sidebarWidth + RESIZER_W)。
+  const RESIZER_W = 7;
   const tabMargin = showNav
-    ? Math.max(0, sidebarWidth + 7 - baseX - TAB_ALIGN_COMPENSATION)
+    ? Math.max(0, sidebarWidth + RESIZER_W - baseX - TAB_ALIGN_COMPENSATION)
     : 0;
 
-  // 工作区最小宽度 = 标签条贴最左（margin=0）时的临界分割线位置：
-  // 分割线 x = sidebarWidth + 7，临界 x = baseX + 10（补偿后），
-  // 反解 min = baseX + 10 - 7 = baseX + 3。拖拽钳制（PanelResizer）读它，
-  // 工作区拉到最小时分隔线正好落在标签条归位线上，没有「小于归位线」的死区。
+  // ── 工作区最小宽度：让上下两条竖线共线 ──
+  // 标题栏分割线线体 = [baseX - 1, baseX)，工作区分割线线体 =
+  // [sidebarWidth + RESIZER_W - 1, sidebarWidth + RESIZER_W)。令右缘相等即
+  // sidebarWidth = baseX - RESIZER_W，此时两条 1px 竖线在窗口纵向上连成一条直线
+  // （2026-09-12 修正：原式 `baseX + 11 - 7` 会让最窄时下方分割线比上方那条右移
+  // 11px，看起来错位）。
+  // 代价：sidebarWidth ∈ [baseX - 7, baseX + 4] 这 11px 区间内 tabMargin 恒为 0，
+  // 标签条停在「分割线右侧」的静止位、不再跟着线左移。这是共线必须付的代价，且
+  // 静止位下标签条左缘距线 8px，与标题栏那一行（divider margin-right 8px）同规格。
   useEffect(() => {
     if (baseX > 0) {
-      useUiStore.getState().setMinSidebarWidth(baseX + TAB_ALIGN_COMPENSATION - 7);
+      useUiStore.getState().setMinSidebarWidth(baseX - RESIZER_W);
     }
   }, [baseX]);
   // 明暗主题按钮（自 EditorToolbar 搬入）：解析后的明暗态仅决定图标/提示，

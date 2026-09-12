@@ -77,7 +77,9 @@ body {
   font-size: 14.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  padding: 0 8px 0 2px;
+  /* 左侧 8px：印章钮自身右外边距 2px，合计 10px 呼吸位。原为 2px（合计 4px），
+     衬线字紧贴朱砂印显得局促，故向后让开（2026-09-12 调整）。 */
+  padding: 0 8px;
   white-space: nowrap;
   color: var(--fg);
   pointer-events: none;

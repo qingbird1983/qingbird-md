@@ -183,9 +183,11 @@ function writeSel(p: string | null) {
 
 function readFilterOpen(): boolean {
   try {
-    return localStorage.getItem(FILTER_KEY) !== "0"; // 默认展开
+    // 默认收起（未写过偏好 = 没展开过）：需要时点筛选图标展开（2026-09-12 调整，
+    // 原为默认展开，侧栏一进来就被搜索框占去一行）。
+    return localStorage.getItem(FILTER_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -446,6 +448,12 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
     setFilterOpen: (v) => {
       set({ filterOpen: v });
       writeFilterOpen(v);
+      // 收起时顺手清掉关键字：否则树还停在过滤结果上，而搜索框已不可见，
+      // 用户会以为「文件凭空少了」。清空后 applySearch 走同步分支还原原始树。
+      if (!v && get().search) {
+        set({ search: "" });
+        void applySearch();
+      }
     },
 
     searchFilter: async (q) => {
