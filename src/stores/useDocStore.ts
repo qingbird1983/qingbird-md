@@ -15,6 +15,7 @@ import type { DocDTO, Mode, ParseResult, SessionSnapshot, SessionTab, ViewKind }
 import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 import { useTranslationStore } from "./useTranslationStore";
+import { useRecentStore } from "./useRecentStore";
 
 interface OpenTab {
   id: string;                // crypto.randomUUID() 或 fallback，React key
@@ -271,6 +272,9 @@ export const useDocStore = create<DocState>()((set, get) => {
           htmlCache: { contentKey: d.content, result: d.parse },
         };
         set((s) => commit([...s.tabs, tab], tab.id));
+        // 最近打开文档登记：这里是所有「按路径打开」的唯一漏斗，记在这儿才不漏
+        // （树点击 / Ctrl+O / 命令面板 / 文件关联 / 休眠交接 / 欢迎页 / 菜单）。
+        useRecentStore.getState().push(path, d.name);
       } catch (e) {
         useUiStore.getState().addToast("error", `打开失败：${errText(e)}`);
       }
@@ -352,11 +356,11 @@ export const useDocStore = create<DocState>()((set, get) => {
       } catch (e) {
         useUiStore.getState().addToast("error", `打开文件失败：${errText(e)}`);
       }
-      // 树记忆兜底（放在快照恢复之后）：没有休眠快照（正常退出启动）时，
-      // 按上次打开的目录恢复工作区；已有 root 则幂等跳过。
+      // 工作区记忆兜底（放在快照恢复之后）：按 localStorage 记的文件夹列表恢复
+      // 侧栏（含各文件夹展开态与选中项）。合并式恢复，已有 root 也不会漏条目。
       // 动态 import：useWorkspaceStore 反向依赖本 store，静态导入会成环。
       const { useWorkspaceStore: ws } = await import("./useWorkspaceStore");
-      await ws.getState().restoreLastWorkspace();
+      await ws.getState().restoreFolders();
     },
 
     restoreSession: async () => {

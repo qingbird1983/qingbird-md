@@ -4,6 +4,7 @@ import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
 import { useWorkspaceStore } from "./stores/useWorkspaceStore";
+import { useRecentStore } from "./stores/useRecentStore";
 import StatusBar from "./components/StatusBar";
 import TitleBar from "./components/TitleBar";
 import AppMenu from "./components/AppMenu";
@@ -109,6 +110,7 @@ function App() {
     // document-changed 监听（首开参数 + 单实例 handoff 统一入口）、
     // 翻译进度/完成事件监听。各 listen* 自带只挂一次闩，StrictMode 双跑无副作用。
     void useSettingsStore.getState().load();
+    useRecentStore.getState().load(); // 最近打开文档：读盘一次，之后随打开自动登记
     void useDocStore.getState().openDocFromArgs();
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
@@ -145,10 +147,14 @@ function App() {
     //   在 parseCombo 已拒绝（Win 键不稳定，见 lib/hotkeys.ts 注释）。
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
-      // WebView2 加速键 F5/Ctrl+R 同样整页重载（与右键菜单"刷新"同源）——
-      // 桌面应用没有"刷新"语义，拦下防误触清空未保存文档。
+      // WebView2 加速键 F5/Ctrl+R 会整页重载（未保存文档全丢），一律拦下。
+      // 拦下之后把 F5 复用成「刷新工作区」——右键菜单上标的 F5 必须真的能用；
+      // Ctrl+R 保持纯拦截（同键意不重复挂语义）。
       if (e.code === "F5" || ((e.ctrlKey || e.metaKey) && e.code === "KeyR")) {
         e.preventDefault();
+        if (e.code === "F5" && useWorkspaceStore.getState().folders.length > 0) {
+          void useWorkspaceStore.getState().refresh();
+        }
         return;
       }
       const dd = useDocStore.getState();
@@ -169,6 +175,18 @@ function App() {
             e.preventDefault();
             void openFile();
             return;
+          case "KeyN": {
+            // 新建文件落当前活动文件夹；没有文件夹时不静默吞键，给一句提示
+            e.preventDefault();
+            const ws = useWorkspaceStore.getState();
+            if (!ws.activePath) {
+              useUiStore.getState().addToast("info", "先打开一个文件夹，再新建文件");
+              return;
+            }
+            const n = window.prompt("新文件名（创建于当前文件夹）：", "未命名.md");
+            if (n?.trim()) void ws.createFileIn(null, n.trim());
+            return;
+          }
           case "KeyE":
             e.preventDefault();
             dd.switchView(dd.view === "source" ? "preview" : "source");

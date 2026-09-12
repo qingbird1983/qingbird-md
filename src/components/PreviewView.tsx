@@ -228,15 +228,20 @@ export default function PreviewView() {
     sel?.addRange(range);
   };
 
+  // 只读渲染层的右键菜单。编辑类动作（剪切/粘贴/删除）暂不接——预览要能真正
+  // 编辑得等所见即所得，现在挂上去只会错落到源码光标处，反而困惑。
+  // 快捷键只标真实可用的：Ctrl+C / Ctrl+A 是 WebView 原生选区行为，
+  // Ctrl+E 是 App.tsx 的源码/预览切换键（从预览出发正好落在源码）。
   const ctxEntries = (): CtxEntry[] => [
     {
       label: "复制",
       icon: <Copy size={14} />,
+      shortcut: "Ctrl+C",
       disabled: !selectionInPreview(),
       onSelect: copySelection,
     },
     { label: "复制全文 Markdown", icon: <ClipboardCopy size={14} />, onSelect: copyWholeDoc },
-    { label: "全选", icon: <TextSelect size={14} />, onSelect: selectAllRendered },
+    { label: "全选", icon: <TextSelect size={14} />, shortcut: "Ctrl+A", onSelect: selectAllRendered },
     { kind: "sep" },
     {
       label: "插入",
@@ -273,6 +278,7 @@ export default function PreviewView() {
     {
       label: "在源码中编辑",
       icon: <SquareCode size={14} />,
+      shortcut: "Ctrl+E",
       onSelect: () => useDocStore.getState().switchView("source"),
     },
   ];

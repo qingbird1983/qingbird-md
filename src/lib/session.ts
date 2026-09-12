@@ -36,7 +36,9 @@ export function collectSnapshot(): SessionSnapshot {
     saved_at: Date.now(),
     tabs,
     active_id: d.activeId,
-    workspace_root: useWorkspaceStore.getState().root,
+    // 会话快照只带「活动文件夹」一个根（字段名与 Rust 契约不变）；完整的多文件夹
+    // 列表由前端 localStorage 自行恢复（见 useWorkspaceStore.restoreFolders）。
+    workspace_root: useWorkspaceStore.getState().activePath,
     ui: {
       show_nav: ui.showNav,
       show_outline: ui.showOutline,

@@ -7,35 +7,29 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { useUiStore } from "../stores/useUiStore";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
-import type { TreeNodeDTO } from "../types/ipc";
 import { COMMANDS, type Command } from "./commands";
-
-/** 展示树 → 可打开文件扁平列表（相对路径做检索键，根内顺序遍历）。 */
-function flattenFiles(nodes: TreeNodeDTO[], root: string, out: Command[] = []): Command[] {
-  for (const n of nodes) {
-    if (n.is_dir || !n.path) {
-      if (n.is_dir) flattenFiles(n.children ?? [], root, out);
-      continue;
-    }
-    const rel = n.path.startsWith(root) ? n.path.slice(root.length).replace(/^[\\/]/, "") : n.path;
-    out.push({ label: rel, run: () => void useDocStore.getState().openTab(n.path!) });
-  }
-  return out;
-}
+import { relLabel } from "../lib/wsPath";
 
 const FILE_RESULT_CAP = 20;
 
 export default function CommandPalette() {
   const close = useUiStore((s) => s.closePalette);
-  const root = useWorkspaceStore((s) => s.root);
-  const tree = useWorkspaceStore((s) => s.tree);
+  const fileIndex = useWorkspaceStore((s) => s.fileIndex);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
-  // 工作区文件检索键（root 变化/树刷新时重算；无工作区为空表）
-  const fileItems = useMemo(() => (root ? flattenFiles(tree, root) : []), [root, tree]);
+  // 工作区文件检索键：store 在每次树刷新时重建 fileIndex（跨全部文件夹，
+  // 不受侧栏过滤词影响——面板有自己的查询）
+  const fileItems = useMemo<Command[]>(
+    () =>
+      fileIndex.map((f) => ({
+        label: relLabel(f.path, f.root),
+        run: () => void useDocStore.getState().openTab(f.path),
+      })),
+    [fileIndex],
+  );
 
   // 打开时求值 enabled + 查询过滤（重新挂载保证读到最新 store 态）
   const items = useMemo(() => {

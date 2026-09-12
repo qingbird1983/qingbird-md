@@ -141,7 +141,7 @@ export default function AppMenu() {
   const switchView = useDocStore((s) => s.switchView);
   const mode = useDocStore((s) => s.mode);
   const switchMode = useDocStore((s) => s.switchMode);
-  const hasRoot = useWorkspaceStore((s) => !!s.root);
+  const hasRoot = useWorkspaceStore((s) => s.folders.length > 0);
   const createFile = useWorkspaceStore((s) => s.createFile);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
   const showNav = useUiStore((s) => s.showNav);

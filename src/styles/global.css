@@ -874,52 +874,126 @@ body {
   min-width: 0;
 }
 
-/* 分区小标题 → 微标签（DESIGN.md §3 Micro：9.5px / .18em 字距，
-   花笺式「眉批」层级；中文无大写变换，字距即节奏） */
-.sb-title {
+/* ============ 侧栏（2026-09-12 改版）============
+   自上而下：品牌头 / 细分割线 / 过滤胶囊 / 细分割线 / 最近打开 / 细分割线 / 文件夹区。
+   分区标题沿用 DESIGN.md §3 Micro 微标签（9.5px / .18em 字距）。 */
+
+.ws-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   flex: none;
-  padding: 12px 14px 5px;
+  padding: 12px 10px 9px 14px;
+}
+
+.ws-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ws-brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+}
+
+/* 版本号：朱砂小圆点 + vX.Y.Z（与分区微标签同一层级） */
+.ws-brand-ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 9.5px;
-  font-weight: 500;
+  letter-spacing: 0.08em;
   color: var(--fg3);
-  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
 }
 
-.sb-action {
-  padding: 2px 7px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 0;
-  font-weight: 400;
-  cursor: pointer;
+.ws-brand-dot {
+  width: 4px;
+  height: 4px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--zhu);
 }
 
-.sb-action:hover {
-  background: var(--accent-weak);
-}
-
-/* T18：侧栏工具行（过滤输入 + 新建/刷新） */
-.ws-tools {
+.ws-head-acts {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: none;
-  padding: 4px 10px 8px;
-  background: var(--bg2);
+}
+
+.ws-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ws-icon:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.ws-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 「筛选」开着时给青花底，明确它是开关而不是一次性动作 */
+.ws-icon.on {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* 刷新反馈：图标转一圈（纯视觉，不阻塞） */
+.ws-icon.spin svg {
+  animation: ws-spin 0.5s var(--ease) 1;
+}
+
+@keyframes ws-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 分区细分割线（DESIGN.md：贴面零阴影，层级一律用发丝线） */
+.ws-sep {
+  flex: none;
+  height: 1px;
+  margin: 0 10px;
+  background: var(--sep-bg);
+}
+
+/* ── 过滤胶囊行：胶囊 + 右端图标槽 ── */
+.ws-searchwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 8px 10px;
 }
 
 .ws-filter {
   flex: 1;
   min-width: 0;
-  padding: 5.5px 12px;
+  /* 右内边距给图标槽让位，避免长文本压到放大镜上 */
+  padding: 5.5px 30px 5.5px 12px;
   font: inherit;
   font-size: 12.5px;
   border: 1px solid var(--border);
@@ -935,25 +1009,201 @@ body {
   box-shadow: 0 0 0 2px var(--accent-weak);
 }
 
-.ws-tools .tool-btn {
+/* 图标槽：贴在胶囊右端内侧。无词时是放大镜（纯指示），有词时换成清空钮 */
+.ws-filter-ico {
+  position: absolute;
+  right: 17px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
-  border-radius: var(--r-sm);
+  border-radius: 50%;
   background: none;
-  color: var(--fg2);
-  font: inherit;
+  color: var(--fg3);
+  pointer-events: none;
+}
+
+.ws-filter-ico.clear {
+  pointer-events: auto;
   cursor: pointer;
 }
 
-.ws-tools .tool-btn:hover:not(:disabled) {
-  background: var(--bg3);
+.ws-filter-ico.clear:hover {
+  background: var(--item-hover-bg);
   color: var(--fg);
+}
+
+/* ── 分区：标题行 + 一键清除 ── */
+.ws-sec {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+.ws-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 10px 10px 4px 14px;
+}
+
+.ws-sec-title {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+/* 一键清除：hover 上朱砂淡底提示「这是移除类动作」 */
+.ws-sec-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ws-sec-clear:hover:not(:disabled) {
+  background: var(--zhu-wash);
+  color: var(--danger);
+}
+
+.ws-sec-clear:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ws-sec-empty {
+  flex: none;
+  padding: 4px 14px 8px;
+  font-size: 11.5px;
+  color: var(--fg3);
+}
+
+/* ── 最近打开列表（上限 10 条，超高自滚）── */
+.ws-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 6px;
+  max-height: 172px;
+  overflow-y: auto;
+}
+
+.ws-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--fg2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ws-item:hover,
+.ws-item.on {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.ws-item-ico {
+  flex: none;
+  color: var(--fg3);
+}
+
+.ws-item.on .ws-item-ico {
+  color: var(--accent);
+}
+
+.ws-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 父目录末级名：同名文件消歧用，右对齐弱化 */
+.ws-item-dim {
+  flex: none;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--fg3);
+}
+
+/* ── 文件夹区：占满剩余高度，树区自滚 ── */
+.ws-folders {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ws-folder {
+  flex: none;
+}
+
+/* 文件夹行：比树行重一档（名称 500 字重 + 墨色），是「根」的视觉锚点 */
+.ws-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 1px 8px 2px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ws-folder-head:hover {
+  background: var(--item-hover-bg);
+}
+
+.ws-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 路径不可用（目录被移动/删除）：条目保留但置灰 + 红色小标签 */
+.ws-folder.bad .ws-folder-head {
+  color: var(--fg3);
+  cursor: default;
+}
+
+.ws-folder-bad {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--zhu-wash);
+  color: var(--danger);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+/* 文件夹行之下再退一级缩进，区分「根」与其内容 */
+.ws-folder .tree-root {
+  padding-left: 12px;
 }
 
 button.menu-btn:disabled,
@@ -1207,6 +1457,23 @@ button.menu-btn:disabled,
   color: var(--fg3);
   font-size: 14px;
   line-height: 1;
+}
+
+/* 快捷键提示（右键菜单右侧对齐的浅色小字）。用文本而非 kbd 立体键帽：
+   桌面应用里键帽样式噪音大，浅色等宽感小字更贴「纸上」体系 */
+.menu-pop.ctx-pop .menu-item-kbd {
+  margin-left: auto;
+  padding-left: 18px;
+  color: var(--fg3);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* kbd 已吃掉 margin-left:auto；紧跟其后的子菜单箭头只需一个小间距 */
+.menu-pop.ctx-pop .menu-item-kbd + .menu-item-arrow {
+  margin-left: 8px;
 }
 
 /* ============ 大纲 ============ */
@@ -2095,6 +2362,20 @@ body:has(.app-resizer.dragging) .tabbar {
   border-color: var(--accent-strong);
   background: var(--accent-strong);
   color: var(--on-accent);
+}
+
+/* 危险操作的确认钮（通用确认框 danger: true）：描边式而非实心红块——
+   破坏性动作不该用「大红色实心按钮」诱导点击；hover 只上朱砂淡底
+   （--zhu-wash 明暗两套都有，避免实心填充下的文字对比度问题）。 */
+.modal-btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.modal-btn-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--zhu-wash);
+  color: var(--danger);
 }
 
 .modal-test {

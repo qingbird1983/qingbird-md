@@ -11,7 +11,7 @@ export default function FileMenu() {
   const hasDoc = useDocStore((s) => !!s.doc);
   const openTab = useDocStore((s) => s.openTab);
   const saveDoc = useDocStore((s) => s.saveDoc);
-  const hasRoot = useWorkspaceStore((s) => !!s.root);
+  const hasRoot = useWorkspaceStore((s) => s.folders.length > 0);
   const createFile = useWorkspaceStore((s) => s.createFile);
   const openWorkspace = useWorkspaceStore((s) => s.openWorkspace);
 

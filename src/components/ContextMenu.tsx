@@ -13,6 +13,12 @@ export interface CtxItem {
   icon?: ReactNode;
   disabled?: boolean;
   danger?: boolean;
+  /**
+   * 右侧显示的快捷键提示。**只写真实接线过的组合键**——菜单上挂着按不动的键
+   * 比不写更糟（用户会反复试）。键位真源：App.tsx 的全局 keydown、
+   * EditorView 的 CM keymap、以及树行的 onKeyDown。
+   */
+  shortcut?: string;
   /** 子菜单（如「从模板新建」）；子层级同样允许分隔线 */
   children?: CtxEntry[];
   onSelect?: () => void;
@@ -90,6 +96,11 @@ function Pop({ anchor, entries, onClose, depth }: Props & { depth: number }) {
                   </span>
                 )}
                 {(en as CtxItem).label}
+                {(en as CtxItem).shortcut ? (
+                  <span className="menu-item-kbd" aria-hidden="true">
+                    {(en as CtxItem).shortcut}
+                  </span>
+                ) : null}
                 {(en as CtxItem).children?.length ? (
                   <span className="menu-item-arrow" aria-hidden="true">
                     ›
