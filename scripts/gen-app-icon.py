@@ -48,21 +48,25 @@ d.rounded_rectangle(
     width=max(3, int(SEAL * 0.005)),
 )
 
-# ---- 「青」字：居中，字号 ≈ 0.56 印章边长（与应用内 12/21 同比例）----
-size = int(SEAL * 0.56)
-font = ImageFont.truetype(buf, size)
-# 精确居中：用 font bbox 而非经验值
-left, top, right, bottom = d.textbbox((0, 0), "青", font=font)
-w, h = right - left, bottom - top
-d.text(((SEAL - w) / 2 - left, (SEAL - h) / 2 - top), "青", font=font, fill=FG)
+# ---- 先画字（正置），只在底上开洞前确定位置：见下 ----
+# 「青」字必须正着（用户需求：底斜字不斜）。做法：底单独旋转，
+# 字在旋转后的画布上正置绘制，二者中心对齐。
 
-# ---- 打斜：PIL rotate 正角 = 逆时针；CSS rotate(-4deg) = 逆时针 4°，同向 ----
+# ---- 底：先旋转再上画布 ----
+# PIL rotate 正角 = 逆时针；CSS rotate(-4deg) = 逆时针 4°，同向
 seal = seal.rotate(TILT, resample=Image.BICUBIC, expand=True)
-
-# ---- 贴到透明画布中心 ----
 canvas = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 px = (S - seal.width) // 2
 py = (S - seal.height) // 2
 canvas.alpha_composite(seal, (px, py))
+
+# ---- 字：正置，画布中心（旋转 expand 后印章中心仍在画布中心）----
+d2 = ImageDraw.Draw(canvas)
+size = int(SEAL * 0.56)
+font = ImageFont.truetype(buf, size)
+left, top, right, bottom = d2.textbbox((0, 0), "青", font=font)
+w, h = right - left, bottom - top
+d2.text(((S - w) / 2 - left, (S - h) / 2 - top), "青", font=font, fill=FG)
+
 canvas.save(OUT)
 print("saved:", OUT, canvas.size)
