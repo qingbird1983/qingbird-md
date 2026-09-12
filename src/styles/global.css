@@ -1103,15 +1103,38 @@ button.menu-btn:disabled,
   align-items: baseline;
   gap: 6px;
   width: 100%;
-  padding: 3px 8px;
+  padding: 6px 8px;
   border: none;
   border-radius: var(--r-sm);
   background: none;
   color: var(--fg2);
   font: inherit;
+  /* 大纲用内置思源宋体，与预览正文同源（仅 400/700 两个实字重） */
+  font-family: var(--font-serif);
   font-size: 12.5px;
+  line-height: 1.55;
   text-align: left;
   cursor: pointer;
+}
+
+/* 级别区分：H1 加重加大、H2 标准墨色、H3+ 退后一档 */
+.outline-item.outline-lv1 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.outline-item.outline-lv2 {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--fg);
+}
+.outline-item.outline-lv3,
+.outline-item.outline-lv4,
+.outline-item.outline-lv5,
+.outline-item.outline-lv6 {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg3);
 }
 
 .outline-item:hover {

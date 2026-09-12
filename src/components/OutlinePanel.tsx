@@ -66,7 +66,7 @@ export default function OutlinePanel() {
           <li key={item.id}>
             <button
               type="button"
-              className="outline-item"
+              className={`outline-item outline-lv${Math.min(6, Math.max(1, item.level))}`}
               style={{ paddingLeft: 8 + Math.max(0, item.level - 1) * 13 }}
               title={item.text}
               onClick={() =>
