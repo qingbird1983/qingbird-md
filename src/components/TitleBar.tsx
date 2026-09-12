@@ -1,17 +1,15 @@
 // 自定义标题栏（替代 Tauri 原生标题栏）。
 //
-// 布局：左侧 应用名 + 工作区切换按钮（PanelLeft 图标）+ 汉堡菜单按钮 ☰ |（标题栏中部不再放文档名——文档名走 TabBar 即可，避免重复占位）| 右侧窗控按钮组（最小化/最大化/关闭）。
+// 布局：左侧 朱砂印章钮（hover 显工作区开关图标，点击 toggleNav——logo 与开关
+// 二合一，DESIGN.md §4）+ 衬线品牌名 + 汉堡菜单按钮 ☰ |（标题栏中部不再放
+// 文档名——文档名走 TabBar 即可，避免重复占位）| 右侧窗控按钮组。
 // 汉堡菜单点击后由 AppMenu 弹出二级分类面板覆盖在下层。
-// 工作区切换按钮：图标为 lucide PanelLeft（方框内偏左一根竖线），toggleNav
-// 控制 showNav；隐藏工作区时本按钮依旧留在标题栏可见——视觉锚点不丢。
 import { useState, useEffect, useRef } from "react";
 import { Minus, Square, X, Maximize2, Moon, PanelLeft, Settings, Sun } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { sysDark, useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
 import TabBar from "./TabBar";
-import qingniaoLogoLight from "../assets/qingniao-logo-light.png";
-import qingniaoLogoDark from "../assets/qingniao-logo-dark.png";
 
 const appWindow = getCurrentWindow();
 
@@ -82,25 +80,25 @@ export default function TitleBar() {
           deep——裸属性只有正中标题穿透带（title span pe:none）能拖，应用名/
           窗控间隙落在无属性子 div 上全部失效。deep 让整个标题栏子树可拖，
           BUTTON 类（工作区切换/汉堡/窗控）仍自动豁免走自身点击。 */}
-      {/* 左侧：应用名 + 工作区切换按钮 + 汉堡菜单按钮 —— AppMenu 在汉堡按钮下方绝对定位弹出 */}
+      {/* 左侧：印章品牌钮（含工作区开关）+ 品牌名 + 汉堡菜单 —— AppMenu 在汉堡按钮下方绝对定位弹出 */}
       <div className="titlebar-left" ref={leftRef}>
-        <span className="titlebar-brand">
-          {/* 双图随主题显隐（CSS body[data-theme] 切换，无 JS 分支） */}
-          <img src={qingniaoLogoLight} className="titlebar-logo logo-light" alt="青鸟" />
-          <img src={qingniaoLogoDark} className="titlebar-logo logo-dark" alt="青鸟" />
-          <span>Markdown</span>
-        </span>
         <button
           type="button"
-          className="menu-btn ws-toggle-btn"
+          className="menu-btn seal-btn"
           id="app-ws-toggle"
           aria-label={showNav ? "隐藏工作区" : "显示工作区"}
           title={showNav ? "隐藏工作区" : "显示工作区"}
           onClick={() => toggleNav()}
         >
-          {/* PanelLeft：方框 + 偏左竖线（lucide rect rx=2 + M9 3v18 内部竖线） */}
-          <PanelLeft size={18} strokeWidth={2} />
+          {/* 双层：默认朱砂「青」印，hover 淡出、原位浮现开关图标（CSS .seal-btn） */}
+          <span className="seal-face" aria-hidden="true">青</span>
+          <span className="seal-ico" aria-hidden="true">
+            <PanelLeft size={15} strokeWidth={2} />
+          </span>
         </button>
+        <span className="titlebar-brand">
+          <span>青鸟 Markdown</span>
+        </span>
         <button
           type="button"
           className="menu-btn hamburger-btn"

@@ -64,14 +64,17 @@ body {
   background: var(--border);
 }
 
-/* 应用名（标题栏左侧，位于汉堡按钮之前）；pointer-events:none 让拖拽穿透 */
+/* 应用名（标题栏左侧）；品牌名衬线化（DESIGN.md §3 Brand 层）。
+   pointer-events:none 让拖拽穿透 */
 .titlebar-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 0 8px 0 4px;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0 8px 0 2px;
   white-space: nowrap;
   color: var(--fg);
   pointer-events: none;
@@ -79,16 +82,71 @@ body {
   user-select: none;
 }
 
-/* 应用 logo（青鸟小图，替代原“青鸟”文字）；继承父级 pe:none 保证拖拽穿透。
-   亮/暗主题各一张（-light/-dark），随 body[data-theme] 显隐切换。 */
-.titlebar-logo {
+/* 朱砂印章品牌钮：logo 与侧栏开关二合一（DESIGN.md §4 Navigation）。
+   默认态 = 斜盖 3° 的朱砂「青」印；hover 印章缩淡、原位浮现工作区开关
+   图标；点击 toggleNav。印章是品牌记忆点，恒占位不随主题换图。 */
+.seal-btn {
+  position: relative;
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
+  margin: 0 2px 0 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4.5px;
+  cursor: pointer;
 }
-.logo-dark { display: none; }
-body[data-theme="dark"] .logo-light { display: none; }
-body[data-theme="dark"] .logo-dark { display: block; }
+
+.seal-btn .seal-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 4.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--zhu);
+  color: var(--surface);
+  font-family: var(--font-serif);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 1px 3px rgba(179, 72, 58, 0.3);
+  transform: rotate(-3deg);
+  transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
+}
+
+.seal-btn .seal-ico {
+  position: absolute;
+  inset: -3px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg2);
+  opacity: 0;
+  transition: opacity 0.16s var(--ease);
+}
+
+.seal-btn:hover .seal-face,
+.seal-btn:focus-visible .seal-face {
+  opacity: 0;
+  transform: rotate(0deg) scale(0.85);
+}
+
+.seal-btn:hover .seal-ico,
+.seal-btn:focus-visible .seal-ico {
+  opacity: 1;
+}
+
+.seal-btn:hover .seal-ico svg,
+.seal-btn:focus-visible .seal-ico svg {
+  transform: scale(1.08);
+}
+
+.seal-btn .seal-ico svg {
+  transition: transform 0.16s var(--ease);
+}
 
 /* 汉堡按钮：与 win-btn 同规格（宽 40、撑满标题栏高、直角），高亮风格统一 */
 .hamburger-btn {
@@ -446,30 +504,46 @@ body[data-theme="dark"] .logo-dark { display: block; }
   flex: none;
   max-width: 200px;
   min-width: 80px;
-  /* 高亮形状：顶边保持在原 24px 居中位的上缘（(37-24)/2=6.5px，37=标题栏38px
-     -1px 底线），底边直通底线、底部直角——hover 背景因此上圆下直贴线。 */
   align-self: flex-end;
+  position: relative;
   height: calc(100% - 6.5px);
   padding: 0 6px 6.5px 10px; /* 底部让位：内容仍居中于原 24px 视觉带 */
-  border: 1px solid transparent;
-  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  border: none;
+  border-radius: 0;
   font-size: 12.5px;
-  color: var(--fg2);
+  color: var(--fg3);
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.13s;
+}
+
+/* 激活指示线占位：默认透明，激活/悬停不跳动 */
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background 0.15s;
 }
 
 .tab:hover {
-  background: var(--bg3);
-  color: var(--fg);
+  background: none;
+  color: var(--fg2);
 }
 
 .tab.active {
-  border-color: var(--border);
-  border-bottom-color: transparent; /* 底边已贴标题栏底线，透明化避免叠成 2px；surface 背景直通底线 */
-  background: var(--surface);
+  border: none;
+  background: none;
   color: var(--fg);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.tab.active::after {
+  background: var(--fg); /* 墨色底线：下划线式标签（DESIGN.md §4） */
 }
 
 .tab-title {
@@ -483,7 +557,7 @@ body[data-theme="dark"] .logo-dark { display: block; }
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--zhu); /* 未保存脏标：朱砂点 */
 }
 
 .tab-close {
@@ -807,9 +881,28 @@ button.menu-btn:disabled,
 }
 
 .tree-row[aria-selected="true"] {
+  position: relative;
   background: var(--tree-selected-bg);
-  color: var(--accent);
+  color: var(--accent-strong);
   font-weight: 500;
+  /* cloud 浮起 + 内描边发丝线（DESIGN.md §4 Navigation） */
+  box-shadow: 0 1px 3px var(--shadow-xs), inset 0 0 0 1px var(--border);
+}
+
+/* 选中行左缘青花标：工作区里「当前文稿」的唯一色彩指示 */
+.tree-row[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tree-row[aria-selected="true"] .tree-icon {
+  color: var(--accent);
 }
 
 .tree-caret {
@@ -985,7 +1078,7 @@ button.menu-btn:disabled,
 }
 
 .status-dot {
-  color: var(--accent);
+  color: var(--zhu); /* 未保存：朱砂（DESIGN.md §2 语义铁律） */
 }
 
 /* ============ 分隔线 / 拖宽条 ============ */
@@ -1009,7 +1102,7 @@ button.menu-btn:disabled,
 
 .resizer:hover::before,
 .resizer.dragging::before {
-  background: var(--accent);
+  background: var(--resizer-hover); /* 拖柄提示用墨灰，不掺青花（DESIGN.md 色彩铁律） */
 }
 
 /* 面板拖宽条（App 壳层左右栏与主区之间）
@@ -1077,7 +1170,7 @@ body:has(.app-resizer.dragging) .tabbar {
 
 .editor-cm .cm-editor {
   height: 100%;
-  font-size: 15px;
+  font-size: 13px; /* DESIGN.md §3 Code 层：等宽 13px（原 15px） */
   background: var(--bg);
 }
 
@@ -1087,7 +1180,7 @@ body:has(.app-resizer.dragging) .tabbar {
 
 .editor-cm .cm-scroller {
   font-family: var(--font-mono);
-  line-height: 1.75;
+  line-height: 1.8;
   padding: 10px 0 30vh;
 }
 
@@ -1181,73 +1274,134 @@ body:has(.app-resizer.dragging) .tabbar {
   box-shadow: none;
 }
 
-/* ============ 整篇翻译进度条 ============ */
-/* 悬浮层（用户实测反馈）：absolute 脱离文档流，出/入场不再把正文压下/
-   弹回一行（上蹿下跳）；钉在主区顶缘，滚动与正文无关。 */
+/* ============ 译中任务卡（DESIGN.md §4 Cards / mockup-v2 .trans-card）============ */
+/* 悬浮层：absolute 钉在主区右下角（原顶缘横条改任务卡，出/入场不推挤正文）。
+   DOM 不变（label/track/pct/count/stop），纯 CSS 换布局。 */
 .translation-bar {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 10; /* 高于 .content-resizer(5)；热区 y 钳制 ≥70 无实际重叠 */
-  display: flex;
+  right: 20px;
+  bottom: 18px;
+  left: auto;
+  z-index: 10; /* 高于 .content-resizer(5) */
+  display: grid;
+  grid-template:
+    "label pct" auto
+    "track track" auto
+    "count stop" auto
+    / 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--tr-box-bg);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); /* 悬浮分层感 */
+  column-gap: 10px;
+  row-gap: 8px;
+  width: 316px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
   font-size: 12px;
   color: var(--fg2);
+  animation: card-rise 0.4s var(--ease);
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .translation-bar .tb-label {
+  grid-area: label;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 「译」朱砂印：译中状态的品牌记忆点（DESIGN.md §2 朱砂语义） */
+.translation-bar .tb-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  font-weight: 500;
-  color: var(--accent);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--zhu);
+  color: var(--surface);
+  font-family: var(--font-serif);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transform: rotate(-3deg);
+  animation: seal-pulse 2s ease-in-out infinite;
+}
+
+@keyframes seal-pulse {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(-1deg) scale(1.06);
+  }
 }
 
 .translation-bar .tb-track {
-  flex: 1;
-  height: 6px;
-  min-width: 60px;
-  border-radius: 3px;
+  grid-area: track;
+  height: 3px;
+  min-width: 0;
+  border-radius: 2px;
   background: var(--tr-track-bg);
   overflow: hidden;
 }
 
 .translation-bar .tb-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width 0.3s ease;
 }
 
 .translation-bar .tb-pct {
-  min-width: 34px;
-  text-align: right;
+  grid-area: pct;
+  color: var(--fg3);
   font-variant-numeric: tabular-nums;
 }
 
 .translation-bar .tb-count {
-  color: var(--note-fg);
+  grid-area: count;
+  color: var(--fg3);
   font-variant-numeric: tabular-nums;
 }
 
 .translation-bar .tb-stop {
-  padding: 2px 12px;
-  border: 1px solid var(--btn-border);
-  border-radius: var(--r-sm);
-  background: var(--btn-bg);
-  color: inherit;
+  grid-area: stop;
+  padding: 3.5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--fg3);
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
 
 .translation-bar .tb-stop:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: rgba(179, 72, 58, 0.35);
+  background: var(--zhu-wash);
+  color: var(--zhu);
 }
 
 /* ============ 划词翻译浮窗 ============ */
@@ -1336,7 +1490,9 @@ body:has(.app-resizer.dragging) .tabbar {
   }
 }
 
-/* ---- 选区查词富卡片（spec 2026-08-29 §8.2，卡片 A 纵向层级）---- */
+/* ---- 选区查词富卡片（spec 2026-08-29 §8.2，卡片 A 纵向层级）----
+   纸片词典卡观感（DESIGN.md §4 / mockup-v2 .sel-pop）：词头衬线、
+   释义青花、词性弱 chip。 */
 .sel-pop-err {
   color: #e06c75; /* 亮暗主题均可读的错误红，不依赖主题变量 */
 }
@@ -1349,26 +1505,32 @@ body:has(.app-resizer.dragging) .tabbar {
 }
 
 .sel-pop-term {
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 16px;
   font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .sel-pop-phon {
   color: var(--fg3);
+  font-variant-numeric: tabular-nums;
 }
 
 .sel-pop-pos {
-  font-size: 11px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: none;
   border-radius: 4px;
-  color: var(--accent);
+  background: var(--bg2);
+  color: var(--fg3);
+  letter-spacing: 0.04em;
 }
 
 .sel-pop-main {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   margin-top: 6px;
+  color: var(--accent-strong); /* 释义青花文字态 */
 }
 
 .sel-pop-usage {

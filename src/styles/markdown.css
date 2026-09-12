@@ -8,31 +8,31 @@
    颜色经变量集中在文件头部，暗色主题仅换一组值。 */
 
 .markdown-body {
-  --md-fg: #1f2328;
-  --md-muted: #59636e;
-  --md-border: #d0d7de;
-  --md-link: #0969da;
-  --md-code-bg: #eff1f3;
-  --md-stripe: #f6f8fa;
-  --md-th-bg: #f6f8fa;
-  --md-quote-fg: #59636e;
-  --md-task-bg: #fff;
+  --md-fg: #211f1a;
+  --md-muted: #6e6a5e;
+  --md-border: #e3dcc9;
+  --md-link: #285677;
+  --md-code-bg: rgba(179, 72, 58, 0.08); /* 行内代码：朱砂浅底（DESIGN.md §2） */
+  --md-stripe: #f1ece0;
+  --md-th-bg: #f1ece0;
+  --md-quote-fg: #6e6a5e;
+  --md-task-bg: #fffdf8;
   --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
-  --md-ok-fg: #1a7f37;      /* 复制成功态/code-lang 药丸：浅灰 pre 底上用深绿（暗色档在下方换浅绿） */
+  --md-ok-fg: #3a7a52;      /* 复制成功态/code-lang 药丸（暗色档在下方换浅绿） */
   /* 双主题 span 配色：后端把 InspiredGitHub（浅）/base16-ocean.dark（暗）
      两套前景色按 token 一一配对，烘进 span 内联 style 的 --cl/--cd；
      这里按主题选边（.ln 行号与 mono 块不受影响，走 --md-pre-* 变量）。 */
-  --md-pre-bg: #f6f8fa; /* 淡灰代码底：与白纸面留一点反差（浅色 span 同源） */
-  --md-pre-fg: #1f2328;
-  --md-pre-muted: #6e778e; /* 行号 */
-  --md-head-bg: #edf0f3;  /* 代码卡片头栏底：比 pre 底再深半档，划出两段式布局 */
-  --md-gutter-line: #d8dee4; /* 行号列右侧分隔线 */
-  --md-hover-bg: rgba(0, 0, 0, 0.06); /* 头栏按钮 hover 底 */
+  --md-pre-bg: #fffdf8; /* cloud 代码卡底：与纸面同源、浮起半档 */
+  --md-pre-fg: #211f1a;
+  --md-pre-muted: #8f8b7c; /* 行号 */
+  --md-head-bg: #f1ece0;  /* 代码卡片头栏底：paper-warm，划出两段式布局 */
+  --md-gutter-line: #ece6d8; /* 行号列右侧分隔线 */
+  --md-hover-bg: rgba(33, 31, 26, 0.045); /* 头栏按钮 hover 底 */
   --md-mark-bg: rgba(250, 200, 60, 0.45); /* ==高亮== 琥珀底 */
-  /* 双语对照块走主色系，与全局 accent 同源 */
-  --md-tr-bg: #eef1fe;
-  --md-tr-border: #c3ccfa;
-  --md-tr-fg: #2c3f8f;
+  /* 双语对照块：译文 = 青花左标 + 衬线（DESIGN.md §4 pair 组件） */
+  --md-tr-bg: transparent;
+  --md-tr-border: rgba(49, 103, 142, 0.5);
+  --md-tr-fg: #4c4a40;
 
   /* 正文宽度由 --qb-content-w 驱动（挂在 .preview-wrap 上，值 = 四档或拖宽
      自定义，四档 px 表在 src/lib/contentWidth.ts——单一事实来源）；
@@ -41,11 +41,13 @@
   max-width: var(--qb-content-w, 794px);
   margin-inline: auto;
 
-  /* 纸面留白对齐 SuperMarkdown 的阅读节奏：上 28、左右 36、下留长滚动余量 */
+  /* 纸面留白对齐阅读节奏：上 28、左右 36、下留长滚动余量。
+     文档层整体衬线化（DESIGN.md 字体铁律：衬线只给文档层） */
   padding: 28px 36px 180px;
-  font-family: var(--font-ui); /* T30：全局 CJK 字体栈（styles/theme.css） */
-  font-size: 16px;
-  line-height: 1.75;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 2;
+  letter-spacing: 0.01em;
   color: var(--md-fg);
   word-wrap: break-word;
 }
@@ -58,29 +60,29 @@
    light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
    覆盖路径，不再依赖 prefers-color-scheme。 */
 body[data-theme="dark"] .markdown-body {
-  --md-fg: #ddd;
-  --md-muted: #999;
-  --md-border: #444;
-  --md-link: #58a6ff;
-  --md-code-bg: #33383d;
-  --md-stripe: #26292c;
-  --md-th-bg: #2b2f33;
-  --md-quote-fg: #8b949e;
-  --md-task-bg: #1e1e1e;
-  --md-tr-bg: #232842;
-  --md-tr-border: #3b4675;
-  --md-tr-fg: #a9b8ff;
-  /* 代码块真暗色：底色与 base16-ocean.dark 同源（#2b303b），span 前景色由
+  --md-fg: #e6e1d4;
+  --md-muted: #8b8778;
+  --md-border: #3b3830;
+  --md-link: #8fbad6;
+  --md-code-bg: rgba(201, 106, 92, 0.12);
+  --md-stripe: #2b2925;
+  --md-th-bg: #2b2925;
+  --md-quote-fg: #8b8778;
+  --md-task-bg: #232220;
+  --md-tr-bg: transparent;
+  --md-tr-border: rgba(111, 163, 196, 0.5);
+  --md-tr-fg: #b8b3a4;
+  /* 代码块真暗色：底色与暗色面板同源（surface），span 前景色由
      后端烘进每 token 的 --cd 变量（见下方选择器），行号/默认字换暗色档。 */
-  --md-pre-bg: #2b303b;
-  --md-pre-fg: #c0c5ce;
-  --md-pre-muted: #65737e;
-  --md-head-bg: #242933; /* 头栏比 pre 底再深半档 */
-  --md-gutter-line: #3d4552;
-  --md-hover-bg: rgba(255, 255, 255, 0.09);
+  --md-pre-bg: #2e2b26;
+  --md-pre-fg: #e6e1d4;
+  --md-pre-muted: #6b6759;
+  --md-head-bg: #2b2925; /* 头栏比 pre 底再深半档 */
+  --md-gutter-line: #3b3830;
+  --md-hover-bg: rgba(230, 225, 212, 0.06);
   --md-mark-bg: rgba(250, 200, 60, 0.32);
   /* code-lang 标签/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
-  --md-ok-fg: #8fce9f;
+  --md-ok-fg: #5fc085;
 }
 
 .markdown-body h1,
@@ -90,18 +92,17 @@ body[data-theme="dark"] .markdown-body {
 .markdown-body h5,
 .markdown-body h6 {
   margin: 1.4em 0 0.6em;
-  font-weight: 600;
-  line-height: 1.35;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.015em;
 }
 
-/* H1 带下划分隔线（对齐 SuperMarkdown 的纸面层级） */
+/* H1 无下划线（衬线大标题自身即层级，DESIGN.md mockup-v2 观感） */
 .markdown-body h1 {
-  font-size: 1.85em;
-  padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--md-border);
+  font-size: 1.7em;
 }
 
-.markdown-body h2 { font-size: 1.45em; }
+.markdown-body h2 { font-size: 1.35em; }
 .markdown-body h3 { font-size: 1.2em; }
 .markdown-body h4 { font-size: 1.05em; }
 .markdown-body h5 { font-size: 0.9em; }
@@ -123,7 +124,8 @@ body[data-theme="dark"] .markdown-body {
 
 .markdown-body a:hover {
   text-decoration: underline;
-  text-underline-offset: 2px; /* 下划线离字面远一点，CJK 下不糊字 */
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(49, 103, 142, 0.4);
 }
 
 .markdown-body img {
@@ -244,14 +246,14 @@ body[data-theme="dark"] .markdown-body {
   background: var(--md-link);
 }
 
-/* ---- 引用块：左竖线 + 浅底 + 右侧圆角 ---- */
+/* ---- 引用块：青花灰左标细线 + 无底色（纸面引文，DESIGN.md mockup-v2 观感） ---- */
 
 .markdown-body blockquote {
   margin: 1.1em 0;
-  padding: 0.4em 1em;
-  border-left: 4px solid var(--md-border);
-  border-radius: 0 8px 8px 0;
-  background: var(--md-stripe);
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 2.5px solid var(--md-border);
+  border-radius: 0;
+  background: none;
   color: var(--md-quote-fg);
 }
 
@@ -269,8 +271,9 @@ body[data-theme="dark"] .markdown-body {
 .markdown-body code {
   padding: 0.15em 0.4em;
   font-family: var(--font-mono);
-  font-size: 87%;
+  font-size: 80%;
   background: var(--md-code-bg);
+  color: var(--zhu); /* 行内代码朱砂字：mockup-v2 词典感（暗色 --zhu 换档） */
   border-radius: 5px;
   overflow-wrap: anywhere; /* 长 token 在句中断行，不撑破段落/表格 */
 }
@@ -333,8 +336,8 @@ body[data-theme="dark"] .markdown-body {
 .markdown-body pre.code-block code {
   display: block;
   padding: 0;
-  font-size: 13.5px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.7;
   color: var(--md-pre-fg);
   background: transparent;
   border-radius: 0;
@@ -456,18 +459,39 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   background: var(--md-hover-bg);
 }
 
-/* ---- 双语对照浮出块：浅蓝底圆角，缀在原文块后 ---- */
+/* ---- 双语对照块：译文 = 衬线 + 青花左标缩进（DESIGN.md §4 pair 组件）。
+     不再是浅蓝浮出 chip，而是纸面上的对照行：原文墨色、译文 ink-soft 挂
+     青花细竖线之下，hover 竖线实色（mockup-v2 .pair .zh 同款）。 ---- */
 
 .markdown-body .tr-box {
-  display: inline-block;
-  margin-top: 4px;
+  display: block;
+  margin-top: 2px;
   margin-bottom: 16px;
-  padding: 4px 10px;
-  font-weight: 500;
+  padding: 2px 0 2px 14px;
+  position: relative;
+  font-weight: 400;
+  letter-spacing: 0.015em;
   color: var(--md-tr-fg);
-  border: 1px solid var(--md-tr-border);
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   background: var(--md-tr-bg);
+}
+
+.markdown-body .tr-box::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--md-tr-border);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.markdown-body .tr-box:hover::before {
+  opacity: 1;
 }
 
 .markdown-body h1 + .tr-box,

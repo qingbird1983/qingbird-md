@@ -44,13 +44,15 @@ export default function TranslationBar() {
   return (
     <div className="translation-bar" role="status">
       <span className="tb-label">
+        {/* 朱砂「译」印：译中任务卡的品牌记忆点（DESIGN.md §4，CSS seal-pulse 动效） */}
+        <span className="tb-seal" aria-hidden="true">译</span>
         {SCOPE_LABEL[scope] ?? "翻译"} · {MODE_LABEL[mode] ?? ""} · {provider}
       </span>
       <div className="tb-track" aria-hidden="true">
         <div className="tb-fill" style={{ width: `${pct ?? 0}%` }} />
       </div>
       <span className="tb-pct">{pct === null ? "…" : `${pct}%`}</span>
-      <span className="tb-count">{progress ? `${progress.done}/${progress.total}` : ""}</span>
+      <span className="tb-count">{progress ? `${progress.done}/${progress.total} 段` : ""}</span>
       <button type="button" className="tb-stop" onClick={stop}>
         取消
       </button>
