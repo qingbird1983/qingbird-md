@@ -4,7 +4,7 @@
 // （html 元素带同名 id h-N，译文两形态均保留）；preview 尚未挂载时 optional
 // chaining 静默跳过。
 import { useEffect, useMemo, useState } from "react";
-import { ChevronsDownUp, ChevronsUpDown, PanelLeft, PanelRight } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
 import { useUiStore } from "../stores/useUiStore";
 import type { OutlineItem } from "../types/ipc";
@@ -110,23 +110,27 @@ export default function OutlinePanel() {
         </button>
         <button
           type="button"
-          className={`outline-tool${outlineSide === "left" ? " active" : ""}`}
-          title="停靠到左侧（吸附工作区）"
-          aria-label="停靠到左侧"
-          aria-pressed={outlineSide === "left"}
-          onClick={() => setOutlineSide("left")}
+          className="outline-tool"
+          title={outlineSide === "left" ? "停靠到右侧（窗口右缘）" : "停靠到左侧（吸附工作区）"}
+          aria-label={outlineSide === "left" ? "停靠到右侧" : "停靠到左侧"}
+          onClick={() => setOutlineSide(outlineSide === "left" ? "right" : "left")}
         >
-          <PanelLeft size={13} strokeWidth={1.9} />
-        </button>
-        <button
-          type="button"
-          className={`outline-tool${outlineSide === "right" ? " active" : ""}`}
-          title="停靠到右侧（窗口右缘）"
-          aria-label="停靠到右侧"
-          aria-pressed={outlineSide === "right"}
-          onClick={() => setOutlineSide("right")}
-        >
-          <PanelRight size={13} strokeWidth={1.9} />
+          {/* 方框内 <>：一键切换停靠侧 */}
+          <svg
+            viewBox="0 0 16 16"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" />
+            <path d="M7.4 6.4 5.6 8l1.8 1.6" />
+            <path d="M8.6 6.4 10.4 8l-1.8 1.6" />
+          </svg>
         </button>
       </div>
     </div>

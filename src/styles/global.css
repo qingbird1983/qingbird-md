@@ -1140,12 +1140,6 @@ button.menu-btn:disabled,
   color: var(--fg);
 }
 
-/* 当前停靠侧高亮（青花只给翻译语义，这里用主文本色 + 底色区分） */
-.outline-tool.active {
-  color: var(--fg);
-  background: var(--bg3);
-}
-
 .outline-tool:disabled {
   opacity: 0.35;
   cursor: default;
