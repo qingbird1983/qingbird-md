@@ -3,7 +3,7 @@
 // 判据）从译文 html 提取，大纲与正文所见一致。点击项滚动 preview 到锚点
 // （html 元素带同名 id h-N，译文两形态均保留）；preview 尚未挂载时 optional
 // chaining 静默跳过。
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDocStore } from "../stores/useDocStore";
 import type { OutlineItem } from "../types/ipc";
 
@@ -47,9 +47,39 @@ export default function OutlinePanel() {
     [payloadHtml, parseOutline],
   );
 
+  // 折叠态：collapsed 收「被点收缩按钮的标题 id」。可见性用 barrier 扫描：
+  // 收缩某级后，其后所有更深层级隐藏，直到出现不深于该级的标题。
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const toggleCollapsed = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const items = useMemo(() => {
+    if (!outline) return null;
+    // 有子级的标题（全量 outline 上判定，与折叠态无关）才显示展开钮
+    const withChildren = new Set<string>();
+    for (let i = 0; i < outline.length; i++) {
+      const next = outline[i + 1];
+      if (next && next.level > outline[i].level) withChildren.add(outline[i].id);
+    }
+    const visible: OutlineItem[] = [];
+    let barrier = Infinity;
+    for (const it of outline) {
+      if (it.level <= barrier) {
+        visible.push(it);
+        barrier = collapsed.has(it.id) ? it.level : Infinity;
+      }
+    }
+    return { visible, withChildren };
+  }, [outline, collapsed]);
+
   // 分区标题常驻（对齐 SuperMarkdown 的 .ol-title），空态也保持面板形态
   const title = <div className="outline-title">大纲</div>;
-  if (content === null || !outline || outline.length === 0) {
+  if (content === null || !items || items.visible.length === 0) {
     return (
       <>
         {title}
@@ -62,11 +92,13 @@ export default function OutlinePanel() {
     <>
       {title}
       <ul className="outline-list" aria-label="大纲">
-        {outline.map((item) => (
+        {items.visible.map((item) => (
           <li key={item.id}>
             <button
               type="button"
-              className={`outline-item outline-lv${Math.min(6, Math.max(1, item.level))}`}
+              className={`outline-item outline-lv${Math.min(6, Math.max(1, item.level))}${
+                collapsed.has(item.id) ? " is-collapsed" : ""
+              }`}
               style={{ paddingLeft: 8 + Math.max(0, item.level - 1) * 13 }}
               title={item.text}
               onClick={() =>
@@ -75,6 +107,22 @@ export default function OutlinePanel() {
                   ?.scrollIntoView({ behavior: "smooth", block: "start" })
               }
             >
+              {items.withChildren.has(item.id) && (
+                <span
+                  className="outline-toggle"
+                  role="button"
+                  aria-label={collapsed.has(item.id) ? "展开" : "收缩"}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCollapsed(item.id);
+                  }}
+                >
+                  <svg viewBox="0 0 8 8" width="8" height="8" aria-hidden="true">
+                    <path d="M2 1l4 3-4 3z" fill="currentColor" />
+                  </svg>
+                </span>
+              )}
               <span className="outline-text">{item.text}</span>
             </button>
           </li>

@@ -1077,6 +1077,14 @@ button.menu-btn:disabled,
 }
 
 /* T19：大纲面板 —— 标题微标签 + 缩进列表 */
+/* panel-clip 左右栏共用（flex:none 保收展动画不挤压），但大纲列表依赖
+   flex 布局做滚动（flex:1 + min-height:0），故仅在大纲侧开启纵向 flex，
+   不影响左侧栏。 */
+.outline-panel .panel-clip {
+  display: flex;
+  flex-direction: column;
+}
+
 .outline-title {
   display: flex;
   align-items: center;
@@ -1103,7 +1111,7 @@ button.menu-btn:disabled,
   align-items: baseline;
   gap: 6px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border: none;
   border-radius: var(--r-sm);
   background: none;
@@ -1112,7 +1120,7 @@ button.menu-btn:disabled,
   /* 大纲用内置思源宋体，与预览正文同源（仅 400/700 两个实字重） */
   font-family: var(--font-serif);
   font-size: 12.5px;
-  line-height: 1.55;
+  line-height: 1.4;
   text-align: left;
   cursor: pointer;
 }
@@ -1140,6 +1148,30 @@ button.menu-btn:disabled,
 .outline-item:hover {
   background: var(--item-hover-bg);
   color: var(--fg);
+}
+
+/* 展开/收缩小箭头：有子级才渲染，收缩时左转 90°；flex 对齐占位 */
+.outline-toggle {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--fg3);
+  cursor: pointer;
+}
+.outline-toggle:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+.outline-toggle svg {
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.outline-item.is-collapsed .outline-toggle svg {
+  transform: rotate(-90deg);
 }
 
 .outline-text {
