@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>青鸟 Markdown — 界面重设计原型</title>
+<style>
+  /* ============ 设计基调：Codex 式极简 ============
+     单色基底 + 单一品牌强调色（青），1px 发丝分隔，
+     无重阴影，控件靠留白与层级呼吸。 */
+  :root{
+    --bg:#ffffff;
+    --bg-soft:#f7f7f5;
+    --bg-rail:#f2f2ef;
+    --bg-elev:#ffffff;
+    --border:#e9e9e5;
+    --border-strong:#deded8;
+    --text:#1b1b18;
+    --text-2:#6e6e67;
+    --text-3:#a6a69f;
+    --accent:#0c8a78;
+    --accent-hover:#0a7666;
+    --accent-soft:rgba(12,138,120,.09);
+    --accent-text:#0a7666;
+    --hover:rgba(0,0,0,.045);
+    --active:rgba(0,0,0,.075);
+    --danger:#d64545;
+    --radius:8px;
+    --radius-sm:6px;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --font-mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:var(--font-ui);
+    font-size:13px;
+    color:var(--text);
+    background:#d9d9d4;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit}
+  input{font-family:inherit;border:none;outline:none;background:none;color:inherit}
+  ::selection{background:var(--accent-soft)}
+
+  /* ============ 窗口外壳 ============ */
+  .window{
+    width:min(1440px,96vw);
+    height:min(880px,94vh);
+    background:var(--bg);
+    border-radius:12px;
+    overflow:hidden;
+    display:flex;flex-direction:column;
+    box-shadow:0 24px 80px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+    border:1px solid rgba(0,0,0,.08);
+  }
+
+  /* ============ 标题栏（融合式） ============ */
+  .titlebar{
+    height:44px;flex:none;
+    display:flex;align-items:center;
+    padding:0 0 0 14px;
+    border-bottom:1px solid var(--border);
+    background:var(--bg);
+    user-select:none;
+  }
+  .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+  .brand-mark{
+    width:20px;height:20px;border-radius:6px;
+    background:linear-gradient(135deg,#0c8a78,#12a88f);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:11px;font-weight:700;letter-spacing:.5px;
+  }
+  .crumb{
+    margin-left:18px;display:flex;align-items:center;gap:6px;
+    color:var(--text-3);font-size:12.5px;
+  }
+  .crumb .sep{opacity:.6}
+  .crumb .file{color:var(--text-2);font-weight:500}
+  .crumb .dirty{color:var(--accent);font-size:14px;line-height:1}
+  .title-spacer{flex:1}
+  .tb-actions{display:flex;align-items:center;gap:2px;padding-right:8px}
+  .icon-btn{
+    width:30px;height:30px;border-radius:var(--radius-sm);
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-2);transition:background .12s,color .12s;
+  }
+  .icon-btn:hover{background:var(--hover);color:var(--text)}
+  .win-controls{display:flex;height:100%}
+  .win-btn{
+    width:46px;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-2);transition:background .12s;
+  }
+  .win-btn:hover{background:var(--hover)}
+  .win-btn.close:hover{background:#e81123;color:#fff}
+
+  /* ============ 主体三列：活动栏 / 侧栏 / 主区 ============ */
+  .body{flex:1;display:flex;min-height:0}
+
+  /* —— 活动栏（窄图标轨） —— */
+  .rail{
+    width:48px;flex:none;
+    background:var(--bg-rail);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;
+    padding:8px 0;gap:4px;
+  }
+  .rail-btn{
+    width:36px;height:36px;border-radius:var(--radius);
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-3);position:relative;transition:all .12s;
+  }
+  .rail-btn:hover{color:var(--text-2);background:var(--hover)}
+  .rail-btn.on{color:var(--accent-text);background:var(--accent-soft)}
+  .rail-btn.on::before{
+    content:"";position:absolute;left:-6px;top:9px;bottom:9px;width:2.5px;
+    border-radius:2px;background:var(--accent);
+  }
+  .rail-flex{flex:1}
+
+  /* —— 侧栏（工作区树） —— */
+  .sidebar{
+    width:248px;flex:none;
+    background:var(--bg-soft);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;
+    transition:width .25s cubic-bezier(.4,0,.2,1),opacity .2s;
+    overflow:hidden;
+  }
+  .sidebar.gone{width:0;opacity:0;border-right-color:transparent}
+  .side-inner{width:248px;display:flex;flex-direction:column;height:100%}
+  .side-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 10px 8px 16px;
+  }
+  .side-title{font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text-3);text-transform:uppercase}
+  .side-tools{display:flex;gap:2px}
+  .mini-btn{
+    width:24px;height:24px;border-radius:5px;color:var(--text-3);
+    display:flex;align-items:center;justify-content:center;transition:all .12s;
+  }
+  .mini-btn:hover{background:var(--hover);color:var(--text-2)}
+  .side-search{padding:2px 12px 10px}
+  .search-box{
+    display:flex;align-items:center;gap:7px;
+    background:var(--bg);border:1px solid var(--border);
+    border-radius:var(--radius-sm);padding:6px 9px;
+    color:var(--text-3);transition:border-color .12s,box-shadow .12s;
+  }
+  .search-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .search-box input{flex:1;font-size:12.5px;color:var(--text)}
+  .search-box input::placeholder{color:var(--text-3)}
+  .tree{flex:1;overflow-y:auto;padding:0 8px 12px}
+  .tree-row{
+    width:100%;display:flex;align-items:center;gap:6px;
+    padding:5px 8px;border-radius:var(--radius-sm);
+    color:var(--text-2);font-size:12.5px;text-align:left;
+    transition:background .1s,color .1s;
+  }
+  .tree-row:hover{background:var(--hover);color:var(--text)}
+  .tree-row.sel{background:var(--accent-soft);color:var(--accent-text);font-weight:500}
+  .tree-row .caret{color:var(--text-3);display:flex;transition:transform .15s}
+  .tree-row .caret.open{transform:rotate(90deg)}
+  .tree-row .ficon{color:var(--text-3);display:flex;flex:none}
+  .tree-row.sel .ficon{color:var(--accent-text)}
+  .tree-row .fname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tree-indent{padding-left:20px}
+
+  /* —— 主区 —— */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+
+  /* 标签条 */
+  .tabbar{
+    height:38px;flex:none;
+    display:flex;align-items:flex-end;
+    border-bottom:1px solid var(--border);
+    padding:0 8px;gap:2px;
+    background:var(--bg);
+    overflow-x:auto;
+  }
+  .tab{
+    display:flex;align-items:center;gap:7px;
+    height:31px;padding:0 12px;margin-bottom:-1px;
+    border-radius:7px 7px 0 0;
+    color:var(--text-3);font-size:12.5px;
+    border:1px solid transparent;border-bottom:none;
+    white-space:nowrap;transition:color .12s,background .12s;
+  }
+  .tab:hover{color:var(--text-2);background:var(--hover)}
+  .tab.on{
+    color:var(--text);font-weight:500;
+    background:var(--bg);
+    border-color:var(--border);
+    position:relative;
+  }
+  .tab.on::after{
+    content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--bg);
+  }
+  .tab .dot{color:var(--accent);font-size:13px}
+  .tab .x{
+    width:16px;height:16px;border-radius:4px;color:var(--text-3);
+    display:flex;align-items:center;justify-content:center;opacity:0;transition:all .12s;
+  }
+  .tab:hover .x,.tab.on .x{opacity:1}
+  .tab .x:hover{background:var(--active);color:var(--text)}
+  .tab-add{
+    width:26px;height:26px;margin:0 0 5px 4px;border-radius:var(--radius-sm);
+    color:var(--text-3);display:flex;align-items:center;justify-content:center;
+  }
+  .tab-add:hover{background:var(--hover);color:var(--text-2)}
+
+  /* 工具条 */
+  .toolbar{
+    height:42px;flex:none;
+    display:flex;align-items:center;gap:4px;
+    padding:0 12px;
+    border-bottom:1px solid var(--border);
+  }
+  .tool-sep{width:1px;height:18px;background:var(--border-strong);margin:0 8px;flex:none}
+  .tool-spacer{flex:1}
+  .seg{
+    display:flex;background:var(--bg-soft);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);padding:2px;gap:1px;
+  }
+  .seg-btn{
+    padding:4px 11px;border-radius:5px;font-size:12px;
+    color:var(--text-2);transition:all .12s;white-space:nowrap;
+  }
+  .seg-btn:hover{color:var(--text)}
+  .seg-btn.on{background:var(--bg);color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+  .btn-primary{
+    display:flex;align-items:center;gap:6px;
+    background:var(--accent);color:#fff;
+    padding:6px 14px;border-radius:var(--radius-sm);
+    font-size:12.5px;font-weight:500;
+    transition:background .12s;
+  }
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-ghost{
+    display:flex;align-items:center;gap:5px;
+    padding:6px 10px;border-radius:var(--radius-sm);
+    color:var(--text-2);font-size:12.5px;transition:all .12s;
+  }
+  .btn-ghost:hover{background:var(--hover);color:var(--text)}
+  kbd{
+    font-family:var(--font-ui);font-size:10.5px;color:var(--text-3);
+    background:var(--bg-soft);border:1px solid var(--border);
+    border-radius:4px;padding:1px 5px;
+  }
+
+  /* 编辑 / 预览 分栏 */
+  .content{flex:1;display:flex;min-height:0}
+  .pane{flex:1;min-width:0;overflow-y:auto}
+  .pane.editor{background:var(--bg)}
+  .pane.preview{background:var(--bg);border-left:1px solid var(--border)}
+  .content.source-only .pane.preview{display:none}
+  .content.preview-only .pane.editor{display:none}
+
+  /* 编辑器 */
+  .editor-pad{max-width:760px;margin:0 auto;padding:20px 28px 60px}
+  .ed-line{
+    display:flex;font-family:var(--font-mono);font-size:13px;line-height:1.75;
+  }
+  .ed-ln{
+    flex:none;width:34px;text-align:right;padding-right:16px;
+    color:var(--text-3);opacity:.55;user-select:none;font-size:11.5px;line-height:1.95;
+  }
+  .ed-src{white-space:pre-wrap;word-break:break-word;color:var(--text)}
+  .md-hash{color:var(--accent-text);font-weight:600}
+  .md-dim{color:var(--text-3)}
+  .md-bold{font-weight:600}
+  .md-code{color:#c7254e;background:rgba(199,37,78,.06);border-radius:4px;padding:0 3px}
+  .md-link{color:#2f6fdb;text-decoration:underline;text-underline-offset:2px}
+  .md-quote{color:var(--text-2)}
+
+  /* 预览 */
+  .preview-pad{max-width:720px;margin:0 auto;padding:28px 32px 80px}
+  .pv-h1{font-size:26px;font-weight:700;letter-spacing:-.01em;margin:4px 0 14px}
+  .pv-h2{font-size:19px;font-weight:650;margin:30px 0 10px;display:flex;align-items:center;gap:8px}
+  .pv-p{font-size:14.5px;line-height:1.85;color:var(--text);margin:10px 0}
+  .pv-p.trans{color:var(--text-2)}
+  .pv-p.trans::before{
+    content:"";display:inline-block;width:3px;height:12px;border-radius:2px;
+    background:var(--accent);opacity:.45;margin-right:8px;vertical-align:-1px;
+  }
+  .pair{padding:10px 14px;border-radius:var(--radius);margin:6px 0;transition:background .15s}
+  .pair:hover{background:var(--bg-soft)}
+  .pair .en{font-size:14.5px;line-height:1.8;color:var(--text)}
+  .pair .zh{font-size:14.5px;line-height:1.85;color:var(--text-2);margin-top:4px;
+    border-left:3px solid rgba(12,138,120,.35);padding-left:11px}
+  .pv-meta{
+    display:flex;gap:8px;align-items:center;margin-bottom:20px;
+    color:var(--text-3);font-size:12px;
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:4px;
+    background:var(--bg-soft);border:1px solid var(--border);
+    border-radius:99px;padding:2px 9px;font-size:11px;color:var(--text-2);
+  }
+  .chip.teal{background:var(--accent-soft);border-color:transparent;color:var(--accent-text);font-weight:500}
+  .pv-quote{
+    border-left:3px solid var(--border-strong);
+    padding:2px 0 2px 14px;margin:14px 0;color:var(--text-2);font-size:14px;line-height:1.8;
+  }
+  .pv-code{
+    background:#f6f6f3;border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;margin:14px 0;
+    font-family:var(--font-mono);font-size:12.5px;line-height:1.8;
+    overflow-x:auto;
+  }
+  .tok-k{color:#7c3aed}.tok-s{color:#0c8a78}.tok-f{color:#2f6fdb}.tok-c{color:var(--text-3);font-style:italic}
+  .pv-list{padding-left:22px;margin:10px 0}
+  .pv-list li{font-size:14.5px;line-height:1.9;color:var(--text)}
+
+  /* ============ 悬浮：翻译进度卡（Codex 任务卡风格） ============ */
+  .trans-card{
+    position:absolute;right:20px;bottom:44px;width:320px;
+    background:var(--bg-elev);
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.12),0 2px 6px rgba(0,0,0,.05);
+    padding:14px 16px;
+    animation:rise .35s cubic-bezier(.2,.9,.3,1.2);
+  }
+  @keyframes rise{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+  .tc-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .tc-spin{
+    width:14px;height:14px;border-radius:50%;flex:none;
+    border:2px solid var(--accent-soft);border-top-color:var(--accent);
+    animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .tc-title{font-size:12.5px;font-weight:600}
+  .tc-sub{font-size:11.5px;color:var(--text-3);margin-left:auto}
+  .tc-track{height:4px;border-radius:2px;background:var(--bg-soft);overflow:hidden}
+  .tc-fill{height:100%;width:64%;border-radius:2px;background:var(--accent);
+    transition:width .4s ease;position:relative}
+  .tc-fill::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+    animation:sheen 1.6s linear infinite;
+  }
+  @keyframes sheen{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+  .tc-bot{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+  .tc-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2)}
+  .tc-cancel{
+    font-size:11.5px;color:var(--text-2);padding:3px 10px;border-radius:5px;
+    border:1px solid var(--border);transition:all .12s;
+  }
+  .tc-cancel:hover{color:var(--danger);border-color:rgba(214,69,69,.4);background:rgba(214,69,69,.05)}
+
+  /* ============ 划词翻译浮窗 ============ */
+  .sel-pop{
+    position:absolute;right:26%;bottom:32%;
+    width:264px;background:var(--bg-elev);
+    border:1px solid var(--border);border-radius:10px;
+    box-shadow:0 10px 32px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.05);
+    padding:12px 14px;
+    animation:rise .25s cubic-bezier(.2,.9,.3,1.15);
+  }
+  .sp-word{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .sp-word .tag{font-size:10px;font-weight:500;color:var(--text-3);background:var(--bg-soft);
+    border-radius:4px;padding:1px 6px}
+  .sp-trans{font-size:13px;color:var(--accent-text);font-weight:500;margin-top:6px}
+  .sp-foot{display:flex;align-items:center;justify-content:space-between;margin-top:9px;
+    padding-top:8px;border-top:1px solid var(--border)}
+  .sp-src{font-size:10.5px;color:var(--text-3)}
+  .sp-acts{display:flex;gap:2px}
+
+  /* ============ 状态栏 ============ */
+  .statusbar{
+    height:26px;flex:none;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 14px;
+    border-top:1px solid var(--border);
+    background:var(--bg-soft);
+    font-size:11px;color:var(--text-3);
+    user-select:none;
+  }
+  .st-left,.st-right{display:flex;align-items:center;gap:12px}
+  .st-item{display:flex;align-items:center;gap:4px;white-space:nowrap}
+  .st-dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .st-item.clickable{cursor:pointer;border-radius:4px;padding:1px 4px;margin:-1px -4px}
+  .st-item.clickable:hover{background:var(--hover);color:var(--text-2)}
+
+  /* 滚动条 */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.14);border-radius:6px;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.24);border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .stage{position:relative}
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="window">
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="brand">
+      <span class="brand-mark">青</span>
+      <span>青鸟 Markdown</span>
+    </div>
+    <div class="crumb">
+      <span>qingbird-docs</span>
+      <span class="sep">/</span>
+      <span>guides</span>
+      <span class="sep">/</span>
+      <span class="file">getting-started.md</span>
+      <span class="dirty">●</span>
+    </div>
+    <div class="title-spacer"></div>
+    <div class="tb-actions">
+      <button class="icon-btn" title="命令面板">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      </button>
+      <button class="icon-btn" title="设置">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" title="最小化"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="win-btn" title="最大化"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1.5" width="9" height="9" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="win-btn close" title="关闭"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1"/></svg></button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 活动栏 -->
+    <div class="rail">
+      <button class="rail-btn on" id="railFiles" title="文件">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      </button>
+      <button class="rail-btn" title="大纲">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="rail-btn" title="翻译记录">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      </button>
+      <div class="rail-flex"></div>
+      <button class="rail-btn" title="设置">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <!-- 侧栏 -->
+    <div class="sidebar" id="sidebar">
+      <div class="side-inner">
+        <div class="side-head">
+          <span class="side-title">工作区</span>
+          <div class="side-tools">
+            <button class="mini-btn" title="新建文件"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg></button>
+            <button class="mini-btn" title="新建文件夹"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9 14h6"/></svg></button>
+            <button class="mini-btn" title="刷新"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+          </div>
+        </div>
+        <div class="side-search">
+          <div class="search-box">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input placeholder="搜索文件…">
+          </div>
+        </div>
+        <div class="tree">
+          <button class="tree-row">
+            <span class="caret open"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+            <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="fname">guides</span>
+          </button>
+          <div class="tree-indent">
+            <button class="tree-row sel">
+              <span class="caret"></span>
+              <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+              <span class="fname">getting-started.md</span>
+            </button>
+            <button class="tree-row">
+              <span class="caret"></span>
+              <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+              <span class="fname">translation-modes.md</span>
+            </button>
+            <button class="tree-row">
+              <span class="caret"></span>
+              <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+              <span class="fname">providers.md</span>
+            </button>
+          </div>
+          <button class="tree-row">
+            <span class="caret"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+            <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="fname">assets</span>
+          </button>
+          <button class="tree-row">
+            <span class="caret"></span>
+            <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <span class="fname">README.md</span>
+          </button>
+          <button class="tree-row">
+            <span class="caret"></span>
+            <span class="ficon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <span class="fname">CHANGELOG.md</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主区 -->
+    <div class="main">
+      <!-- 标签条 -->
+      <div class="tabbar">
+        <button class="tab on">
+          getting-started.md
+          <span class="dot">●</span>
+          <span class="x"><svg width="10" height="10" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.4"/></svg></span>
+        </button>
+        <button class="tab">
+          README.md
+          <span class="x"><svg width="10" height="10" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.4"/></svg></span>
+        </button>
+        <button class="tab">
+          providers.md
+          <span class="x"><svg width="10" height="10" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.4"/></svg></span>
+        </button>
+        <button class="tab-add" title="打开文件"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+
+      <!-- 工具条 -->
+      <div class="toolbar">
+        <button class="icon-btn" title="加粗"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 0 8H6zM6 12h9a4 4 0 0 1 0 8H6z"/></svg></button>
+        <button class="icon-btn" title="斜体"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 4h-9M14 20H5M15 4 9 20"/></svg></button>
+        <button class="icon-btn" title="链接"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+        <button class="icon-btn" title="行内代码"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg></button>
+        <div class="tool-sep"></div>
+        <div class="seg" id="segView">
+          <button class="seg-btn" data-view="source">源码</button>
+          <button class="seg-btn on" data-view="split">分栏</button>
+          <button class="seg-btn" data-view="preview">预览</button>
+        </div>
+        <div class="tool-spacer"></div>
+        <div class="seg" id="segMode">
+          <button class="seg-btn" data-mode="original">原文</button>
+          <button class="seg-btn" data-mode="translation">译文</button>
+          <button class="seg-btn on" data-mode="bilingual">双语</button>
+        </div>
+        <div class="tool-sep"></div>
+        <button class="btn-ghost" title="翻译视口">视口翻译</button>
+        <button class="btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+          翻译全文
+          <kbd style="background:rgba(255,255,255,.18);border-color:transparent;color:rgba(255,255,255,.85)">⌃T</kbd>
+        </button>
+      </div>
+
+      <!-- 内容：分栏 -->
+      <div class="content" id="content">
+        <!-- 编辑器 -->
+        <div class="pane editor">
+          <div class="editor-pad">
+            <div class="ed-line"><span class="ed-ln">1</span><span class="ed-src"><span class="md-hash">#</span> <span class="md-bold">Getting Started with Qingbird</span></span></div>
+            <div class="ed-line"><span class="ed-ln">2</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">3</span><span class="ed-src">Qingbird is a <span class="md-bold">desktop Markdown translator</span> built</span></div>
+            <div class="ed-line"><span class="ed-ln">4</span><span class="ed-src">for writers who work across languages. It keeps</span></div>
+            <div class="ed-line"><span class="ed-ln">5</span><span class="ed-src">your <span class="md-code">.md</span> files exactly as they are — only the</span></div>
+            <div class="ed-line"><span class="ed-ln">6</span><span class="ed-src">reading layer changes.</span></div>
+            <div class="ed-line"><span class="ed-ln">7</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">8</span><span class="ed-src"><span class="md-hash">##</span> <span class="md-bold">Streaming Translation</span></span></div>
+            <div class="ed-line"><span class="ed-ln">9</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">10</span><span class="ed-src">Translations stream in <span class="md-bold">token by token</span>, so you</span></div>
+            <div class="ed-line"><span class="ed-ln">11</span><span class="ed-src">see the first words almost instantly:</span></div>
+            <div class="ed-line"><span class="ed-ln">12</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">13</span><span class="ed-src"><span class="md-dim">```ts</span></span></div>
+            <div class="ed-line"><span class="ed-ln">14</span><span class="ed-src"><span style="color:#7c3aed">const</span> result = <span style="color:#7c3aed">await</span> <span style="color:#2f6fdb">translate</span>(doc, {</span></div>
+            <div class="ed-line"><span class="ed-ln">15</span><span class="ed-src">  mode: <span style="color:#0c8a78">"bilingual"</span>,</span></div>
+            <div class="ed-line"><span class="ed-ln">16</span><span class="ed-src">  provider: <span style="color:#0c8a78">"deepseek"</span>,</span></div>
+            <div class="ed-line"><span class="ed-ln">17</span><span class="ed-src">});</span></div>
+            <div class="ed-line"><span class="ed-ln">18</span><span class="ed-src"><span class="md-dim">```</span></span></div>
+            <div class="ed-line"><span class="ed-ln">19</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">20</span><span class="ed-src"><span class="md-quote">&gt; Cached segments are keyed by content hash, so</span></span></div>
+            <div class="ed-line"><span class="ed-ln">21</span><span class="ed-src"><span class="md-quote">&gt; re-translating an edited doc only costs the diff.</span></span></div>
+            <div class="ed-line"><span class="ed-ln">22</span><span class="ed-src"></span></div>
+            <div class="ed-line"><span class="ed-ln">23</span><span class="ed-src">See <span class="md-link">translation modes</span> for the full matrix.</span></div>
+          </div>
+        </div>
+
+        <!-- 预览 -->
+        <div class="pane preview">
+          <div class="preview-pad">
+            <div class="pv-meta">
+              <span class="chip teal">双语对照</span>
+              <span class="chip">DeepSeek</span>
+              <span>已缓存 41 / 50 段</span>
+            </div>
+            <h1 class="pv-h1">Getting Started with Qingbird</h1>
+            <div class="pair">
+              <p class="en">Qingbird is a <b>desktop Markdown translator</b> built for writers who work across languages. It keeps your <code>.md</code> files exactly as they are — only the reading layer changes.</p>
+              <p class="zh">青鸟是一款<b>桌面端 Markdown 翻译工具</b>，为跨语言写作的作者而生。它不会改动你的 <code>.md</code> 源文件——改变的只有阅读层。</p>
+            </div>
+            <h2 class="pv-h2">Streaming Translation</h2>
+            <div class="pair">
+              <p class="en">Translations stream in <b>token by token</b>, so you see the first words almost <span style="background:rgba(12,138,120,.14);border-radius:3px;padding:0 2px">seamlessly</span> as they arrive:</p>
+              <p class="zh">译文以 <b>逐 token 流式</b>输出，几乎在返回的瞬间，你就能看到第一行文字无缝地浮现：</p>
+            </div>
+            <div class="pv-code"><span class="tok-k">const</span> result = <span class="tok-k">await</span> <span class="tok-f">translate</span>(doc, {<br>&nbsp;&nbsp;mode: <span class="tok-s">"bilingual"</span>,<br>&nbsp;&nbsp;provider: <span class="tok-s">"deepseek"</span>,<br>}); <span class="tok-c">// 流式优先，TTFT 即体验</span></div>
+            <div class="pv-quote">
+              Cached segments are keyed by content hash, so re-translating an edited doc only costs the diff.<br>
+              <span style="color:var(--text-3);font-size:13px">缓存按内容哈希分段建键，改后重译只需付出增量的代价。</span>
+            </div>
+            <p class="pv-p">See <a style="color:#2f6fdb">translation modes</a> for the full matrix. <span style="color:var(--text-2)">完整的模式矩阵见</span><a style="color:#2f6fdb">翻译模式</a><span style="color:var(--text-2)">。</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="statusbar">
+    <div class="st-left">
+      <span class="st-item clickable"><span class="st-dot"></span>未保存</span>
+      <span class="st-item">guides/getting-started.md</span>
+    </div>
+    <div class="st-right">
+      <span class="st-item">1,204 字 · 23 行</span>
+      <span class="st-item">UTF-8</span>
+      <span class="st-item clickable">双语</span>
+      <span class="st-item clickable">DeepSeek</span>
+      <span class="st-item">翻译中 32/50</span>
+    </div>
+  </div>
+</div>
+
+<!-- 划词翻译浮窗 -->
+<div class="sel-pop">
+  <div class="sp-word">seamlessly <span class="tag">adv.</span></div>
+  <div class="sp-trans">无缝地；流畅地</div>
+  <div class="sp-foot">
+    <span class="sp-src">DeepSeek · 划词翻译</span>
+    <div class="sp-acts">
+      <button class="mini-btn" title="复制"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+      <button class="mini-btn" title="朗读"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<!-- 翻译进度卡 -->
+<div class="trans-card">
+  <div class="tc-top">
+    <span class="tc-spin"></span>
+    <span class="tc-title">全文翻译 · 双语</span>
+    <span class="tc-sub">64%</span>
+  </div>
+  <div class="tc-track"><div class="tc-fill"></div></div>
+  <div class="tc-bot">
+    <span class="tc-meta">
+      <span class="chip teal" style="font-size:10.5px;padding:1px 8px">DeepSeek</span>
+      32 / 50 段
+    </span>
+    <button class="tc-cancel">取消</button>
+  </div>
+</div>
+</div>
+
+<script>
+  // 侧栏收展
+  const sidebar = document.getElementById('sidebar');
+  const railFiles = document.getElementById('railFiles');
+  railFiles.addEventListener('click', () => {
+    sidebar.classList.toggle('gone');
+    railFiles.classList.toggle('on', !sidebar.classList.contains('gone'));
+  });
+
+  // 视图切换：源码 / 分栏 / 预览
+  const content = document.getElementById('content');
+  document.querySelectorAll('#segView .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#segView .seg-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      content.classList.remove('source-only', 'preview-only');
+      if (btn.dataset.view === 'source') content.classList.add('source-only');
+      if (btn.dataset.view === 'preview') content.classList.add('preview-only');
+    });
+  });
+
+  // 阅读模式切换（视觉态）
+  document.querySelectorAll('#segMode .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#segMode .seg-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+    });
+  });
+
+  // 标签切换（视觉态）
+  document.querySelectorAll('.tabbar .tab').forEach(tab => {
+    tab.addEventListener('click', e => {
+      if (e.target.closest('.x')) return;
+      document.querySelectorAll('.tabbar .tab').forEach(t => t.classList.remove('on'));
+      tab.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>
