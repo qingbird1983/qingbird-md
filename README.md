@@ -1,10 +1,10 @@
 # 青鸟 Markdown（qingbird-md）
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.1.8](https://img.shields.io/badge/Release-v0.1.8-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.1.10](https://img.shields.io/badge/Release-v0.1.10-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
 
 带流式中英翻译的 Markdown 桌面编辑器。**Rust 核心 + React/TypeScript 前端 + Tauri 2**， 面向「读英文技术文档、写双语内容」的场景设计——选中即译、整篇流式翻译、框选屏幕就能译。
 
-下载 Windows 安装包（约 7 MB）：**[Gitee Releases](https://gitee.com/muyan1983/qingbird-md/releases)** ↓
+下载 Windows 安装包（约 9.4 MB）：**[Gitee Releases](https://gitee.com/muyan1983/qingbird-md/releases)** ↓
 
 ![青鸟 Markdown 主界面：编辑器、预览、大纲三栏式布局，Markdown 源码与渲染结果实时对照](docs/screenshots/app-main-light.png)
 
