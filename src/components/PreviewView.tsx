@@ -22,8 +22,9 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ClipboardCopy, Copy, Plus, SquareCode, TextSelect } from "lucide-react";
+import { ArrowUp, ClipboardCopy, Copy, Plus, SquareCode, TextSelect } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { EditorView as CmEditorView } from "@codemirror/view";
 import { api } from "../lib/ipc";
 import ContextMenu, { type CtxEntry } from "./ContextMenu";
 import { insertFormula, insertFromPreview, insertMermaid, insertSnippet } from "../lib/inserts";
@@ -36,7 +37,22 @@ import { codeTextFrom } from "../lib/codeText";
 import { startColDrag } from "../lib/colDrag";
 import { lockTypingHost, patchPartial, unlockTypingHost } from "../lib/patchPartial";
 import { handlePreviewLinkClick } from "../lib/linkSafety";
-import { renderMathPlaceholders, renderMermaidPlaceholders, clearMermaidCache, reconfigureMermaidTheme } from "../lib/previewExtensions";
+import {
+  renderMathPlaceholders,
+  renderMermaidPlaceholders,
+  clearMermaidCache,
+  reconfigureMermaidTheme,
+} from "../lib/previewExtensions";
+import { collectLineAnchors, sourceRangeForSelection } from "../lib/previewAnchor";
+import {
+  anchorIndexForLine,
+  anchorIndexForTop,
+  emitSplitSync,
+  lockSplitSide,
+  splitSyncLocked,
+  subscribeSplitSync,
+  type SplitAnchor,
+} from "../lib/splitSync";
 // 样式：markdown.css 由 main.tsx 全局导入（此处再导入会与树摇后的主路径重复）
 
 /** img src 只在 DOM 层改写：resolve 失败/null（http/data 等）保持原样由浏览器加载。 */
@@ -132,6 +148,9 @@ function addHeadingToggles(scope: HTMLElement) {
   }
 }
 
+/** 回顶按钮出现阈值（px）：短文不该顶一个按钮晃眼。 */
+const PREVIEW_TOP_AT = 320;
+
 export default function PreviewView() {
   const ref = useRef<HTMLDivElement>(null);
   const content = useDocStore((s) => s.doc?.content ?? null);
@@ -160,6 +179,16 @@ export default function PreviewView() {
   const anchorsRef = useRef<Array<{ idx: number; top: number }> | null>(null);
   const anchorsDirtyRef = useRef(true);
   const scrollRafRef = useRef(0);
+  // 分栏同步：源行锚点表（<!--sl:N--> 注释 ↔ 块元素，索引与 anchorsRef 无关）。
+  // 与 anchorsRef 共用脏标记——两者都是「DOM 重建 / 尺寸变化后必须整体重算」的
+  // 同类产物，分开维护只会漏标一个。
+  const lineAnchorsRef = useRef<SplitAnchor[] | null>(null);
+  /** 上次被编辑器驱动到的锚点下标：同一块不重复写 scrollTop。 */
+  const appliedLineRef = useRef(-1);
+  /** 上次外发给编辑器的行号：滚动中同一块只推一次，避免每帧 dispatch 编辑器。 */
+  const emittedLineRef = useRef(-1);
+  /** 回顶按钮显隐（只在跨阈值时 setState，滚动中不重渲）。 */
+  const [showTop, setShowTop] = useState(false);
   // 观察滚动容器内容宽（clientWidth 不含经典滚动条）：把手定位与拖宽钳制都以它为准；
   // 滚动条宽 = scroller offsetWidth − clientWidth，写 --sb-w 供 CSS 定位取用——
   // 正文栏在内容盒内居中（margin auto），不在 wrap 全宽内居中。
@@ -173,6 +202,9 @@ export default function PreviewView() {
         raf = 0;
         setPaneW(el.clientWidth);
         wrap.style.setProperty("--sb-w", `${el.offsetWidth - el.clientWidth}px`);
+        // 宽度变了 → 文本重排 → 各块 offsetTop 全变，两份锚点表都必须重算。
+        // （不在这里重算本身：标脏即可，真正的重建推迟到下一次滚动上报。）
+        anchorsDirtyRef.current = true;
       });
     });
     ro.observe(el);
@@ -335,7 +367,11 @@ export default function PreviewView() {
     addCopyButtons(el);
     addHeadingToggles(el);
     renderMathPlaceholders(el);
-    void renderMermaidPlaceholders(el);
+    // mermaid 是异步渲染：落位后块高变化 → 锚点表标脏。不标的话分栏同步会按
+    // 「mermaid 还是空占位」时的位置对齐，图越多的文档偏得越厉害。
+    void renderMermaidPlaceholders(el).then(() => {
+      anchorsDirtyRef.current = true;
+    });
   }, [html, baseDir]);
 
   // innerHTML 重建（doneHtml/parse 切换）会抹掉所有 patch——水位复位，
@@ -346,6 +382,11 @@ export default function PreviewView() {
   useEffect(() => {
     patchedRef.current.upto = 0;
     anchorsDirtyRef.current = true;
+    // 同步侧的两处「上次值」一并作废：换文档/重建后行号与块下标都换了坐标系，
+    // 沿用旧值会让第一次同步被误判成「没变化」而不生效。
+    appliedLineRef.current = -1;
+    emittedLineRef.current = -1;
+    setShowTop(false); // 随后的滚动上报会用真实 scrollTop 纠正
   }, [html]);
 
   // committed 回填：只处理上次水位之后新放行的已定格区间，逐块查锚点 patch。
@@ -423,22 +464,51 @@ export default function PreviewView() {
       }
       return ans;
     };
+    /** 两份锚点表一起重建（data-bi 供翻译视口、源行供分栏同步），代价一次付清。 */
+    const rebuildAnchors = (el: HTMLElement) => {
+      const list: Array<{ idx: number; top: number }> = [];
+      el.querySelectorAll<HTMLElement>("[data-bi]").forEach((n) => {
+        const bi = Number(n.dataset.bi);
+        if (Number.isFinite(bi)) list.push({ idx: bi, top: n.offsetTop });
+      });
+      list.sort((a, b) => a.top - b.top);
+      anchorsRef.current = list;
+      // 源行锚点也按 offsetTop 同系（offsetParent 同为 .preview-wrap），
+      // 与 scroller.scrollTop 可直接相减/赋值，无需 rect 差值。
+      lineAnchorsRef.current = collectLineAnchors(el)
+        .map((a) => ({ line: a.line, top: a.el.offsetTop }))
+        .sort((a, b) => a.line - b.line);
+      anchorsDirtyRef.current = false;
+    };
     const report = () => {
       const el = ref.current;
       if (!el) return;
-      if (anchorsDirtyRef.current || !anchorsRef.current) {
-        const list: Array<{ idx: number; top: number }> = [];
-        el.querySelectorAll<HTMLElement>("[data-bi]").forEach((n) => {
-          const bi = Number(n.dataset.bi);
-          if (Number.isFinite(bi)) list.push({ idx: bi, top: n.offsetTop });
-        });
-        list.sort((a, b) => a.top - b.top);
-        anchorsRef.current = list;
-        anchorsDirtyRef.current = false;
+      if (anchorsDirtyRef.current || !anchorsRef.current || !lineAnchorsRef.current) {
+        rebuildAnchors(el);
       }
+      const y = scroller.scrollTop;
+
+      // 回顶按钮（无 data-bi 的纯中文文档也要生效，故排在下面的早退之前）
+      setShowTop(y > PREVIEW_TOP_AT);
+
+      // 分栏同步：把「预览当前顶块」的源行号推给编辑器。被编辑器驱动时
+      // （splitSyncLocked）不上报，否则两侧互相推让滚不停。同块只推一次，
+      // 免得平滑滚动期间每帧都去 dispatch 编辑器。
+      if (useDocStore.getState().view === "split" && !splitSyncLocked("preview")) {
+        const la = lineAnchorsRef.current;
+        const i = la && la.length > 0 ? anchorIndexForTop(la, y) : -1;
+        const line = i >= 0 ? la![i]!.line : -1;
+        if (line > 0 && line !== emittedLineRef.current) {
+          emittedLineRef.current = line;
+          // 本侧开始当「主动方」：之前给对侧的被动跟随记录作废（那些位置是
+          // 对侧拖过来的，不代表本侧主动滚过），否则下次回到同一块会被去重吃掉。
+          appliedLineRef.current = -1;
+          emitSplitSync("preview", line);
+        }
+      }
+
       const anchors = anchorsRef.current;
       if (!anchors || anchors.length === 0) return;
-      const y = scroller.scrollTop;
       const top = topIndexAt(y);
       const bottom = topIndexAt(y + scroller.clientHeight - 1);
       useTranslationStore.getState().setViewport(top, bottom);
@@ -525,6 +595,76 @@ export default function PreviewView() {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
+  // ── 分栏同步（反向）：编辑器顶行 → 预览对齐 ──────────────────
+  // 只做被动跟随（本侧的主动上报在上面的 report 里）。收到行号立刻写 scrollTop，
+  // 不走 smooth：平滑滚动会在 180ms 锁窗之外继续派发 scroll 事件，行号又被弹回去。
+  useEffect(() => {
+    return subscribeSplitSync("preview", (line) => {
+      const scroller = scrollerRef.current;
+      const la = lineAnchorsRef.current;
+      if (!scroller || !la || la.length === 0) return;
+      const i = anchorIndexForLine(la, line);
+      if (i < 0 || i === appliedLineRef.current) return;
+      appliedLineRef.current = i;
+      // 本侧转为「被动方」：把主动上报的记录作废——位置是编辑器拖过来的，
+      // 不代表本侧滚过这一块；不清的话用户随后手动滚回同一块会被去重吃掉。
+      emittedLineRef.current = -1;
+      scroller.scrollTop = la[i]!.top;
+    });
+  }, []);
+
+  // ── 预览选区 → 源码选中（2026-09-14）────────────────────────
+  // 挂在 mouseup 而非 selectionchange：拖选过程中选区每帧都变，逐帧把光标甩进
+  // 源码会打断用户拖拽；松手落一次，语义也更像「定位」。只在分栏下生效——
+  // 单预览视图里 EditorView 根本没挂载（cmRef 为空），本就无处可落。
+  useEffect(() => {
+    const onUp = () => {
+      if (useDocStore.getState().view !== "split") return;
+      const host = ref.current;
+      const sel = window.getSelection();
+      if (!host || !sel || sel.isCollapsed) return;
+      if (!sel.anchorNode || !host.contains(sel.anchorNode)) return;
+      const text = sel.toString();
+      if (!text.trim()) return;
+
+      // 现场重收一次「注释 ↔ 块元素」配对：这里要的是元素本身（用于判断选区
+      // 落在哪个块），而 lineAnchorsRef 只留了行号与像素顶边。mouseup 是低频
+      // 动作，重扫一遍 childNodes 远比重算整表便宜，也不会吃到过期缓存。
+      const la = collectLineAnchors(host);
+      if (la.length === 0) return;
+      const indexAt = (node: Node | null): number => {
+        if (!node) return -1;
+        for (let i = 0; i < la.length; i++) {
+          if (la[i]!.el.contains(node)) return i;
+        }
+        return -1;
+      };
+      const a = indexAt(sel.anchorNode);
+      const b = indexAt(sel.focusNode);
+      if (a < 0 && b < 0) return; // 选区整个落在无锚点的区域（如文末脚注区）
+      const first = b < 0 ? a : a < 0 ? b : Math.min(a, b);
+      const last = b < 0 ? a : a < 0 ? b : Math.max(a, b);
+      const fromLine = la[first]!.line;
+      const nextLine = la[last + 1]?.line ?? null;
+
+      const src = useDocStore.getState().doc?.content ?? "";
+      const range = sourceRangeForSelection(src, fromLine, nextLine, text);
+      const view = useDocStore.getState().cmRef.current;
+      if (!range || !view) return;
+      const max = view.state.doc.length;
+      const from = Math.min(range[0], max);
+      const to = Math.min(range[1], max);
+      lockSplitSide("editor"); // 这次程序化滚动不该把预览也一路带下去
+      view.dispatch({
+        selection: { anchor: from, head: to },
+        effects: CmEditorView.scrollIntoView(from, { y: "center" }),
+      });
+      view.focus();
+    };
+    document.addEventListener("mouseup", onUp);
+    return () => document.removeEventListener("mouseup", onUp);
+  }, []);
+
   if (content === null) return <div className="preview-empty">未打开文档</div>;
 
   return (
@@ -543,6 +683,19 @@ export default function PreviewView() {
           <div className="content-resizer right" onPointerDown={startEdgeDrag("right")} onPointerMove={trackPill} />
         </>
       )}
+      {/* 回到顶部：滚过一屏以上才淡入（见 PREVIEW_TOP_AT），点击平滑滚回顶部。
+          平滑滚动期间 report 会把行号推给编辑器，两侧一起回到顶部。
+          隐藏态用 tabIndex=-1 + visibility 彻底退出键盘与命中测试，不留隐形靶子。 */}
+      <button
+        type="button"
+        className={`preview-top${showTop ? " on" : ""}`}
+        title="回到顶部"
+        aria-label="回到顶部"
+        tabIndex={showTop ? 0 : -1}
+        onClick={() => scrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+      >
+        <ArrowUp size={16} />
+      </button>
       {ctx && (
         <ContextMenu anchor={{ x: ctx.x, y: ctx.y }} entries={ctxEntries()} onClose={() => setCtx(null)} />
       )}

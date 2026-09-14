@@ -63,6 +63,13 @@ export async function buildActiveDocHtml(): Promise<string | null> {
   if (live) {
     const clone = live.cloneNode(true) as HTMLElement;
     clone.querySelectorAll(".copy-btn,.h-toggle").forEach((n) => n.remove());
+    // 剥掉源行锚点注释（`<!--sl:N-->`）：那是分栏左右同步在应用内部用的定位标记
+    // （markdown/html.rs::render_top_blocks），导出件里没有任何消费者，留着只是
+    // 把内部实现泄进用户拿走的文件。
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+    const comments: Comment[] = [];
+    while (walker.nextNode()) comments.push(walker.currentNode as Comment);
+    for (const c of comments) c.remove();
 
     // 图片：活 DOM 的 src 已被改写成 asset:// 协议（浏览器外无效），按 document
     // 顺序对回原始渲染串里的相对路径逐个重解析为 file:// 绝对路径；数量不等
@@ -83,7 +90,8 @@ export async function buildActiveDocHtml(): Promise<string | null> {
     }
     bodyHtml = clone.innerHTML;
   } else {
-    bodyHtml = doc.parseResult?.html ?? "";
+    // 回退路径（源码视图导出）同样剥掉源行锚点注释，与活 DOM 路径口径一致
+    bodyHtml = (doc.parseResult?.html ?? "").replace(/<!--sl:\d+-->/g, "");
   }
 
   return [

@@ -25,6 +25,7 @@ import { minimalSetup } from "codemirror";
 import { math } from "codemirror-lang-math";
 import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
+import { emitSplitSync, splitSyncLocked, subscribeSplitSync } from "../lib/splitSync";
 
 // ```math 围栏代码块高亮（codemirror-lang-math 0.1.8，无 @replit scope）
 const mathLang = LanguageDescription.of({
@@ -120,6 +121,49 @@ export default function EditorView() {
     };
     view.scrollDOM.addEventListener("scroll", onScroll);
 
+    // ── 分栏同步（编辑器侧）──────────────────────────────────
+    // 行号是两侧唯一的公共坐标（预览侧锚点来自 Rust 写的 <!--sl:N--> 注释，
+    // 见 lib/splitSync.ts）。本侧负责两头：滚动时把「视口顶行」推给预览；
+    // 收到预览的行号则把该行对齐到视口顶部。
+    // 锁由 emitSplitSync/lockSplitSide 打在对侧——被程序化拖动的一侧不回报，
+    // 否则两侧会互相推让滚不停。
+    let lastEmittedLine = -1;
+    let lastAppliedLine = -1;
+    let syncRaf = 0;
+    const emitLine = () => {
+      // 非分栏视图没有对侧可同步（预览没挂载），单源码视图白算一趟
+      if (useDocStore.getState().view !== "split") return;
+      if (splitSyncLocked("editor")) return;
+      const top = view.scrollDOM.scrollTop;
+      // lineBlockAtHeight 的高度是**文档坐标系**（= 滚动容器 scrollTop），
+      // 返回该高度的行块，取其起始位置再换行号。
+      const line = view.state.doc.lineAt(view.lineBlockAtHeight(top).from).number;
+      if (line === lastEmittedLine) return; // 同块只推一次，别每帧都惊动预览
+      lastEmittedLine = line;
+      // 本侧转为「主动方」：清掉被动跟随记录。那些位置是预览拖过来的，不代表
+      // 本侧主动滚过这一行；不清的话用户随后手动滚回同一行会被去重吃掉。
+      lastAppliedLine = -1;
+      emitSplitSync("editor", line);
+    };
+    const onSyncScroll = () => {
+      if (syncRaf) return;
+      syncRaf = requestAnimationFrame(() => {
+        syncRaf = 0;
+        emitLine();
+      });
+    };
+    view.scrollDOM.addEventListener("scroll", onSyncScroll, { passive: true });
+    const unsubSync = subscribeSplitSync("editor", (line) => {
+      if (line === lastAppliedLine) return;
+      lastAppliedLine = line;
+      // 本侧转为「被动方」：清掉主动上报记录（见 emitLine 的对称说明）
+      lastEmittedLine = -1;
+      const target = Math.max(1, Math.min(view.state.doc.lines, line));
+      view.dispatch({
+        effects: CmEditorView.scrollIntoView(view.state.doc.line(target).from, { y: "start" }),
+      });
+    });
+
     // 工具栏撤销/重做桥接：实例句柄挂到 docStore，卸载时清空
     useDocStore.getState().cmRef.current = view;
 
@@ -143,6 +187,9 @@ export default function EditorView() {
       }
       clearTimeout(scrollTimer);
       view.scrollDOM.removeEventListener("scroll", onScroll);
+      view.scrollDOM.removeEventListener("scroll", onSyncScroll);
+      if (syncRaf) cancelAnimationFrame(syncRaf);
+      unsubSync();
       useDocStore.getState().cmRef.current = null;
       mq.removeEventListener("change", applyTheme);
       unsubTheme();

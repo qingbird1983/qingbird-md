@@ -93,7 +93,8 @@ pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: boo
     // 预扫递归顺序与渲染 walk 一致，编号即文档顺序。
     collect_fn_labels(&blocks, &mut ctx.fn_nums);
     let mut html = String::new();
-    ctx.render_blocks(&mut html, &blocks);
+    let src_lines = super::model::top_level_block_lines(content);
+    ctx.render_top_blocks(&mut html, &blocks, &src_lines);
     if !ctx.fn_html.is_empty() {
         html.push_str("<section class=\"footnotes\"><ol>");
         html.push_str(&ctx.fn_html);
@@ -127,6 +128,30 @@ fn collect_fn_labels(blocks: &[Block], nums: &mut HashMap<String, usize>) {
 impl<'t> Ctx<'t> {
     fn render_blocks(&mut self, out: &mut String, blocks: &[Block]) {
         for b in blocks {
+            self.render_block(out, b);
+            out.push('\n');
+        }
+    }
+
+    /// 顶层块渲染：与 [`Self::render_blocks`] 的唯一差别是给块前置一行
+    /// `<!--sl:N-->` **源行锚点**（N = 该块在源码里的 1 起行号，由
+    /// `model::top_level_block_lines` 按同一事件序列算出）。
+    ///
+    /// 为什么是注释而不是块上的 `data-sl` 属性：属性要插进块的开标签，而
+    /// 开标签串（`<p data-bi="1">` 等）被大量测试与前端逻辑当作契约字面量；
+    /// 注释作为独立兄弟节点既能被前端按序配对，又完全不参与布局、不进
+    /// `textContent` / `Range.toString()`（全选、复制、代码取文一律不受影响）。
+    /// 嵌套块不挂锚点——顶层粒度已足够定位，且嵌套块的位置由父块决定。
+    ///
+    /// 脚注定义块不挂锚点：它被搬到文末 footnotes 区渲染，行号在 DOM 序里
+    /// 不再单调，留作锚点会让「按行号最近的块」查错。
+    fn render_top_blocks(&mut self, out: &mut String, blocks: &[Block], lines: &[usize]) {
+        for (i, b) in blocks.iter().enumerate() {
+            if !matches!(b, Block::FootnoteDef { .. }) {
+                if let Some(line) = lines.get(i) {
+                    let _ = write!(out, "<!--sl:{}-->", line);
+                }
+            }
             self.render_block(out, b);
             out.push('\n');
         }
@@ -932,6 +957,66 @@ A--&gt;B
         let r = render_html("---\ntitle: T\n---\n\nBody", &HashMap::new(), false);
         assert!(!r.html.contains("title:"), "{}", r.html);
         assert!(r.html.contains("Body"));
+    }
+
+    // ---- 顶层块源行锚点（分栏同步用，2026-09-14）----
+
+    #[test]
+    fn src_line_anchors_precede_every_top_level_block() {
+        let md = "# 标题\n\n正文段落。\n\n- 项 1\n- 项 2\n";
+        let r = render_html(md, &HashMap::new(), false);
+        assert!(r.html.contains("<!--sl:1--><h1"), "{}", r.html);
+        assert!(r.html.contains("<!--sl:3--><p"), "{}", r.html);
+        assert!(r.html.contains("<!--sl:5--><ul>"), "{}", r.html);
+        // 每个顶层块恰一个锚点
+        assert_eq!(
+            r.html.matches("<!--sl:").count(),
+            crate::markdown::parse_blocks(md).len(),
+            "{}",
+            r.html
+        );
+    }
+
+    #[test]
+    fn src_line_anchors_skip_relocated_footnote_defs() {
+        // 定义块被搬到文末渲染，行号在 DOM 序里不再单调 → 不留锚点
+        let md = "正文[^a]。\n\n[^a]: 定义。\n";
+        let r = render_html(md, &HashMap::new(), false);
+        assert!(!r.html.contains("<!--sl:3-->"), "{}", r.html);
+        assert_eq!(r.html.matches("<!--sl:").count(), 1, "{}", r.html);
+    }
+
+    #[test]
+    fn src_line_anchors_survive_all_three_modes() {
+        // 三种形态（原文/替换/对照）都走 render_top_blocks，锚点不能只在一种形态出现
+        let md = "# Title\n\nHello world.\n";
+        let mut m = HashMap::new();
+        m.insert(0usize, "标题".to_string());
+        for r in [
+            render_html(md, &HashMap::new(), false),
+            render_html(md, &m, false),
+            render_html(md, &m, true),
+        ] {
+            assert_eq!(r.html.matches("<!--sl:1-->").count(), 1, "{}", r.html);
+            assert_eq!(r.html.matches("<!--sl:3-->").count(), 1, "{}", r.html);
+        }
+    }
+
+    #[test]
+    fn demo_doc_renders_mermaid_and_math_placeholders() {
+        // 示例文档（docs/screenshots/demo.md，随包内联给「打开示例文档」，也是 README
+        // 截图的取景对象）里那节「图表与公式」必须真能出占位符——它只是 markdown
+        // 文本，改了围栏语言/公式写法就会静默退化成普通代码块与纯文本。
+        // 路径按 CARGO_MANIFEST_DIR 定位，不依赖 cargo test 的调用目录。
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docs/screenshots/demo.md");
+        let md = std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| panic!("读不到示例文档 {}: {e}", p.display()));
+        let r = render_html(&md, &HashMap::new(), false);
+        assert_eq!(r.html.matches(r#"<div class="mermaid" data-source=""#).count(), 1);
+        assert!(r.html.contains("flowchart LR"), "mermaid 源码没进 data-source");
+        assert_eq!(r.html.matches(r#"<div class="math block" data-source=""#).count(), 1);
+        assert!(r.html.matches("math inline").count() >= 1, "行内公式应有占位符");
     }
 
     #[test]

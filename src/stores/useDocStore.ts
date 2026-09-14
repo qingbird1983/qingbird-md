@@ -66,6 +66,11 @@ interface DocState {
   // —— 动作 ——
   openTab(path: string): Promise<void>;
   newTab(): void;
+  /**
+   * 打开一份**内置内容**（欢迎页「打开示例文档」，内容来自 lib/demoDoc.ts）。
+   * 没有 path：不在磁盘上留副本、不会被存回安装目录；同名标签已存在则切过去。
+   */
+  openExampleTab(name: string, content: string): void;
   closeTab(id: string): Promise<void>;
   switchTab(id: string): void;
 
@@ -290,6 +295,37 @@ export const useDocStore = create<DocState>()((set, get) => {
         mtime: null,
         encoding: null,
         view: "source",
+        mode: "original",
+        cursorSel: [0, 0],
+        scrollTop: 0,
+        translations: new Map(),
+        doneHtml: null,
+        parseResult: null,
+        htmlCache: null,
+      };
+      set((s) => commit([...s.tabs, tab], tab.id));
+    },
+
+    openExampleTab: (name, content) => {
+      // 去重：示例只会有一份，重复点按钮应当切过去而不是叠出第二个标签
+      // （与 openTab 对同一路径的处理同口径）。
+      const existing = get().tabs.find((t) => t.path === null && t.name === name);
+      if (existing) {
+        get().switchTab(existing.id);
+        return;
+      }
+      const tab: OpenTab = {
+        id: newId(),
+        path: null,
+        name,
+        content,
+        // savedContent 与内容等值 ⇒ **不标脏**：用户不动它，关标签时不会被追问
+        // 保存；动过之后照常进脏态，Ctrl+S 因 path 为空自然走「另存为」。
+        savedContent: content,
+        mtime: null,
+        encoding: null,
+        // 预览态：示例是用来「看」的（渲染、公式、图表一屏尽收），要改再切源码。
+        view: "preview",
         mode: "original",
         cursorSel: [0, 0],
         scrollTop: 0,

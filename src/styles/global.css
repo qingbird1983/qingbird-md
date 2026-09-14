@@ -812,6 +812,18 @@ body {
   cursor: default;
 }
 
+/* 「划词」与前面三个阅读档之间的发丝线（2026-09-14）：划词是独立开关、不是
+   互斥档位，共用 modeseg 的下划线字形但不属于那一组，没有这条线会被读成
+   「第四个档位」。分隔线只在视觉上分组，故 aria 上不参与（组件里 aria-hidden）。 */
+.editor-toolbar .modeseg .modeseg-sep {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 13px;
+  margin: 0 7px;
+  background: var(--border);
+}
+
 /* ============ 主区 ============ */
 .main-area {
   grid-row: 3;
@@ -1926,6 +1938,46 @@ body:has(.app-resizer.dragging) .tabbar {
 .content-resizer:hover::after,
 .content-resizer.dragging::after {
   opacity: 1;
+}
+
+/* 回到顶部（2026-09-14）：滚过一屏后右下角淡入的圆形按钮。
+   定位基准 .preview-wrap；右缘让开经典滚动条——--sb-w 由 PreviewView 实测写入
+   （滚动条宽 = offsetWidth − clientWidth），所以是 16px + 滚动条宽，否则按钮被
+   滚动条压住。隐藏态用 visibility:hidden 而不是只给 opacity:0——看不见的东西
+   不该留在命中测试里；transition 带上 visibility 让淡出也能走完（不会突然消失）。 */
+.preview-top {
+  position: absolute;
+  right: calc(16px + var(--sb-w, 0px));
+  bottom: 18px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--fg2);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  box-shadow: var(--shadow-sm);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0.18s,
+    color 0.14s, border-color 0.14s;
+}
+
+.preview-top.on {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.preview-top:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
 }
 
 .content-resizer.dragging::after {
@@ -3323,9 +3375,17 @@ body:has(.app-resizer.dragging) .tabbar {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 40px 32px 64px;
+  padding: 40px 24px 64px;
   text-align: center;
-  max-width: 520px;
+  /* 620px 是量出来的。**注意 .welcome-inner 是内容自适应宽度**（.welcome 里
+     justify-content:center，不是拉伸），所以 max-width 平时根本不生效，
+     它只在「内容比它宽」时起**夹取**作用——一旦夹住，四个按钮就换行。
+     四个按钮并排一行（2026-09-14 用户要求）实测需要 489px（105+105+118+131
+     + 3×10 间距，无头 Edge 量得），旧值 520 扣掉左右 32px 内边距只剩 456px
+     → 必夹取 → 必换行。620 给足余量，条数再涨也不会被夹。
+     左右内边距 32→24 同理：内容盒平时不吃内边距，只有窄窗被夹时才影响可用宽度，
+     少 16px 就是窄窗下多 16px 余量（单行成立的门槛 = 主区宽 ≥ 489 + 2×内边距）。 */
+  max-width: 620px;
 }
 
 /* 朱砂「青」印：与应用内印章同源（圆角方 + 内描边 + 宋体字） */
