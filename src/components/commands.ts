@@ -2,7 +2,12 @@
 // 菜单是交互唯一真源，面板只是第二入口，不复制业务逻辑。
 // enabled 在面板打开（条件挂载）时求值：前置不满足的命令直接过滤
 // （保存/另存对齐 FileMenu 禁用语义，阅读模式对齐 TranslateMenu 的无文档禁用）。
+//
+// 例外：配色一组的主入口是设置面板的「外观」页（带色卡预览），命令面板只是
+// 给「不想开面板、只想快速换一套纸色」的人的第二条路——按 paletteSeeds 的
+// 真源清单生成，不手抄色名。
 import { api } from "../lib/ipc";
+import { PALETTES, PALETTE_IDS } from "../lib/paletteSeeds";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
@@ -98,6 +103,13 @@ export const COMMANDS: Command[] = [
       useSettingsStore.getState().setTheme(isDarkTheme() ? "light" : "dark");
     },
   },
+  // ---- 配色（按 paletteSeeds 真源清单生成；主入口在设置面板「外观」页）----
+  ...PALETTE_IDS.map((id) => ({
+    label: `配色：${PALETTES[id].label}`,
+    keywords: ["palette", "color", id, PALETTES[id].short],
+    // setPalette 自带「与当前相同则不动」守卫，重复选中不会多写一次盘
+    run: () => useSettingsStore.getState().setPalette(id),
+  })),
   {
     label: "清除翻译缓存",
     keywords: ["cache"],

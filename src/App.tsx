@@ -18,9 +18,50 @@ import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 import { openFile } from "./components/commands";
 import { comboMatches } from "./lib/hotkeys";
+import { HOTKEYS, effectiveHotkeys, type AppHotkeyId } from "./lib/hotkeyRegistry";
+import type { Mode } from "./types/ipc";
 import { startColDrag } from "./lib/colDrag";
 import { api } from "./lib/ipc";
 import { collectSnapshot } from "./lib/session";
+
+/**
+ * 应用内快捷键的**执行体**：键 = lib/hotkeyRegistry 的 id。
+ *
+ * 这里只回答「做什么」，「什么键触发」全在注册表里（含用户改键）。
+ * 系统级的项（截图翻译、三个模式键）不出现在这张表：
+ *   · capture → Rust 侧注册，触发截图流程，前端不参与；
+ *   · 模式键 → 上面 onKey 里的 group === "mode" 分支统一处理。
+ * 类型写成 `Record<AppHotkeyId, …>`：注册表加了 id 却忘了写执行体时
+ * `tsc` 直接报错（漏项不会再变成「按了没反应」的静默故障）。
+ */
+const APP_ACTIONS: Record<AppHotkeyId, () => void> = {
+  open_file: () => void openFile(),
+  open_folder: () => void useWorkspaceStore.getState().openWorkspace(),
+  new_file: () => {
+    // 新建文件落当前活动文件夹；没有文件夹时不静默吞键，给一句提示
+    const ws = useWorkspaceStore.getState();
+    if (!ws.activePath) {
+      useUiStore.getState().addToast("info", "先打开一个文件夹，再新建文件");
+      return;
+    }
+    const n = window.prompt("新文件名（创建于当前文件夹）：", "未命名.md");
+    if (n?.trim()) void ws.createFileIn(null, n.trim());
+  },
+  save: () => void useDocStore.getState().saveDoc(false),
+  refresh_ws: () => {
+    if (useWorkspaceStore.getState().folders.length > 0) {
+      void useWorkspaceStore.getState().refresh();
+    }
+  },
+  toggle_view: () => {
+    const dd = useDocStore.getState();
+    dd.switchView(dd.view === "source" ? "preview" : "source");
+  },
+  split_view: () => useDocStore.getState().switchView("split"),
+  palette: () => useUiStore.getState().openPalette(),
+  bold: () => void useDocStore.getState().applyFormat("bold"),
+  italic: () => void useDocStore.getState().applyFormat("italic"),
+};
 
 // 面板宽度钳制：左右栏与主区之间拖宽条的取值范围（默认 240/200 落在其中）
 const PANEL_MIN = 160;
@@ -135,91 +176,39 @@ function App() {
   );
 
   useEffect(() => {
-    // T29 快捷键收口：应用内全部组合键唯一入口（旧 egui main.rs 键位平移）。
+    // T29 快捷键收口：应用内全部组合键唯一入口。
+    // 2026-09-14 改成**表驱动**：键位清单一律查 lib/hotkeyRegistry.ts
+    // （settings.hotkeys 里录过就用用户的，没录过用出厂默认），这里只留
+    // 「按 id 做什么」的执行体——旧版每个键一个 if/switch 分支，加键要改两处。
     // - 总闸：IME 组合期按键不是快捷键意图（T28 先例）；defaultPrevented =
     //   编辑器/内层已处理（CM keymap 的 Mod+S/B/I 走 preventDefault），不重复
     //   触发——防 CM 与本 handler 双发的唯一闸门。
-    // - Mod+Shift+P palette（T28 行为原样保留，Ctrl 或 Meta 皆可）。
-    // - Mod+S/E/B/I/\：S/B/I 编辑器聚焦时由 CM 先处理（defaultPrevented 拦下），
-    //   其余焦点（预览/侧栏/工具栏）由此处兜底；分支要求 !alt 防吞用户录制的
-    //   Ctrl+Alt+X 模式热键。
-    // - Alt+1/2/3 类：settings.hotkeys 用户录制动态值比对，先到先得；Meta 组合
-    //   在 parseCombo 已拒绝（Win 键不稳定，见 lib/hotkeys.ts 注释）。
+    // - requireModifier=false：F5 这类键天生没有修饰键（扩展白名单见
+    //   lib/hotkeys.ts allowsBare）。模式热键带修饰，两种取值结果一致。
+    // - global 项（截图翻译、模式键的系统级注册）由 Rust 侧负责，
+    //   这里 **先跳过再 preventDefault**，否则会把全局触发也吞掉。
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
-      // WebView2 加速键 F5/Ctrl+R 会整页重载（未保存文档全丢），一律拦下。
-      // 拦下之后把 F5 复用成「刷新工作区」——右键菜单上标的 F5 必须真的能用；
-      // Ctrl+R 保持纯拦截（同键意不重复挂语义）。
-      if (e.code === "F5" || ((e.ctrlKey || e.metaKey) && e.code === "KeyR")) {
+      // WebView2 加速键 Ctrl+R 会整页重载（未保存文档全丢），无条件拦下。
+      // 同族的 F5 已收进注册表（默认仍是 F5），不再在这里特判。
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyR") {
         e.preventDefault();
-        if (e.code === "F5" && useWorkspaceStore.getState().folders.length > 0) {
-          void useWorkspaceStore.getState().refresh();
-        }
         return;
       }
-      const dd = useDocStore.getState();
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyP") {
+      const hk = effectiveHotkeys(useSettingsStore.getState().settings?.hotkeys);
+      for (const def of HOTKEYS) {
+        const combo = hk[def.id];
+        if (!combo || def.global) continue; // 空串=用户禁用；global 交给 Rust
+        if (!comboMatches(e, combo, false)) continue;
         e.preventDefault();
-        useUiStore.getState().openPalette();
-        return;
-      }
-      // Mod+Shift+O：打开文件夹作为工作区（欢迎页提示的快捷键，与 Ctrl+O 成对）
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyO") {
-        e.preventDefault();
-        void useWorkspaceStore.getState().openWorkspace();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        switch (e.code) {
-          case "KeyO":
-            e.preventDefault();
-            void openFile();
-            return;
-          case "KeyN": {
-            // 新建文件落当前活动文件夹；没有文件夹时不静默吞键，给一句提示
-            e.preventDefault();
-            const ws = useWorkspaceStore.getState();
-            if (!ws.activePath) {
-              useUiStore.getState().addToast("info", "先打开一个文件夹，再新建文件");
-              return;
-            }
-            const n = window.prompt("新文件名（创建于当前文件夹）：", "未命名.md");
-            if (n?.trim()) void ws.createFileIn(null, n.trim());
-            return;
-          }
-          case "KeyE":
-            e.preventDefault();
-            dd.switchView(dd.view === "source" ? "preview" : "source");
-            return;
-          case "KeyS":
-            e.preventDefault();
-            void dd.saveDoc(false);
-            return;
-          case "KeyB":
-            e.preventDefault();
-            void dd.applyFormat("bold");
-            return;
-          case "KeyI":
-            e.preventDefault();
-            void dd.applyFormat("italic");
-            return;
-          case "Backslash":
-            e.preventDefault();
-            dd.switchView("split");
-            return;
-        }
-      }
-      const hk = useSettingsStore.getState().settings?.hotkeys;
-      if (!hk) return;
-      for (const [mode, combo] of Object.entries(hk)) {
-        if (mode === "capture") continue; // 全局热键，Rust 侧注册处理
-        if (comboMatches(e, combo)) {
-          e.preventDefault();
-          if (mode === "original" || mode === "translation" || mode === "bilingual") {
-            dd.switchMode(mode);
-          }
+        if (def.group === "mode") {
+          useDocStore.getState().switchMode(def.id as Mode);
           return;
         }
+        // 非模式组必然是 AppHotkeyId（global 项上面已 continue）。
+        // 仍留 `?.` 兜一层：注册表若哪天多出个非 app 分组，宁可无动作也别崩。
+        APP_ACTIONS[def.id as AppHotkeyId]?.();
+        return;
       }
     };
     window.addEventListener("keydown", onKey);

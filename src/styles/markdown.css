@@ -8,31 +8,38 @@
    颜色经变量集中在文件头部，暗色主题仅换一组值。 */
 
 .markdown-body {
-  --md-fg: #211f1a;
-  --md-muted: #6e6a5e;
-  --md-border: #e3dcc9;
-  --md-link: #285677;
-  --md-code-bg: rgba(179, 72, 58, 0.08); /* 行内代码：朱砂浅底（DESIGN.md §2） */
-  --md-stripe: #f1ece0;
-  --md-th-bg: #f1ece0;
-  --md-quote-fg: #6e6a5e;
-  --md-task-bg: #fffdf8;
-  --md-check-fg: #fff;      /* task ✓ 落在主色底上，恒白不随主题 */
-  --md-ok-fg: #3a7a52;      /* 复制成功态/code-lang 药丸（暗色档在下方换浅绿） */
+  /* 令牌一律**别名**到 theme.css / palettes.css 的语义令牌（2026-09-14 改）。
+     原先这里硬编码了一整套宣纸/青花色值：换配色时阅读区——也就是本应用最主要的
+     那个面——纹丝不动，是配色功能的拦路石。别名化之后，改一处纸色全局生效，
+     也顺带消灭了「同一枚色值抄两遍」的漂移源。
+     保留在本文件里的只有两枚「文档层独有」的：琥珀高亮底、对照块底。 */
+  --md-fg: var(--fg);
+  --md-muted: var(--fg3); /* 原写死 #6e6a5e（比 --fg3 深半档），归一到弱墨 */
+  --md-border: var(--border);
+  --md-link: var(--accent-strong); /* 原值 #285677 == accent-strong，天然对齐 */
+  --md-code-bg: var(--zhu-wash); /* 行内代码：朱砂浅底（原值即 zhu-wash） */
+  --md-stripe: var(--bg2);
+  --md-th-bg: var(--bg2);
+  --md-quote-fg: var(--fg3);
+  --md-task-bg: var(--surface);
+  --md-check-fg: var(--on-accent); /* task ✓ 落在彩头底上：跟随「彩底字色」，
+                                      暗档 on-accent 是深墨，原先恒白会糊成一片 */
+  --md-ok-fg: var(--success); /* 复制成功态 / code-lang 药丸 */
   /* 双主题 span 配色：后端把 InspiredGitHub（浅）/base16-ocean.dark（暗）
      两套前景色按 token 一一配对，烘进 span 内联 style 的 --cl/--cd；
-     这里按主题选边（.ln 行号与 mono 块不受影响，走 --md-pre-* 变量）。 */
-  --md-pre-bg: #fffdf8; /* cloud 代码卡底：与纸面同源、浮起半档 */
-  --md-pre-fg: #211f1a;
-  --md-pre-muted: #8f8b7c; /* 行号 */
-  --md-head-bg: #f1ece0;  /* 代码卡片头栏底：paper-warm，划出两段式布局 */
-  --md-gutter-line: #ece6d8; /* 行号列右侧分隔线 */
-  --md-hover-bg: rgba(33, 31, 26, 0.045); /* 头栏按钮 hover 底 */
-  --md-mark-bg: rgba(250, 200, 60, 0.45); /* ==高亮== 琥珀底 */
-  /* 双语对照块：译文 = 青花左标 + 衬线（DESIGN.md §4 pair 组件） */
+     这里按主题选边（.ln 行号与 mono 块不受影响，走 --md-pre-* 变量）。
+     注意：token 前景色**不随配色变**（syntect 内联值），只有底色变。 */
+  --md-pre-bg: var(--surface); /* 代码卡底：与纸面同源、浮起半档 */
+  --md-pre-fg: var(--fg);
+  --md-pre-muted: var(--fg3); /* 行号 */
+  --md-head-bg: var(--bg2); /* 代码卡片头栏底：划出两段式布局 */
+  --md-gutter-line: var(--border); /* 行号列右侧分隔线 */
+  --md-hover-bg: var(--item-hover-bg); /* 头栏按钮 hover 底 */
+  --md-mark-bg: rgba(250, 200, 60, 0.45); /* ==高亮== 琥珀底：语义色，不随配色 */
+  /* 双语对照块：译文 = 彩头左标 + 衬线（DESIGN.md §4 pair 组件） */
   --md-tr-bg: transparent;
-  --md-tr-border: rgba(49, 103, 142, 0.5);
-  --md-tr-fg: #4c4a40;
+  --md-tr-border: var(--accent-border);
+  --md-tr-fg: var(--fg2);
 
   /* 正文宽度由 --qb-content-w 驱动（挂在 .preview-wrap 上，值 = 四档或拖宽
      自定义，四档 px 表在 src/lib/contentWidth.ts——单一事实来源）；
@@ -60,29 +67,10 @@
    light/dark/auto 三档后写入，auto 档 watch 系统），显式选择与系统档共用同一
    覆盖路径，不再依赖 prefers-color-scheme。 */
 body[data-theme="dark"] .markdown-body {
-  --md-fg: #e6e1d4;
-  --md-muted: #8b8778;
-  --md-border: #3b3830;
-  --md-link: #8fbad6;
-  --md-code-bg: rgba(201, 106, 92, 0.12);
-  --md-stripe: #2b2925;
-  --md-th-bg: #2b2925;
-  --md-quote-fg: #8b8778;
-  --md-task-bg: #232220;
-  --md-tr-bg: transparent;
-  --md-tr-border: rgba(111, 163, 196, 0.5);
-  --md-tr-fg: #b8b3a4;
-  /* 代码块真暗色：底色与暗色面板同源（surface），span 前景色由
-     后端烘进每 token 的 --cd 变量（见下方选择器），行号/默认字换暗色档。 */
-  --md-pre-bg: #2e2b26;
-  --md-pre-fg: #e6e1d4;
-  --md-pre-muted: #6b6759;
-  --md-head-bg: #2b2925; /* 头栏比 pre 底再深半档 */
-  --md-gutter-line: #3b3830;
-  --md-hover-bg: rgba(230, 225, 212, 0.06);
+  /* 别名化之后这里只剩「暗档专属」的一枚：高亮琥珀底在暗底上要更弱。
+     其余令牌全部由 theme.css（明暗）+ palettes.css（纸色/彩头）解析，
+     不在本文件重复——重复就是漂移源。 */
   --md-mark-bg: rgba(250, 200, 60, 0.32);
-  /* code-lang 标签/复制成功态原为深绿（浅灰底用），暗底换浅绿保对比度 */
-  --md-ok-fg: #5fc085;
 }
 
 .markdown-body h1,

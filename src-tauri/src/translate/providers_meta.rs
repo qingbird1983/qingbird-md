@@ -108,7 +108,11 @@ const LLM: ProviderMeta = ProviderMeta {
     // the old cap of 3 left most of the document's latency on the table.
     max_concurrency: 6,
     fields: LLM_FIELDS,
-    note: "任意 OpenAI 兼容接口：云端（DeepSeek / 通义 / 智谱等）填官方地址 + Key + 模型名；本机 Ollama 填 http://127.0.0.1:11434/v1 且 Key 留空。译文流式返回，边翻边显示；更换模型/改提示词后旧缓存自动失效，无需手动清除。划词查词复用此凭据，可用「查词模型」单独指定轻量模型。",
+    // 用户要求「说明简洁点，重点讲只支持 OpenAI 兼容」（2026-09-14 第四轮）。
+    // 协议本身在界面上由胶囊选择器表达，这里只留最必要的两句：填什么、
+    // 本机 Ollama 怎么填。流式/缓存失效那些行为描述删了——它们是「用起来自然
+    // 会发现」的东西，不该占设置页的版面。
+    note: "目前仅支持 OpenAI 兼容接口：填接口地址 + Key + 模型名即可；本机 Ollama 填 http://127.0.0.1:11434/v1（Key 留空）。",
 };
 
 const TRANSMART: ProviderMeta = ProviderMeta {

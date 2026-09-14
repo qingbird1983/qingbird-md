@@ -1,10 +1,13 @@
 // 独立 HTML 导出（InkNote 对齐项）：纯前端拼装，零新 IPC——保存走现有
 // pick_save_path + save_file。
 //
-// 组成：<style> 内联 theme.css（设计令牌/明暗变量）+ katex.min.css + markdown.css
-// （?raw 原文，随源文件自动同步，无双源漂移）；正文优先取预览活 DOM（mermaid SVG
-// 与 KaTeX HTML 已渲染就位，导出即所见），预览未挂载（源码视图）时回退
-// parseResult.html。body[data-theme] 按导出时刻的明暗写入，宽度以内联变量 --qb-content-w 随当前生效档位（含自定义）输出。
+// 组成：<style> 内联 theme.css（设计令牌/明暗变量）+ palettes.css（配色覆盖）
+// + katex.min.css + markdown.css（?raw 原文，随源文件自动同步，无双源漂移）；
+// 正文优先取预览活 DOM（mermaid SVG 与 KaTeX HTML 已渲染就位，导出即所见），
+// 预览未挂载（源码视图）时回退 parseResult.html。body 上的 data-theme /
+// data-palette 按导出时刻解析出的明暗与配色写入（配色为默认档 xuan 时其取值
+// 与 theme.css 相等，所以挂不挂属性都一样），宽度以内联变量 --qb-content-w
+// 随当前生效档位（含自定义）输出。
 //
 // ponytail 已知天花板：
 // - katex.min.css 内联后字体 url（woff2）不可达，公式回退系统衬线渲染，简单公式可读；
@@ -13,12 +16,14 @@
 //   离屏容器再序列化。
 // - 本机图片以 file:/// 绝对路径引用（换机器/移动文件夹会断）；内嵌图片属后续增强。
 import themeCss from "../styles/theme.css?raw";
+import palettesCss from "../styles/palettes.css?raw";
 import markdownCss from "../styles/markdown.css?raw";
 import katexCss from "katex/dist/katex.min.css?raw";
 import { api } from "./ipc";
 import { contentWidthPx } from "./contentWidth";
+import { normalizePalette } from "./paletteSeeds";
 import { useDocStore } from "../stores/useDocStore";
-import { isDarkTheme } from "../stores/useSettingsStore";
+import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
 
 /** 仅用于 <title> 标签：文档名来自文件路径，尖括号/引号转义防破结构。 */
@@ -50,6 +55,7 @@ export async function buildActiveDocHtml(): Promise<string | null> {
   const doc = useDocStore.getState();
   if (!doc.doc) return null;
   const dark = isDarkTheme();
+  const paletteId = normalizePalette(useSettingsStore.getState().palette);
   const widthPx = contentWidthPx(useUiStore.getState().contentWidth, useUiStore.getState().customWidth);
 
   const live = document.querySelector(".markdown-body");
@@ -90,11 +96,12 @@ export async function buildActiveDocHtml(): Promise<string | null> {
     "</title>",
     "<style>",
     themeCss,
+    palettesCss,
     katexCss,
     markdownCss,
     "</style>",
     "</head>",
-    `<body data-theme="${dark ? "dark" : "light"}">`,
+    `<body data-theme="${dark ? "dark" : "light"}" data-palette="${paletteId}">`,
     `<div class="markdown-body" style="--qb-content-w:${widthPx}px">`,
     bodyHtml,
     "</div>",

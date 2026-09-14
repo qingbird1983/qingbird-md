@@ -414,8 +414,10 @@ impl<'t> Ctx<'t> {
     /// 由 --ln-digits（总行数的十进制位数）统一决定——若按 2ch 逐行
     /// min-width，行号进到三位数时列宽突变，行号列分隔线会在 9→10、
     /// 99→100 等位数进位处断开/错位。行内不渲染游离 '\n' 文本节点
-    /// （white-space 下会多出空行）；除末行外每个 .lc 以 '\n' 结尾——
-    /// code.textContent 恰好等于源代码，前端复制/划选零处理。
+    /// （white-space 下会多出空行）；除末行外每个 .lc 以 '\n' 结尾。
+    /// 注意 .ln 与 .lc 同在 <code> 子树内，`code.textContent` 是
+    /// 「行号+内容」交替的串——前端取纯代码必须走 `src/lib/codeText.ts`
+    /// 的 `codeTextFrom`（只收 .lc 列），不能直接读 code.textContent。
     /// Unknown/absent lang 以 "text" 标签渲染整块 monochrome-escaped。
     fn push_code_block(&self, out: &mut String, lang: Option<&str>, code: &str) {
         match highlight_spans(code, lang) {
@@ -703,7 +705,7 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(body.matches(r#"<span class="cl">"#).count(), 2);
-        // textContent 语义：alpha\nbeta（行号 .ln 是 .lc 的兄弟节点，不计入）
+        // 逐行 .lc 拼接即源码 alpha\nbeta（前端 codeTextFrom 的实现依据）
         assert!(body.contains(r#"<span class="lc">alpha
 </span></span><span class="cl"><span class="ln">2</span><span class="lc">beta</span>"#));
     }

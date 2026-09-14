@@ -194,6 +194,14 @@ fn get_user_data_dir() -> String {
     storage::user_data_dir().to_string_lossy().into_owned()
 }
 
+/// 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）——给界面文案用。
+/// 与 `get_user_data_dir` 分开是有意的：那个返回的是可执行的真路径
+/// （`reveal_path` 直接吃它），这个只给人看。
+#[tauri::command]
+fn get_data_dir_label() -> String {
+    storage::user_data_dir_label()
+}
+
 /// 清空翻译缓存并立即落盘（Task 26 设置弹窗「清除翻译缓存」）。
 /// 单锁持有：clear 与 save 一起，绝不跨任何长操作持有。
 /// save 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
@@ -616,6 +624,7 @@ pub fn run() {
             load_settings,
             save_settings,
             get_user_data_dir,
+            get_data_dir_label,
             open_workspace,
             filter_workspace,
             create_file,

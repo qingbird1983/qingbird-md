@@ -32,6 +32,7 @@ import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
 import { contentWidthPx, edgeDragWidth } from "../lib/contentWidth";
+import { codeTextFrom } from "../lib/codeText";
 import { startColDrag } from "../lib/colDrag";
 import { lockTypingHost, patchPartial, unlockTypingHost } from "../lib/patchPartial";
 import { handlePreviewLinkClick } from "../lib/linkSafety";
@@ -62,8 +63,8 @@ const ICON_CHECK =
 
 /**
  * 每个代码卡片头栏右侧注入复制按钮（一次性 mutation）；成功显示 ✓ 2s。
- * 行号 .ln 是 .lc 内容列的兄弟节点，code.textContent 天然不含行号——
- * 复制零处理（html.rs flex 行契约）。
+ * 取文走 codeTextFrom（只收 .lc 内容列）——.ln 行号与 .lc 同在 <code> 子树里，
+ * 直接读 code.textContent 会把行号一起复制出去（html.rs flex 行契约）。
  */
 function addCopyButtons(scope: HTMLElement) {
   const cards = scope.querySelectorAll<HTMLElement>(".code-card");
@@ -80,7 +81,7 @@ function addCopyButtons(scope: HTMLElement) {
     btn.title = "复制代码";
     btn.innerHTML = ICON_COPY;
     btn.addEventListener("click", () => {
-      navigator.clipboard.writeText(code.textContent ?? "").then(
+      navigator.clipboard.writeText(codeTextFrom(code)).then(
         () => {
           btn.classList.add("ok");
           btn.innerHTML = ICON_CHECK;

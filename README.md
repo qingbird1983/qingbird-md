@@ -1,18 +1,34 @@
 # 青鸟 Markdown（qingbird-md）
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.1.10](https://img.shields.io/badge/Release-v0.1.10-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.2.0](https://img.shields.io/badge/Release-v0.2.0-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
 
 带流式中英翻译的 Markdown 桌面编辑器。**Rust 核心 + React/TypeScript 前端 + Tauri 2**， 面向「读英文技术文档、写双语内容」的场景设计——选中即译、整篇流式翻译、框选屏幕就能译。
 
 下载 Windows 安装包（约 9.4 MB）：**[Gitee Releases](https://gitee.com/muyan1983/qingbird-md/releases)** ↓
 
-![青鸟 Markdown 主界面：编辑器、预览、大纲三栏式布局，Markdown 源码与渲染结果实时对照](docs/screenshots/app-main-light.png)
+![青鸟 Markdown 预览界面：左侧文件树与最近打开、中间 Markdown 渲染正文（表格 / 代码高亮 / 大纲）、右侧 h1–h3 大纲](docs/screenshots/preview-light.png)
 
 ## 为什么值得一试
 
 * **开箱即译，零配置**：内置三个免密钥翻译源（腾讯 Transmart / 金山 iCiba / MyMemory）， 装完就能翻整篇文档；`auto` 模式自动按序兜底，不需要申请任何 API。
 * **流式翻译，首段约 1.5 秒上屏**：译文边生成边上屏，不是等整篇翻完一次性给； LLM 源逐字流式返回，普通段落按块打字机回填，长文档不再干等。
 * **既是阅读器也是常驻工具**：关闭窗口隐藏到托盘，全局热键随手框选屏幕即译； 空闲 5 分钟自动休眠主窗口 WebView，常驻内存还给系统，托盘 / 热键 / 截图翻译照常工作。
+
+## 界面
+
+明暗两档 × 六套纸色配色，正文宽度可拖拽或走四档预设——阅读区、代码块、标题栏全部随配色一起走。
+
+**阅读页（明 / 暗）**
+
+![阅读页（明亮）：左侧文件树与最近打开、中间 Markdown 渲染正文（表格 / 代码高亮）、右侧 h1–h3 大纲](docs/screenshots/preview-light.png)
+
+![阅读页（暗色）：同一文档在暗档下的代码高亮与配色](docs/screenshots/preview-dark.png)
+
+**欢迎页（明 / 暗）**
+
+![欢迎页（明亮）：青鸟 Markdown 品牌印、新建 / 打开文档 / 打开文件夹，以及快捷键提示](docs/screenshots/welcome-light.png)
+
+![欢迎页（暗色）：同一界面在暗档下的样子](docs/screenshots/welcome-dark.png)
 
 ## 功能总览
 
@@ -21,10 +37,10 @@
 | 能力 | 说明 |
 |---|---|
 | Markdown 渲染 | 标题 / 列表（含任务）/ 表格 / 引用 / 代码高亮（syntect）/ 行内格式 / 链接；支持 mermaid 图表与 KaTeX 公式 |
-| 三种视图 | 源码 / 预览 / 分栏自由切换；正文宽度四档（紧凑 640 / 标准 794 / 宽 1000 / 全宽 1200） |
+| 三种视图 | 源码 / 预览 / 分栏自由切换；正文宽度可自由拖拽，另有四档预设（紧凑 640 / 标准 794 / 宽 1000 / 全宽 1200） |
 | 编辑器 | CodeMirror 6，格式工具栏（粗斜体 / 标题 / 列表 / 引用 / 代码 / 链接 / 图片 / 表格 / 分割线），撤销重做与脏点标记 |
 | 文档管理 | 左侧文档树（递归扫描工作区 .md、搜索过滤）、标签页多开、右侧大纲（h1–h3 目录） |
-| 阅读体验 | 明暗主题（记住选择）、状态栏（路径 / 实际编码 / 行列字符数） |
+| 阅读体验 | **明暗两档 × 六套纸色配色**（宣纸 / 青花 / 墨玉…）、**快捷键全部可自定义**、状态栏（路径 / 实际编码 / 行列字符数） |
 
 ### 中英翻译（核心）
 
@@ -44,6 +60,8 @@
 ### 桌面体验与可靠性
 
 * **系统托盘常驻**：关闭主窗口 = 隐藏到托盘（菜单：显示窗口 / 截图翻译 / 开机自启 / 退出），开机自启可关
+* **设置面板**：左栏五大分类（外观 / 翻译与模型 / 快捷键 / 数据与维护 / 关于），顶部胶囊搜索直达任意设置项；**关窗即自动保存**
+* **大模型多档案**：可保存多份 LLM 配置（接口地址 / Key / 模型名）随时切换；厂商预设仅作新建时的模板，不再互相覆盖
 * **主窗口按需休眠**：空闲 5 分钟真正销毁 WebView 省内存；唤醒后自动恢复标签、未保存草稿、光标 / 滚动 / 面板宽度；休眠期间双击 `.md` 照常打开
 * **编辑器可靠性**：外部修改检测（聚焦时比对 mtime）、保存前冲突检测、非 UTF-8 文件读取兜底（自动按 GB18030 解码并在状态栏标注，保存一律 UTF-8）
 * **导出独立 HTML**：主题与样式全部内联，mermaid / KaTeX 取预览已渲染产物，本机图片转 `file://` 绝对路径——单文件带走，随处可看

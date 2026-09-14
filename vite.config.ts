@@ -10,8 +10,13 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 // https://vite.dev/config/
+//
+// 测试态（vitest 会设 VITEST=true）不挂 @vitejs/plugin-react：它在 serve 模式给每个
+// JSX 模块注入 `/@react-refresh` 预置，而 happy-dom 环境里解析这个虚拟模块会抛
+// `fileURLToPath: file:///@react-refresh` 不是合法文件 URL —— 任何「导入 .tsx 组件」
+// 的测试都在收集阶段就崩。测试不需要 HMR；JSX 交给 esbuild 的 automatic runtime 即可。
 export default defineConfig({
-  plugins: [react()],
+  plugins: process.env.VITEST ? [] : [react()],
   clearScreen: false,
   server: { port: 5173, strictPort: true },
   envPrefix: ["VITE_", "TAURI_"],

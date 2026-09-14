@@ -33,6 +33,9 @@ export const api = {
   saveSettings: (s: Settings) => invoke<void>("save_settings", { settings: s }),
   clearCache: () => invoke<void>("clear_cache"),
   userDataDir: () => invoke<string>("get_user_data_dir"),
+  // 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）。与 userDataDir 分开：
+  // 那个是喂给 revealPath 的真路径，这个只写给人看——绝不可用它去开目录。
+  dataDirLabel: () => invoke<string>("get_data_dir_label"),
 
   // ---- 对话框（Rust 参数 default_name 按 Tauri v2 默认 camelCase 匹配）----
   pickFile: () => invoke<string | null>("pick_file"),

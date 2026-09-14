@@ -3,7 +3,8 @@
 // 布局：左侧 = ① 撤销/重做 → ② 格式(粗体/斜体/删除线/行内代码/代码块/分隔线)
 //   → ③ 下拉组(标题/列表/插入) → ④ 阅读模式(原文/译文/中英对照)；
 // 右对齐（tb-gap 弹性占位之后）= ⑤ 视图切换(源码⇄预览合并钮 / 分栏) → ⑥ 划词翻译
-//   → ⑦ 正文宽版 → ⑧ 面板开关(大纲)。
+//   → ⑦ 面板开关(大纲)。
+// 正文宽度档曾在这里（2026-09-14 移除）：边缘手动拖宽已替代四档预设。
 //
 // 文件操作按钮(新建/打开/保存/新建标签)已移除：入口保留在汉堡菜单、
 // 命令面板、Ctrl+S 与标签条「+」。编辑类按钮 disabled=doc==null；
@@ -32,12 +33,10 @@ import {
   Workflow,
   Sigma,
   TextSelect,
-  StretchHorizontal,
-  FoldHorizontal,
   PanelRightClose,
 } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
-import { useUiStore, CONTENT_WIDTH_LABEL } from "../stores/useUiStore";
+import { useUiStore } from "../stores/useUiStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { insertFormula, insertMermaid } from "../lib/inserts";
 import Menu, { MenuItem } from "./menus/Menu";
@@ -57,9 +56,6 @@ export default function EditorToolbar() {
   // 工作区切换已搬到 TitleBar（PanelLeft），明暗主题搬进窗控组，这里只剩大纲切换 + 宽度档。
   const showOutline = useUiStore((s) => s.showOutline);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
-  const contentWidth = useUiStore((s) => s.contentWidth);
-  const cycleContentWidth = useUiStore((s) => s.cycleContentWidth);
-  const customWidth = useUiStore((s) => s.customWidth);
 
   // 划词翻译开关：与设置弹窗同一持久化通道（settings.selection_translate）。
   // 关闭时 SelectionPopup 的 on 订阅失效会自动清浮窗 + 防抖定时器。
@@ -195,18 +191,12 @@ export default function EditorToolbar() {
       </button>
       <Sep />
 
-      {/* ── ⑥ 正文宽度档（循环：紧凑→标准→宽→全宽）── 图标语义：StretchHorizontal=可放宽 / FoldHorizontal=到顶收窄；
-           拖宽自定义态：四档都不算选中，title 报实时 px，图标恒可放宽 */}
-      <button type="button" className={`menu-btn tool-btn${contentWidth !== "normal" || customWidth !== null ? " active" : ""}`}
-        title={customWidth !== null
-          ? `正文宽度：自定义 ${Math.round(customWidth)}px（点击切换下一档）`
-          : `正文宽度：${CONTENT_WIDTH_LABEL[contentWidth]}（点击切换下一档）`}
-        onClick={cycleContentWidth}>
-        {contentWidth === "full" && customWidth === null ? <FoldHorizontal size={15} /> : <StretchHorizontal size={15} />}
-      </button>
-      <Sep />
+      {/* —— 正文宽度档已从工具栏移除（2026-09-14，用户要求）——
+           理由：正文栏左右边缘可自由拖宽拉窄，四档预设的使用频率已很低。
+           入口保留在汉堡菜单「视图」与命令面板；规划中的设置弹窗面板会
+           再收一处入口（见 docs/theme-plan.md 的相邻规划）。 */}
 
-      {/* ── ⑦ 面板开关（仅切换显示/隐藏，无持续高亮态）──
+      {/* ── ⑥ 面板开关（仅切换显示/隐藏，无持续高亮态）──
            工作区切换已搬到 TitleBar（PanelLeft 图标），这里只留大纲开关。 */}
       <button type="button" className="menu-btn tool-btn" title={showOutline ? "隐藏大纲" : "显示大纲"}
         onClick={() => toggleOutline()}>

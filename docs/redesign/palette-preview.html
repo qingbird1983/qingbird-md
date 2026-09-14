@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>青鸟 Markdown · 主题配色候选（6 套 × 明暗 2 档）</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --page: #f2f2f0; --page2: #ffffff; --line: #dcdcd6;
+    --ink: #1c1c1a; --ink2: #55554f; --ink3: #8a8a82;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+  }
+  body.dark { --page: #16171a; --page2: #1e2023; --line: #32343a; --ink: #e8e8e4; --ink2: #b1b1ab; --ink3: #7e7e78; }
+  body { margin: 0; padding: 32px 28px 64px; background: var(--page); color: var(--ink);
+         font-family: var(--ui); font-size: 13px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; letter-spacing: .01em; }
+  .lede { color: var(--ink2); margin: 0 0 20px; max-width: 78ch; }
+  .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 22px;
+         padding: 10px 14px; background: var(--page2); border: 1px solid var(--line); border-radius: 10px; }
+  .bar b { font-weight: 600; }
+  .bar .sp { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; padding: 4px 14px; border: 0; background: none;
+                color: var(--ink2); cursor: pointer; }
+  .seg button.on { background: var(--ink); color: var(--page2); }
+  .hint { font-size: 11.5px; color: var(--ink3); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(344px, 1fr)); gap: 18px; }
+  .card { background: var(--page2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .card > header { padding: 12px 14px 10px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; display: flex; align-items: baseline; gap: 7px; }
+  .card h2 code { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--ink3);
+                  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .card .note { margin: 0; font-size: 11.5px; color: var(--ink3); }
+  .sw { display: flex; gap: 0; margin: 10px 0 0; border-radius: 7px; overflow: hidden;
+        border: 1px solid var(--line); }
+  .sw i { flex: 1; height: 26px; position: relative; }
+  .sw i span { position: absolute; inset: auto 0 2px 0; text-align: center; font-size: 8.5px;
+               font-family: var(--mono); opacity: 0; transition: opacity .15s; }
+  .showhex .sw i span { opacity: .82; }
+  .mock { display: flex; height: 168px; margin: 12px 14px; border-radius: 9px; overflow: hidden;
+          border: 1px solid var(--bd); background: var(--bg); }
+  .mock .side { width: 104px; flex: none; background: var(--bg2); border-right: 1px solid var(--bd);
+                padding: 8px 0; }
+  .mock .side .brand { display: flex; align-items: center; gap: 6px; padding: 0 8px 8px;
+                       font-size: 10.5px; font-weight: 600; color: var(--fg); }
+  .mock .seal { width: 15px; height: 15px; flex: none; border-radius: 3.5px; background: var(--zhu);
+                color: var(--su); font-size: 9px; font-weight: 700; display: flex; align-items: center;
+                justify-content: center; transform: rotate(-3deg); }
+  .mock .side .sec { font-size: 8.5px; letter-spacing: .14em; color: var(--fg3); padding: 0 8px 3px; }
+  .mock .side .row { font-size: 10.5px; color: var(--fg2); padding: 3px 8px; margin: 0 4px;
+                     border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock .side .row.on { background: var(--su); color: var(--fg); box-shadow: inset 2px 0 0 var(--ac); }
+  .mock .side .row:hover { background: var(--b3); }
+  .mock .main { flex: 1; min-width: 0; padding: 10px 12px; }
+  .mock .main h3 { font-size: 12.5px; font-weight: 600; margin: 0 0 5px; color: var(--fg); }
+  .mock .main p { font-size: 11px; margin: 0 0 5px; color: var(--fg); }
+  .mock .main p.dim { color: var(--fg3); font-size: 10px; }
+  .mock .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .mock .chip { font-size: 9.5px; padding: 1.5px 8px; border-radius: 99px; }
+  .mock .chip.ac { background: var(--ac); color: var(--onac); }
+  .mock .chip.wk { background: var(--acw); color: var(--ac); }
+  .mock .chip.zh { background: var(--zhw); color: var(--zhu); }
+  .mock .code { margin-top: 7px; font-family: var(--mono); font-size: 9.5px; color: var(--fg2);
+                background: var(--bg2); border: 1px solid var(--bd); border-radius: 5px; padding: 4px 7px;
+                display: flex; gap: 8px; }
+  .mock .code .ln { color: var(--fg3); user-select: none; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; padding: 0 14px 14px; }
+  .m { display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+       font-size: 10.5px; color: var(--ink3); border-bottom: 1px dashed var(--line); padding-bottom: 2px; }
+  .m b { font-family: var(--mono); font-weight: 500; color: var(--ink2); }
+  .m.bad b { color: #b3483a; }
+  .m.ok i { color: #3a7a52; font-style: normal; }
+  .m.bad i { color: #b3483a; font-style: normal; }
+  footer.legend { margin-top: 26px; font-size: 11.5px; color: var(--ink3); }
+  footer.legend b { color: var(--ink2); }
+  footer.legend ul { margin: 6px 0 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>主题配色候选 · 6 套 × 明暗 2 档</h1>
+  <p class="lede">
+    每张卡片是一套配色 + 一档明暗的真实渲染：左边栏用面板色、右侧正文用纸面色，
+    含选中行、彩头胶囊（accent）、朱砂印与警示字。底部四行是对比度体检读数，
+    门槛按 WCAG：「主墨/纸面 ≥ 10、弱墨/纸面 ≥ 4.5、彩头/纸面 ≥ 4.5、朱砂/纸面 ≥ 4.5」。
+  </p>
+  <div class="bar">
+    <span>明暗档</span>
+    <div class="seg" id="seg">
+      <button data-m="light" class="on">浅色</button>
+      <button data-m="dark">深色</button>
+    </div>
+    <label class="hint"><input type="checkbox" id="hex"> 显示色值</label>
+    <span class="sp"></span>
+    <span class="hint">默认「宣纸·青花」= 现状；其余 5 套为候选</span>
+  </div>
+  <div class="grid" id="grid"></div>
+  <footer class="legend">
+    <b>怎么读这张表</b>
+    <ul>
+      <li>纸面色（卡片右侧大底）与面板色（左侧竖条）的**温差**，才是六套之间最大的差别；彩头只是最后一笔。</li>
+      <li>朱砂印在六套里保持不变（品牌锚点），只有「檀纸·藕荷」的暗档把朱砂略提亮，避免与暖棕纸糊在一起。</li>
+      <li>深色档不是浅色的取反：底用低饱和墨色、彩头提亮保对比，避免纯黑 #000 造成的「黑洞感」。</li>
+    </ul>
+  </footer>
+</div>
+<script>
+const P = {"xuan": {"label": "宣纸·青花", "note": "现状默认。暖宣纸 + 青花靛蓝，东方雅致", "light": {"bg": "#f7f4ec", "bg2": "#f1ece0", "bg3": "#e8e1d1", "fg": "#211f1a", "fg2": "#4c4a40", "fg3": "#736f63", "accent": "#31678e", "accentStrong": "#285474", "onAccent": "#f9f3ea", "border": "#e3dcc9", "borderStrong": "#c7c1b0", "surface": "#fffdf8", "zhu": "#b3483a"}, "dark": {"bg": "#232220", "bg2": "#2b2925", "bg3": "#39362f", "fg": "#e6e1d4", "fg2": "#b8b3a4", "fg3": "#8d8a7b", "accent": "#6fa3c4", "accentStrong": "#7cb7dc", "onAccent": "#14161a", "border": "#3b3830", "borderStrong": "#504c43", "surface": "#2e2b26", "zhu": "#cb7062"}}, "su": {"label": "素笺·石墨", "note": "中性无彩纸 + 石墨。纯白文档感，校对/截图/排版用", "light": {"bg": "#fafaf8", "bg2": "#f3f3f1", "bg3": "#e8e8e5", "fg": "#1b1b19", "fg2": "#454542", "fg3": "#73736d", "accent": "#44506b", "accentStrong": "#384258", "onAccent": "#f8f8fb", "border": "#e5e5e1", "borderStrong": "#c8c8c4", "surface": "#ffffff", "zhu": "#b3483a"}, "dark": {"bg": "#1e1e1d", "bg2": "#262625", "bg3": "#333331", "fg": "#e8e8e4", "fg2": "#b4b4af", "fg3": "#868680", "accent": "#a3aec9", "accentStrong": "#b7c3e1", "onAccent": "#12131a", "border": "#343432", "borderStrong": "#484846", "surface": "#2a2a29", "zhu": "#c96b5d"}}, "qing": {"label": "竹纸·青竹", "note": "微黄绿纸 + 竹青。色温最低，长文护眼", "light": {"bg": "#f5f7ee", "bg2": "#eef1e3", "bg3": "#e2e7d3", "fg": "#1f2418", "fg2": "#48503d", "fg3": "#6c735f", "accent": "#3f6b4a", "accentStrong": "#34583d", "onAccent": "#f7fbf4", "border": "#e0e5d2", "borderStrong": "#c3c8b5", "surface": "#fcfef6", "zhu": "#b3483a"}, "dark": {"bg": "#1e221c", "bg2": "#262b23", "bg3": "#333a2e", "fg": "#e4e9da", "fg2": "#b1b9a4", "fg3": "#838b77", "accent": "#8cbb95", "accentStrong": "#9dd1a7", "onAccent": "#131a14", "border": "#32382c", "borderStrong": "#464d3f", "surface": "#2a3026", "zhu": "#cb6e61"}}, "tan": {"label": "檀纸·藕荷", "note": "暖棕檀纸 + 藕荷紫。书斋温润；紫是六套里唯一的非冷色彩头", "light": {"bg": "#f8f2e7", "bg2": "#f2eadb", "bg3": "#e9dfcc", "fg": "#241d14", "fg2": "#524636", "fg3": "#796d58", "accent": "#6f5486", "accentStrong": "#5b456e", "onAccent": "#fbf7ff", "border": "#e6dbc6", "borderStrong": "#cbc0aa", "surface": "#fffcf5", "zhu": "#b3483a"}, "dark": {"bg": "#241f19", "bg2": "#2d2720", "bg3": "#3b332a", "fg": "#ece3d5", "fg2": "#bcb0a0", "fg3": "#908676", "accent": "#c1a3d6", "accentStrong": "#d8b7f0", "onAccent": "#1d1526", "border": "#3c352c", "borderStrong": "#51493e", "surface": "#2f2921", "zhu": "#d98a72"}}, "ci": {"label": "冷瓷·靛青", "note": "冷白瓷 + 靛青。现代冷静，类 GitHub/Linear 观感", "light": {"bg": "#f5f7f9", "bg2": "#eef1f4", "bg3": "#e3e8ed", "fg": "#1b1f24", "fg2": "#444b53", "fg3": "#6a717a", "accent": "#3b4a85", "accentStrong": "#303d6d", "onAccent": "#f7f8fc", "border": "#e1e7ec", "borderStrong": "#c3cad0", "surface": "#ffffff", "zhu": "#b3483a"}, "dark": {"bg": "#191c21", "bg2": "#20242a", "bg3": "#2b3038", "fg": "#e5e8ec", "fg2": "#aeb5bd", "fg3": "#7d858e", "accent": "#95a4de", "accentStrong": "#a7b8f9", "onAccent": "#161a24", "border": "#2c3138", "borderStrong": "#40464e", "surface": "#24282e", "zhu": "#c96a5c"}}, "ye": {"label": "墨底·月白", "note": "暗色优先。深墨蓝底 + 月白，夜间阅读；light 档为配套克制版", "light": {"bg": "#f6f7f9", "bg2": "#eceef2", "bg3": "#e0e3e9", "fg": "#1a1d23", "fg2": "#464b55", "fg3": "#6b717c", "accent": "#3a6f96", "accentStrong": "#305b7b", "onAccent": "#f5f9fc", "border": "#dfe3ea", "borderStrong": "#c2c6ce", "surface": "#ffffff", "zhu": "#b3483a"}, "dark": {"bg": "#171a20", "bg2": "#1e222a", "bg3": "#2a2f3a", "fg": "#e7e9ef", "fg2": "#b0b5c0", "fg3": "#7e8492", "accent": "#86b8d8", "accentStrong": "#96cef2", "onAccent": "#111820", "border": "#2a2f39", "borderStrong": "#3f444f", "surface": "#22262e", "zhu": "#cf7a6c"}}};
+const ORDER = ["xuan", "su", "qing", "tan", "ci", "ye"];
+const TOK = ["bg","bg2","bg3","fg","fg2","fg3","accent","accentStrong","onAccent","border","borderStrong","surface","zhu"];
+const LBL = { bg:"纸面", bg2:"面板", bg3:"悬停", fg:"主墨", fg2:"次墨", fg3:"弱墨", accent:"彩头",
+              accentStrong:"彩深", onAccent:"彩字", border:"发丝", borderStrong:"描边", surface:"浮层", zhu:"朱砂" };
+
+const lum = (h) => { const c = [1,3,5].map(i => parseInt(h.substr(i,2),16)/255)
+  .map(v => v <= 0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
+  return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]; };
+const ratio = (a,b) => { const x = lum(a), y = lum(b); const hi = Math.max(x,y), lo = Math.min(x,y);
+  return (hi+0.05)/(lo+0.05); };
+
+let mode = "light";
+const grid = document.getElementById("grid");
+
+function card(pid) {
+  const p = P[pid], t = p[mode];
+  const el = document.createElement("article");
+  el.className = "card";
+  const sw = TOK.map(k => `<i style="background:${t[k]}"><span style="color:${k==="bg"||k==="bg2"||k==="bg3"||k==="surface"||k==="border"||k==="borderStrong"?"#2a2a2a":"#fff"}">${t[k]}</span></i>`).join("");
+  const checks = [["主墨/纸面", t.fg, t.bg, 10], ["弱墨/纸面", t.fg3, t.bg, 4.5],
+                  ["彩头/纸面", t.accent, t.bg, 4.5], ["朱砂/纸面", t.zhu, t.bg, 4.5]];
+  const metrics = checks.map(([n,a,b,need]) => {
+    const r = ratio(a,b), ok = r >= need;
+    return `<div class="m ${ok?"ok":"bad"}"><span>${n}</span><b>${r.toFixed(2)} <i>${ok?"✓":"✗"} ≥${need}</i></b></div>`;
+  }).join("");
+  el.innerHTML = `
+    <header>
+      <h2>${p.label}<code>${pid}</code></h2>
+      <p class="note">${p.note}</p>
+      <div class="sw">${sw}</div>
+    </header>
+    <div class="mock" style="
+      --bg:${t.bg};--bg2:${t.bg2};--b3:${t.bg3};--fg:${t.fg};--fg2:${t.fg2};--fg3:${t.fg3};
+      --bd:${t.border};--su:${t.surface};--ac:${t.accent};--onac:${t.onAccent};
+      --acw:${hexA(t.accent, mode==="dark"?0.14:0.08)};--zhu:${t.zhu};--zhw:${hexA(t.zhu, mode==="dark"?0.12:0.08)};">
+      <aside class="side">
+        <div class="brand"><span class="seal">青</span>Markdown</div>
+        <div class="sec">最近打开</div>
+        <div class="row">第一章 青鸟.md</div>
+        <div class="row on">第二章 翻译.md</div>
+        <div class="row">第三章 排版.md</div>
+      </aside>
+      <div class="main">
+        <h3>翻译语义彩头</h3>
+        <p>正文墨色示例：中文长文连读半小时，纸面与墨色都不该发涩。</p>
+        <p class="dim">弱墨色：分区标题 / 空态 / 图标（此处按 4.5 门槛校准过）</p>
+        <div class="chips">
+          <span class="chip ac">译文</span>
+          <span class="chip wk">对照</span>
+          <span class="chip zh">未保存 · 警告</span>
+        </div>
+        <div class="code"><span class="ln">1</span>const qing = "青鸟";</div>
+      </div>
+    </div>
+    <div class="metrics">${metrics}</div>`;
+  return el;
+}
+
+function hexA(hex, a) {
+  const h = hex.replace("#","");
+  return `rgba(${parseInt(h.substr(0,2),16)},${parseInt(h.substr(2,2),16)},${parseInt(h.substr(4,2),16)},${a})`;
+}
+
+function render() {
+  grid.innerHTML = "";
+  ORDER.forEach(pid => grid.appendChild(card(pid)));
+  document.getElementById("hex").checked
+    ? document.body.classList.add("showhex")
+    : document.body.classList.remove("showhex");
+}
+
+document.getElementById("seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  mode = b.dataset.m;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+document.getElementById("hex").addEventListener("change", () => {
+  document.body.classList.toggle("showhex", document.getElementById("hex").checked);
+});
+render();
+</script>
+</body>
+</html>

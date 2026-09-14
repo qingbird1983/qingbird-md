@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import type { Settings } from "../types/ipc";
 import { api } from "../lib/ipc";
+import { normalizePalette, type PaletteId } from "../lib/paletteSeeds";
 import { useUiStore, errText } from "./useUiStore";
 
 export type Theme = "light" | "dark" | "auto";
@@ -11,6 +12,8 @@ export type Theme = "light" | "dark" | "auto";
 interface SettingsState {
   settings: Settings | null;
   theme: Theme;
+  /** 主题配色（与明暗正交）；真源清单见 lib/paletteSeeds.ts */
+  palette: PaletteId;
 
   /** 启动加载 + 注册 settings-updated 监听（整个应用生命周期只挂一次）。 */
   load(): Promise<void>;
@@ -18,17 +21,29 @@ interface SettingsState {
   updateProvider(k: string): void;
   updateCredentials(k: string, v: Record<string, string>): void;
   setTheme(t: Theme): void;
+  setPalette(p: PaletteId): void;
   credsFor(provider: string): Record<string, string>;
 }
 
 const normalizeTheme = (t: string): Theme => (t === "light" || t === "dark" ? t : "auto");
 
-// 本地态切换（不落盘）：监听回调专用，防止 echo → save → 广播 → echo 死循环
-function applyTheme(t: Theme) {
+/**
+ * 跨源同步（监听回调专用，不落盘）：广播来的设置只收敛「外观」两项
+ * （theme / palette），不整包覆写 settings——否则会打翻正在编辑的表单草稿。
+ * 本地态先改再判断，是为了防止 echo → save → 广播 → echo 死循环。
+ */
+function applyRemote(incoming: Settings) {
+  const t = normalizeTheme(incoming.theme);
+  const p = normalizePalette(incoming.palette);
   const s = useSettingsStore.getState();
-  if (s.theme === t && s.settings?.theme === t) return;
-  if (s.settings) useSettingsStore.setState({ theme: t, settings: { ...s.settings, theme: t } });
-  else useSettingsStore.setState({ theme: t });
+  if (s.theme === t && s.palette === p && s.settings?.theme === t && s.settings?.palette === p) {
+    return;
+  }
+  useSettingsStore.setState(
+    s.settings
+      ? { theme: t, palette: p, settings: { ...s.settings, theme: t, palette: p } }
+      : { theme: t, palette: p },
+  );
 }
 
 let listening = false;
@@ -36,11 +51,12 @@ let listening = false;
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   settings: null,
   theme: "auto",
+  palette: normalizePalette(""),
 
   load: async () => {
     try {
       const s = await api.loadSettings();
-      set({ settings: s, theme: normalizeTheme(s.theme) });
+      set({ settings: s, theme: normalizeTheme(s.theme), palette: normalizePalette(s.palette) });
     } catch (e) {
       useUiStore.getState().addToast("error", `读取设置失败：${errText(e)}`);
       return;
@@ -48,9 +64,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (!listening) {
       listening = true;
       // 后端在每次 save_settings 落盘后广播；回调用作跨源同步点。
-      // 只做 setTheme + toast，不整包覆写 settings（避免打翻正在编辑的表单草稿）。
+      // 只做 theme/palette 收敛 + toast，不整包覆写 settings（避免打翻表单草稿）。
       api.listenSettingsUpdated((incoming) => {
-        applyTheme(normalizeTheme(incoming.theme));
+        applyRemote(incoming);
         useUiStore.getState().addToast("info", "设置已同步");
       });
     }
@@ -58,7 +74,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   save: async (next) => {
     const prev = get().settings;
-    set({ settings: next, theme: normalizeTheme(next.theme) });
+    set({ settings: next, theme: normalizeTheme(next.theme), palette: normalizePalette(next.palette) });
     try {
       await api.saveSettings(next);
     } catch (e) {
@@ -95,12 +111,28 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     void get().save({ ...cur, theme: t });
   },
 
+  // 与 setTheme 同构：守卫必须读 cur.palette（归一化后），别先本地 set——
+  // 那样守卫恒假、盘上无落痕，下次启动读回旧值（与主题那个坑同源）。
+  setPalette: (p) => {
+    const cur = get().settings;
+    if (!cur) {
+      useSettingsStore.setState({ palette: p });
+      return;
+    }
+    if (normalizePalette(cur.palette) === p) return;
+    void get().save({ ...cur, palette: p });
+  },
+
   credsFor: (provider) => get().settings?.providers[provider] ?? {},
 }));
 
 // T30 主题 → DOM 贯通：body[data-theme] 恒为解析后的 dark|light。
 // 显式档由 store 订阅写入；auto 档由 matchMedia watch 随系统实时切换。
 // CSS 侧只需 body[data-theme="dark"] 一套覆盖（styles/theme.css）。
+//
+// 2026-09-14 起这里同时写 body[data-palette]（恒为合法 id，含默认档 xuan）：
+// 明暗由 data-theme 表达、纸色由 data-palette 表达，两者正交，
+// 于是 CSS 只有「浅档一层属性 × 深档两层属性」两种选择器（palettes.css）。
 export const sysDark = matchMedia("(prefers-color-scheme: dark)");
 
 /** 解析后的暗色判定（EditorView/commands 统一口径）：dark 直取，auto 跟随系统。 */
@@ -109,12 +141,16 @@ export function isDarkTheme(): boolean {
   return t === "dark" || (t !== "light" && sysDark.matches);
 }
 
-let lastDomTheme: string | null = null;
+// 记忆的是「明暗:配色」整个键——只记明暗的话，换配色不会触发写入。
+let lastDomKey: string | null = null;
 function syncDomTheme() {
   const resolved = isDarkTheme() ? "dark" : "light";
-  if (resolved === lastDomTheme) return;
-  lastDomTheme = resolved;
+  const paletteId = normalizePalette(useSettingsStore.getState().palette);
+  const key = `${resolved}:${paletteId}`;
+  if (key === lastDomKey) return;
+  lastDomKey = key;
   document.body.dataset.theme = resolved;
+  document.body.dataset.palette = paletteId;
 }
 useSettingsStore.subscribe(syncDomTheme);
 sysDark.addEventListener("change", syncDomTheme);

@@ -5,7 +5,13 @@
    另增朱砂 zhu（品牌印/警示）、文档衬线字体栈、统一动效曲线。
    真源在 useSettingsStore：theme(light|dark|auto) 经 isDarkTheme 解析后由
    syncDomTheme 写入 body[data-theme="dark|light"]，auto 档由 matchMedia watch
-   随系统实时切换。CSS 侧恒以 var() 取色，组件样式零硬编码色。 */
+   随系统实时切换。CSS 侧恒以 var() 取色，组件样式零硬编码色。
+
+   本文件同时是**默认配色 xuan（宣纸·青花）的基线**：没有挂 body[data-palette]
+   时（首帧、JS 未就绪）走这里的 :root / dark 值。另外 5 套配色的覆盖在
+   palettes.css（生成物，真源 src/lib/paletteSeeds.ts）；paletteSeeds.test.ts
+   断言这里的 xuan 值与种子逐一相等——改这里必须同步改种子，反之亦然。
+   本文件负责「不随配色变」的部分：字体栈、阴影、圆角、尺寸节奏、纸纹。 */
 
 /* 内置文档衬线：思源宋体（SIL OFL，可内嵌商用）。
    400/700 各 1.5MB，font-display: swap 消除首帧豆腐；
@@ -47,49 +53,47 @@
   /* ---- 墨色：三级递减 ---- */
   --fg: #211f1a; /* 主文本 */
   --fg2: #4c4a40; /* 次级文本：菜单项、树行、状态条 */
-  --fg3: #8f8b7c; /* 弱文本：分区标题、空态、图标 */
+  /* 弱文本：分区标题、空态、图标。2026-09-14 由 #8f8b7c 加深一档——
+     原值在纸面 #f7f4ec 上只有 3.11:1，而 9.5px 的分区标题「最近打开 / 文件夹」
+     正是这个色，低于 WCAG AA 的 4.5。现值 #736f63 = 4.57:1。 */
+  --fg3: #736f63;
 
   /* ---- 青花（accent）：唯一彩色，只给翻译语义 ---- */
   --accent: #31678e;
   --accent-strong: #285677; /* primary hover / 按下 / 青花文字态 */
   --accent-weak: rgba(49, 103, 142, 0.08); /* 选中底 */
   --accent-ring: rgba(49, 103, 142, 0.3); /* focus 外环 */
+  --accent-border: rgba(49, 103, 142, 0.5); /* 彩头描边：双语对照左标 / 预览译文边框 */
   --on-accent: #f9f3ea; /* 主色底上的文字（暖白，不用纯白） */
 
   /* ---- 朱砂：品牌印 / 警示 / 脏标专用 ---- */
   --zhu: #b3483a;
   --zhu-wash: rgba(179, 72, 58, 0.08);
+  /* 朱砂底上的字：印章「青」字与主按钮文字专用。
+     浅档=暖白（不用纯白，避免与纸面冷暖打架）。
+     2026-09-14 新增：原先 .seal-face / .welcome-seal 用的是 --surface，
+     暗档下 surface 与朱砂太近；这个令牌让纸色换肤时印字仍可读。 */
+  --on-zhu: #fdf6ec;
 
   /* ---- 描边与面：发丝线体系 ---- */
   --border: #e3dcc9; /* 面板分隔线/中缝 */
   --border-strong: #d8d0bb; /* 浮层/输入框描边 */
   --sep-bg: #ece6d8; /* 菜单/弹窗内分隔线 */
-  --panel-bg: var(--bg2); /* 标题栏/侧栏/状态条底 */
   --surface: #fffdf8; /* 浮层/弹窗/toast/选中行底（cloud，最亮面） */
   --field-bg: #fffdf8; /* 输入框底 */
 
-  /* ---- 交互态 ---- */
-  --btn-hover-bg: var(--bg3); /* 菜单按钮 hover */
+  /* ---- 交互态：本段只放**字面量** ----
+     凡是「值里引用另一个令牌」的派生令牌（--panel-bg / --btn-bg / --danger …）
+     一律写在下方 `body` 段，原因见那里的注释——写在这里换配色会失效。 */
   --item-hover-bg: rgba(33, 31, 26, 0.045); /* 菜单项/树行/大纲行 hover */
-  --btn-bg: var(--surface); /* 普通按钮底 */
-  --btn-border: var(--border); /* 普通按钮描边 */
-  --tree-selected-bg: var(--surface); /* 树选中 = cloud 浮起（配左缘青花标，见 global.css） */
-  --palette-selected-bg: var(--accent-weak);
-  --caret-fg: var(--fg3); /* 树展开箭头 */
-  --muted-fg: var(--fg3); /* 空态/禁用文字 */
-  --note-fg: var(--fg2); /* 说明文字 */
-  --test-fg: var(--fg2); /* 连接测试输出 */
-  --status-fg: var(--fg3); /* 状态条：最弱文字级 */
   --placeholder-fg: #bcb7a5; /* ink-ghost */
 
   /* ---- 语义色 ---- */
   --success: #3a7a52;
   --warning: #b8860b;
-  --danger: var(--zhu);
 
   /* ---- 翻译进度（悬浮任务卡）：青花浅底 ---- */
   --tr-box-bg: #e6edf2;
-  --tr-track-bg: var(--bg3);
 
   /* ---- 投影：贴面零阴影（发丝线分区），仅浮层脱离纸面 ---- */
   --shadow-xs: 0 1px 2px rgba(33, 31, 26, 0.05);
@@ -124,41 +128,35 @@ body[data-theme="dark"] {
 
   --fg: #e6e1d4;
   --fg2: #b8b3a4;
-  --fg3: #8b8778;
+  --fg3: #8d8a7b; /* 2026-09-14：原 #8b8778 = 4.42:1，抬到 4.58:1 */
 
   --accent: #6fa3c4;
   --accent-strong: #8fbad6;
   --accent-weak: rgba(111, 163, 196, 0.14);
   --accent-ring: rgba(111, 163, 196, 0.38);
+  --accent-border: rgba(111, 163, 196, 0.5);
   --on-accent: #14161a;
 
-  --zhu: #c96a5c;
-  --zhu-wash: rgba(201, 106, 92, 0.12);
+  /* 2026-09-14：原 #c96a5c 在暗纸面只有 4.31:1（警示文字要用），微抬到 4.57:1 */
+  --zhu: #cb7062;
+  --zhu-wash: rgba(203, 112, 98, 0.12);
+  /* 暗档朱砂偏亮，印字改用暖墨（浅档是暖白） */
+  --on-zhu: #2a1512;
 
   --border: #3b3830;
   --border-strong: #474338;
   --sep-bg: #332f29;
-  --panel-bg: var(--bg2);
   --surface: #2e2b26;
   --field-bg: #232220;
 
-  --btn-hover-bg: var(--bg3);
+  /* 只留字面量；派生令牌统一在下方 body 段（明暗两档共用同一套引用） */
   --item-hover-bg: rgba(230, 225, 212, 0.06);
-  --btn-bg: var(--surface);
-  --btn-border: var(--border);
-  --caret-fg: var(--fg3);
-  --muted-fg: var(--fg3);
-  --note-fg: var(--fg2);
-  --test-fg: var(--fg2);
-  --status-fg: var(--fg3);
   --placeholder-fg: #6b6759;
 
   --success: #5fc085;
   --warning: #d4a948;
-  --danger: var(--zhu);
 
   --tr-box-bg: #22323d;
-  --tr-track-bg: #39362f;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32);
@@ -171,6 +169,37 @@ body[data-theme="dark"] {
 
   --resizer-hover: #55514a;
   --scrollbar-thumb: #55514a;
+}
+
+/* ── 派生令牌：必须落在 body 上，不能放 :root（2026-09-14 修正）──
+   自定义属性在「声明它的那个元素」上就把 var() 替换成具体值（computed-value
+   time），替换结果再按继承往下传。所以 `--panel-bg: var(--bg2)` 一旦写在
+   :root(=html) 上，它就锁定成 html 的 --bg2（= 默认档 xuan 的暖纸色）继承给
+   整棵子树；而 palettes.css 的配色覆盖写在 **body** 上、浅档又只有 :root 这一处
+   别名声明 —— 于是换配色后标题栏 / 侧栏 / 状态条 / 按钮底与描边 / 菜单 hover
+   全都还是宣纸色。（暗档此前侥幸正常：body[data-theme="dark"] 里重复声明了一遍
+   别名，替换点恰好落在 body 上，这也正是这个坑没被发现的原因。）
+   统一搬到 body：替换发生在「配色与明暗都已生效」的同一元素上，两者都跟得上。
+   浏览器实测（Edge/WebView2 同引擎）：:root 别名 = rgb(241,236,224) 冻结，
+   body 别名 = rgb(32,36,42) 正确。
+   规矩：本段的每一行都只能引用**基础令牌**（bg2/bg3/surface/border/fg2/fg3/
+   zhu/accent-weak），不要出现「别名引用别名」；新增派生令牌请加到这一段。
+   同源先例：markdown.css 的 --md-* 本来就声明在 .markdown-body 上（body 后代），
+   所以阅读区换配色一直是好的。 */
+body {
+  --panel-bg: var(--bg2); /* 标题栏/侧栏/状态条底 */
+  --btn-hover-bg: var(--bg3); /* 菜单按钮 hover */
+  --btn-bg: var(--surface); /* 普通按钮底 */
+  --btn-border: var(--border); /* 普通按钮描边 */
+  --tree-selected-bg: var(--surface); /* 树选中 = cloud 浮起（配左缘青花标，见 global.css） */
+  --palette-selected-bg: var(--accent-weak); /* 命令面板选中行底 */
+  --caret-fg: var(--fg3); /* 树展开箭头 */
+  --muted-fg: var(--fg3); /* 空态/禁用文字 */
+  --note-fg: var(--fg2); /* 说明文字 */
+  --test-fg: var(--fg2); /* 连接测试输出 */
+  --status-fg: var(--fg3); /* 状态条：最弱文字级 */
+  --danger: var(--zhu);
+  --tr-track-bg: var(--bg3);
 }
 
 body {

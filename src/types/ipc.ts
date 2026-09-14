@@ -69,6 +69,25 @@ export interface ProviderInfo {
   fields: ProviderField[];
 }
 
+/**
+ * storage.rs LlmProfile：一套已保存的 OpenAI 兼容大模型配置。
+ *
+ * 翻译链路只认 `providers["llm"]`（bridge 的两个翻译命令都由前端显式传
+ * creds），所以档案库是纯前端概念：选中哪套，就把它的四个值镜像进
+ * `providers["llm"]`。Rust 侧不认识「档案」，只负责把它原样存下来。
+ */
+export interface LlmProfile {
+  /** 前端生成的不透明 id（改名不改 id） */
+  id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  lookup_model: string;
+  /** 上次 /models 拉到的清单，持久化后重启仍可下拉选用 */
+  models: string[];
+}
+
 /** storage.rs Settings：providers 按源名分组凭据，绝不离开本进程 */
 export interface Settings {
   provider: string;
@@ -80,6 +99,19 @@ export interface Settings {
   outline: string;
   nav: string;
   theme: string;
+  /** 主题配色 id（xuan/su/qing/tan/ci/ye）；"" = 用默认档 xuan */
+  palette: string;
+  /** 大模型配置档案库（可多套并存）；老配置缺字段 → [] */
+  llm_profiles: LlmProfile[];
+  /** 当前生效档案的 id；"" = 没有选中任何档案 */
+  llm_active: string;
+  /**
+   * 开机自启（托盘菜单写、启动时 apply 到 autostart 插件）。
+   * 前端不展示也不改它，但必须列在类型里：整包 `save_settings` 走 serde 反序列化，
+   * 字段名没登记就会被静默丢成 false。当前 save 路径都是 `{...cur}` 整包展开
+   * 因而侥幸无损——写死字面量时就会踩坑，所以这里钉住。
+   */
+  autostart: boolean;
 }
 
 /** lib.rs TranslationProgressEvt：序列化为 {gen, done, total}（r#gen → "gen"） */

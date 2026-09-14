@@ -111,7 +111,9 @@ body {
   align-items: center;
   justify-content: center;
   background: var(--zhu);
-  color: var(--surface);
+  /* 印字色：--on-zhu 由配色/明暗解析（浅档暖白、暗档暖墨）。
+     原先用 --surface，在部分配色的暗档下与朱砂太近。 */
+  color: var(--on-zhu);
   font-family: var(--font-serif);
   font-size: 12px;
   font-weight: 700;
@@ -1109,13 +1111,16 @@ body {
   color: var(--fg3);
 }
 
-/* ── 最近打开列表（上限 10 条，超高自滚）── */
+/* ── 最近打开列表（上限 10 条，恒全量铺开、不滚动）──
+   条数由 useRecentStore.RECENT_MAX=10 封顶，10 行 ≈ 236px；下方文件夹区
+   （.ws-folders flex:1）吸收剩余高度。窗口最小高 600，扣除上下骨架约 110px
+   后仍留 ~150px 给文件夹区，故不需要滚动兜底——原 max-height:172px 只够
+   显示 7 行、多出的部分靠滚动条看，已按要求去掉（2026-09-14）。 */
 .ws-list {
   list-style: none;
   margin: 0;
   padding: 0 8px 6px;
-  max-height: 172px;
-  overflow-y: auto;
+  flex: none;
 }
 
 .ws-item {
@@ -2413,6 +2418,690 @@ body:has(.app-resizer.dragging) .tabbar {
   background: var(--bg2);
 }
 
+/* ============ 设置面板（2026-09-14 第三轮：无眉头无页脚，只留左右两栏）============
+   分工：Modal 只管「遮罩 + 卡片」，不渲染标题条（调用方不传 title）；
+   本组管内容骨架 ——
+     .set-shell ─┬─ .set-nav（左：大分类，通高）
+                 └─ .set-main ─┬─ .set-bar（搜索胶囊 + 关闭叉）
+                               └─ .set-pane（右：详情，自滚）
+   工具条长在 .set-main 里而不是横跨整框，于是它那条 border-bottom 天然
+   「只占右栏宽度、不通到左边」（用户明确要求）。
+   没有页脚：改动即草稿，点叉关闭时自动落盘，不存在「忘了保存」。 */
+
+.modal.modal-lg {
+  /* 固定尺寸（用户要求：按「外观」页的大小定死，不随分类变）。
+     宽度沿用改版前的 980；高度是**量出来**的：无头 Edge（与 WebView2 同引擎）
+     读 .set-pane 的 scrollHeight = 687（外观页内容）+ 53（工具条）= 740，取 742
+     留 2px 余量。上一版还多算了 50（标题条）+ 56（页脚），现在两者都去掉了。
+     量测脚本与结论见 docs/superpowers/plans/2026-09-14-theme-palette.md。
+     其它分类内容多少都不再改变外框：外观 / 数据 / 关于 恰好整屏不滚，
+     长的（快捷键 19 行 = 1351、翻译与模型含档案 = 855）自己在详情里滚。
+     min-width 归零、max-* 只作「窗口比面板还小」时的兜底，正常不参与计算。 */
+  min-width: 0;
+  width: 980px;
+  height: 742px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+}
+
+.modal-lg .modal-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.set-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ── 左：大分类导航 ── */
+.set-nav {
+  flex: none;
+  width: 166px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg2);
+  overflow-y: auto;
+}
+
+/* 印章 logo：左栏最上方，**只有一枚印、不带任何文字**（用户要求）。
+   与标题栏 / 欢迎页 / 关于页同一枚朱砂「青」印，配色与内描边照抄那边，
+   只是尺寸小一档（34px）——它在导航里是角标，不是页面的主角。
+   水平居中（margin auto）：印章是「栏目头」而不是「导航项」，居中后与
+   下方左对齐的文字分类拉开层次；早先那种对齐图标列的左对齐反而让它
+   读起来像列表里的第一项。 */
+.set-nav-seal {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin: 2px auto 16px;
+  border-radius: 8px;
+  background: var(--zhu);
+  color: var(--on-zhu);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.set-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.set-nav-item:hover { background: var(--item-hover-bg); color: var(--fg); }
+
+/* 选中：浮层底 + 左缘彩头标（沿用应用内「树选中」的语法，不引入新色） */
+.set-nav-item.on {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.set-nav-item.on .set-nav-ico { color: var(--accent); }
+
+.set-nav-ico { flex: none; color: var(--fg3); }
+.set-nav-empty { padding: 8px 10px; font-size: 12px; color: var(--fg3); }
+
+/* ── 右：工具条 + 详情 ── */
+.set-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部工具条：胶囊搜索框 + 关闭叉。border-bottom 只跨右栏（在 .set-main 内） */
+.set-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 搜索胶囊：**不铺满整条**（用户反馈铺满时过长、视觉不舒服）。
+   定宽上限 + 右侧留白，靠 margin-left:auto 顶到右边贴着关闭叉；
+   320px 是「够输入两三个关键词、又不喧宾夺主」的折中，
+   窗口变窄时靠 max-width:100% 自然收缩，不会溢出去。 */
+.set-search {
+  flex: none;
+  margin-left: auto;
+  width: 320px;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--field-bg);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.set-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+.set-search > svg { flex: none; color: var(--fg3); }
+
+.set-search > input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.set-search > input::placeholder { color: var(--fg3); }
+/* search 型输入自带的清除叉：与整体观感不搭，隐藏掉（Esc/全选删即可） */
+.set-search > input::-webkit-search-cancel-button { display: none; }
+
+.set-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.set-x:hover { background: var(--item-hover-bg); color: var(--fg); }
+
+.set-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 22px 22px;
+}
+
+/* 分区块：与上一块的间距靠 padding-top + 细线，块内自成一体 */
+.set-sec + .set-sec {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sep-bg);
+}
+
+.set-sec-title { margin: 0 0 3px; font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.set-sec-desc { margin: 0 0 12px; font-size: 12px; line-height: 1.65; color: var(--fg3); }
+
+/* 小节头 + 右对齐动作（如「恢复默认」「保存此配置」）同行 */
+.set-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.set-head-row .set-sec-desc { margin-bottom: 10px; }
+
+/* 同行按钮**不许被压窄换行**：它是 flex item，默认 flex-shrink:1 会缩到内容宽度
+   以下，于是「恢复默认」四字折成两行、整块变肥大（用户反馈的正是这个形态）。
+   说明文字该短是说明的事，按钮不该因为旁边话多而变形——两头都堵上。 */
+.set-head-row > .modal-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 分组小标题（快捷键页的「文件」「视图」…） */
+.set-grp {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--fg2);
+}
+
+.set-empty { padding: 40px 0; text-align: center; font-size: 12.5px; color: var(--fg3); }
+
+/* ── 统一行式排版：左名称+说明 / 右控件 ──
+   快捷键、划词翻译、连接测试、缓存维护都用这一套，行间细分割线，
+   最后一行去线（.set-sec 自己的上边线已经做了分块）。 */
+.setti {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--sep-bg);
+}
+
+.setti:last-child { border-bottom: none; }
+.setti-info { min-width: 0; }
+.setti-label { font-size: 12.5px; color: var(--fg); }
+.setti-desc { margin-top: 3px; font-size: 11.5px; line-height: 1.55; color: var(--fg3); }
+.setti-ctl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 键位框：**全部同宽**、文字居中——一列排下来才整齐（用户明确要求）。
+   宽度按最长的组合键（Ctrl+Shift+Space）留够，窄了会把 "…" 挤出来。 */
+.hk-box {
+  min-width: 138px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--field-bg);
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.hk-box:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 录键中：朱砂描边 + 淡底，与「脏标签」同一套语法，一眼看出正在等键 */
+.hk-box.rec {
+  border-color: var(--zhu);
+  background: var(--zhu-wash);
+  color: var(--zhu);
+}
+
+/* 冲突：同一组合被两项占用 */
+.hk-box.bad { border-color: var(--danger); color: var(--danger); }
+
+/* 只读档（控件快捷键一览）：不可点，弱化处理 */
+.hk-box.ro {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  color: var(--fg3);
+  cursor: default;
+}
+
+.hk-box.ro:hover { border-color: var(--border-strong); color: var(--fg3); }
+
+.set-warn { margin: 10px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--danger); }
+
+/* ── 胶囊开关（划词翻译等布尔项）── */
+.sw {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 21px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sw.on { background: var(--accent); }
+
+.sw-thumb {
+  position: absolute;
+  top: 2.5px;
+  left: 2.5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 0.15s;
+}
+
+.sw.on .sw-thumb { transform: translateX(17px); }
+
+/* ── 大模型配置档案列表 ── */
+.prof-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+.prof {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.prof:hover { border-color: var(--accent); }
+.prof.on { border-color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+.prof-main { flex: 1; min-width: 0; }
+
+/* 名字就地可改：无边框输入框，hover 才显形，看着仍是文本 */
+.prof-name {
+  width: 100%;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  outline: none;
+}
+
+.prof-name:hover { border-color: var(--border); }
+.prof-name:focus { border-color: var(--accent); background: var(--field-bg); }
+
+.prof-sub {
+  padding-left: 4px;
+  font-size: 11px;
+  color: var(--fg3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prof-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 10.5px;
+}
+
+.prof-del {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.prof-del:hover { background: var(--zhu-wash); color: var(--zhu); }
+
+/* 小节头右侧的小号下拉（「＋ 新建配置…」） */
+.set-mini-select {
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field-bg);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.set-mini-select:focus { border-color: var(--accent); }
+
+.set-field { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.set-field > label { flex: none; min-width: 76px; font-size: 12px; color: var(--fg2); }
+
+.set-field > select,
+.set-field > input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field-bg);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.set-field > select:focus,
+.set-field > input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+/* 分段控件（明暗三态 / 卡片预览档）：胶囊底 + 浮起选中块 */
+.setseg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg2);
+}
+
+.setseg button {
+  padding: 5px 14px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.setseg button:hover:not(.on) { color: var(--fg); }
+
+.setseg button.on {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+/* 占位选项（「Anthropic 兼容」尚未支持）：**看得见但按不动**。
+   用禁用而不是隐藏——用户要先看到这条路存在。`:disabled:hover` 必须显式写：
+   上面那条 `:hover:not(.on)` 特异性同为 (0,3,1)，靠文件顺序才压得住，
+   把两个选择器并排写清楚，别让后人来猜。 */
+.setseg button:disabled,
+.setseg button:disabled:hover {
+  color: var(--fg3);
+  cursor: not-allowed;
+}
+
+/* 占位标（「暂未支持」）：小一号、更淡，不抢胶囊本身的视觉重量 */
+.setseg-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  background: var(--item-hover-bg);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* 小号档：给「卡片预览」这种次级切换用，不与主控件抢注意力 */
+.setseg.sm button { padding: 3px 10px; font-size: 11.5px; }
+
+/* ── 配色卡网格 ── */
+.pal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.pal-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.pal-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-weak); }
+
+.pal-card-head { display: flex; align-items: baseline; gap: 7px; }
+.pal-card-short { font-family: var(--font-serif); font-size: 19px; font-weight: 700; line-height: 1; }
+.pal-card-name { font-size: 12.5px; font-weight: 600; }
+.pal-card-note { font-size: 11px; line-height: 1.5; color: var(--fg3); }
+
+/* 卡内迷你预览：颜色取的是**这张卡自己的**配色（由组件内联 --pv-* 注入），
+   所以六张卡并排就能横向比较，不必逐个点开看。 */
+.pal-preview {
+  display: flex;
+  height: 54px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--pv-border);
+  background: var(--pv-bg);
+}
+
+.pal-preview .side {
+  width: 26px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 0;
+  background: var(--pv-bg2);
+  border-right: 1px solid var(--pv-border);
+}
+
+.pal-preview .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--pv-accent); }
+.pal-preview .seal { width: 10px; height: 10px; border-radius: 2.5px; background: var(--pv-zhu); transform: rotate(-3deg); }
+
+.pal-preview .body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.pal-preview .ln { height: 3px; border-radius: 2px; background: var(--pv-fg); opacity: 0.8; }
+.pal-preview .ln.dim { width: 68%; opacity: 0.28; }
+.pal-preview .row { display: flex; gap: 3px; margin-top: 1px; }
+.pal-preview .row i { height: 7px; border-radius: 2px; }
+.pal-preview .row i.a { width: 22px; background: var(--pv-accent); }
+.pal-preview .row i.z { width: 13px; background: var(--pv-zhu); }
+.pal-preview .row i.s { width: 17px; background: var(--pv-surface); border: 1px solid var(--pv-border); }
+
+/* 选中勾：右上角，恒用**当前应用**的彩头，不跟卡片自己的配色 */
+.pal-check { position: absolute; top: 8px; right: 8px; color: var(--accent); opacity: 0; transition: opacity 0.15s; }
+.pal-card.on .pal-check { opacity: 1; }
+
+.pal-swatches { display: flex; gap: 4px; }
+.pal-swatches i { flex: 1; height: 5px; border-radius: 3px; }
+
+/* 说明性小字：解释「这一页为什么没有保存按钮」这类非直觉约定 */
+.set-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--fg3);
+}
+
+.set-hint svg { flex: none; margin-top: 2px; }
+
+/* ── 常驻操作条已删除（2026-09-14 第三轮）──
+   原先这里是一整块 .set-foot（说明小字 + 取消 + 保存）。用户要求「只要改动，
+   关叉即自动保存」，于是页脚整块消失：改动进草稿、saveAndClose 统一落盘。
+   连带 .set-foot .modal-btn 的尺寸统一规则、.modal-btn.set-rec（旧录制钮）
+   一并去掉——录制态现在走 .hk-box.rec。 */
+
+/* 关于页：排版对齐欢迎页（2026-09-14）——同一套「朱砂印 + 衬线名 + 说明」语法，
+   居中一列、垂直居中。印的尺寸/圆角/内描边与 .welcome-seal 逐项相同，名字字号
+   与 .welcome-title 同为 22，两处看一眼就是一家（原先这里是左对齐的 38px 小印）。 */
+.about-wrap {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.about-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  text-align: center;
+}
+
+.about-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--zhu);
+  color: var(--on-zhu);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.about-name { font-family: var(--font-serif); font-size: 22px; font-weight: 700; color: var(--fg); }
+.about-ver { font-size: 11.5px; color: var(--fg3); font-family: var(--font-mono); }
+.about-desc { margin: 2px 0 0; font-size: 13px; line-height: 1.85; color: var(--fg3); }
+
+/* 关于页内容下方的外链行（现只 Gitee，将来 GitHub / 检查更新并排加进来）。
+   flex 居中是给「多个按钮」预备的——只有一个时与单独居中同效。 */
+.about-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* 内联文字链（提示行里的「恢复档位」等）：不继承 button 的方块外观 */
+.set-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-border);
+  text-underline-offset: 2px;
+}
+
+.set-link:hover { color: var(--accent-strong); text-decoration-color: currentColor; }
+
+/* 带图标的小按钮（如「打开缓存目录」）：.modal-btn 不是 flex，图标与文字
+   默认各按基线排，加 inline-flex 才对齐成一枚整体。 */
+.set-ico {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 目录名 / 文件名这类「原样照抄」的字串：等宽 + 允许断行。
+   Windows 的 userDataDir 路径很长（AppData\Roaming\…），详情栏只有 600 多像素，
+   不给 break-all 会撑出横向滚动条。 */
+.set-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--fg2);
+}
+
+/* 录键态样式见 .hk-box.rec（设置面板快捷键页），此处不再有旧的 .modal-btn.set-rec */
+
 /* ============ 命令面板 ============ */
 .palette-backdrop {
   position: fixed;
@@ -2562,6 +3251,8 @@ body:has(.app-resizer.dragging) .tabbar {
 .preview-scroll,
 .editor-cm .cm-scroller,
 .modal-body,
+.set-nav,
+.set-pane,
 .palette-list {
   --sb-thumb: transparent;
   transition: --sb-thumb 0.5s;
@@ -2572,6 +3263,8 @@ body:has(.app-resizer.dragging) .tabbar {
 .preview-scroll.scrolling,
 .editor-cm .cm-scroller.scrolling,
 .modal-body.scrolling,
+.set-nav.scrolling,
+.set-pane.scrolling,
 .palette-list.scrolling {
   --sb-thumb: var(--scrollbar-thumb);
 }
@@ -2581,6 +3274,8 @@ body:has(.app-resizer.dragging) .tabbar {
 .preview-scroll::-webkit-scrollbar,
 .editor-cm .cm-scroller::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
+.set-nav::-webkit-scrollbar,
+.set-pane::-webkit-scrollbar,
 .palette-list::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -2591,6 +3286,8 @@ body:has(.app-resizer.dragging) .tabbar {
 .preview-scroll::-webkit-scrollbar-thumb,
 .editor-cm .cm-scroller::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
+.set-nav::-webkit-scrollbar-thumb,
+.set-pane::-webkit-scrollbar-thumb,
 .palette-list::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
@@ -2603,6 +3300,8 @@ body:has(.app-resizer.dragging) .tabbar {
 .preview-scroll::-webkit-scrollbar-track,
 .editor-cm .cm-scroller::-webkit-scrollbar-track,
 .modal-body::-webkit-scrollbar-track,
+.set-nav::-webkit-scrollbar-track,
+.set-pane::-webkit-scrollbar-track,
 .palette-list::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -2638,7 +3337,7 @@ body:has(.app-resizer.dragging) .tabbar {
   height: 46px;
   border-radius: 10px;
   background: var(--zhu);
-  color: #f9f3ea;
+  color: var(--on-zhu);
   font-family: var(--font-serif);
   font-weight: 700;
   font-size: 26px;
@@ -2694,7 +3393,7 @@ body:has(.app-resizer.dragging) .tabbar {
 .welcome-btn.primary {
   border-color: transparent;
   background: var(--zhu);
-  color: #f9f3ea;
+  color: var(--on-zhu);
 }
 
 .welcome-btn.primary:hover {

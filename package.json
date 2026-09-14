@@ -1,14 +1,15 @@
 {
   "name": "qingbird-md-ui",
   "private": true,
-  "version": "0.1.10",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:palettes": "node scripts/gen-palettes.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
