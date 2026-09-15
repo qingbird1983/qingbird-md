@@ -11,6 +11,7 @@ const reset = () => {
     customWidth: null,
     sidebarWidth: 240,
     bootWidthPending: true,
+    introPhase: "idle",
   });
 };
 
@@ -76,5 +77,44 @@ describe("useUiStore 首次启动的默认面板形态", () => {
     useUiStore.getState().applyDefaultSidebarWidth(0); // 测量未完成
     expect(useUiStore.getState().sidebarWidth).toBe(240);
     expect(useUiStore.getState().bootWidthPending).toBe(true);
+  });
+});
+
+// 启动仪式感动画状态机：乱序调用只能空转，不能把界面拽回起始态。
+describe("useUiStore 启动动画 introPhase 状态机", () => {
+  beforeEach(reset);
+
+  it("初始为 idle（窗口 reveal 前的起始态）", () => {
+    expect(useUiStore.getState().introPhase).toBe("idle");
+  });
+
+  it("正常路径 idle → playing → done", () => {
+    useUiStore.getState().startIntro();
+    expect(useUiStore.getState().introPhase).toBe("playing");
+    useUiStore.getState().finishIntro();
+    expect(useUiStore.getState().introPhase).toBe("done");
+  });
+
+  it("skipIntro：idle → skipped，之后 start/finish 都无效", () => {
+    useUiStore.getState().skipIntro();
+    expect(useUiStore.getState().introPhase).toBe("skipped");
+    useUiStore.getState().startIntro();
+    expect(useUiStore.getState().introPhase).toBe("skipped");
+    useUiStore.getState().finishIntro();
+    expect(useUiStore.getState().introPhase).toBe("skipped");
+  });
+
+  it("finishIntro 在 idle 下无效（不能跳过 playing）", () => {
+    useUiStore.getState().finishIntro();
+    expect(useUiStore.getState().introPhase).toBe("idle");
+  });
+
+  it("done 为终态：start/skip/finish 全部空转", () => {
+    useUiStore.getState().startIntro();
+    useUiStore.getState().finishIntro();
+    useUiStore.getState().startIntro();
+    useUiStore.getState().skipIntro();
+    useUiStore.getState().finishIntro();
+    expect(useUiStore.getState().introPhase).toBe("done");
   });
 });

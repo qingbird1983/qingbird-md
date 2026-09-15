@@ -23,6 +23,8 @@ import type { Mode } from "./types/ipc";
 import { startColDrag } from "./lib/colDrag";
 import { api } from "./lib/ipc";
 import { collectSnapshot } from "./lib/session";
+import { runBootIntro } from "./lib/bootIntro";
+import { INTRO_FROM_WIDTH, INTRO_ANIM_MS } from "./stores/useUiStore";
 
 /**
  * 应用内快捷键的**执行体**：键 = lib/hotkeyRegistry 的 id。
@@ -152,7 +154,9 @@ function App() {
     // 翻译进度/完成事件监听。各 listen* 自带只挂一次闩，StrictMode 双跑无副作用。
     void useSettingsStore.getState().load();
     useRecentStore.getState().load(); // 最近打开文档：读盘一次，之后随打开自动登记
-    void useDocStore.getState().openDocFromArgs();
+    // 启动序列（含 openDocFromArgs）与启动动画编排共用一个入口：编排器要在
+    // 快照/pending 恢复完成后才能判定「是否落在欢迎页、该不该演动画」。
+    void runBootIntro();
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
     void useTranslationStore.getState().listenPartial();
@@ -242,6 +246,23 @@ function App() {
   const outlineWidth = useUiStore((s) => s.outlineWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
+  const introPhase = useUiStore((s) => s.introPhase);
+  // armed = 窗口 reveal 前的起始态（两栏展开到比终态更宽）；playing = 收缩进行中。
+  const introArmed = introPhase === "idle";
+  const introPlaying = introPhase === "playing";
+  // armed 期间显隐/宽度/停靠侧全部以起始态为准，快照恢复对 store 的改动要等
+  // startIntro 那一帧才生效——否则隐藏期里就会先演一半。
+  const navVisible = introArmed || showNav;
+  const outlineVisible = introArmed || showOutline;
+  // armed 期宽度语义："比终态宽一些"的展开态。
+  // 侧栏用 INTRO_FROM_WIDTH（= PANEL_MAX 480），比默认 240 宽 240px，
+  // "展开最大化"语义足；窗口通常够放（1296 常见窗口下 480 + 主区 ≥800）。
+  // 大纲栏 armed 期 width 用 outlineWidth（默认 200）——若也用 480，1296 窗口
+  // 下 480 侧栏 + 480 大纲栏 + 边距 ≈ 990 > 主区可用宽度，会把主区压成 0 宽
+  // 露出 outline-panel 纯白盖住欢迎页。armed 用 outlineWidth，playing 用
+  // 专属 keyframes 从 --panel-w 变量（armed 时已写好）收到 0。
+  const navPanelW = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
+  const outlinePanelW = outlineWidth;
 
   // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 大纲栏·左停靠 /
   // col4 该停靠的拖宽条 / col5 主区(1fr) / col6 大纲栏·右停靠的拖宽条 /
@@ -254,8 +275,13 @@ function App() {
   // 否则主区提前跨列会盖住正在收缩的侧栏——动画就看不见了。
   // 大纲栏左停靠时 col3 有实体面板，不能再跨列吸收（会被主区盖住），
   // 此时主区固定占 col5，靠空列自然收窄。
-  const navGone = useSettled(!showNav, PANEL_ANIM_MS);
-  const outlineDockedLeft = showOutline && outlineSide === "left";
+  // 收缩延迟随动画时长走：intro 播放时面板过渡被拉到 INTRO_ANIM_MS，
+  // 主区跨列吸收空列也必须等这么久，否则会在收缩中途盖住侧栏。
+  const navGone = useSettled(
+    !navVisible,
+    introPlaying ? INTRO_ANIM_MS : PANEL_ANIM_MS,
+  );
+  const outlineDockedLeft = !introArmed && showOutline && outlineSide === "left";
   const absorb = navGone && !outlineDockedLeft;
   const mainStyle = {
     ["--col-main" as string]: String(absorb ? 1 : 5),
@@ -263,10 +289,20 @@ function App() {
     // 工具条左缘：与「工作区带」左端对齐（侧栏拖宽条之后，含左停靠大纲栏），
     // 右端 -1 覆盖到窗口右缘（第 2 行只有侧栏与工具条，无面板占位冲突）。
     ["--col-ws" as string]: String(absorb ? 1 : 3),
+    // intro 播放期间把面板过渡时长整体拉长（侧栏/大纲栏/拖宽条/标签条都继承
+    // 这一个变量），三处动画共用同一时长 → 同时落定，不需要按距离分别算。
+    ...(introPlaying
+      ? { ["--panel-anim" as string]: `${INTRO_ANIM_MS}ms` }
+      : {}),
   } as CSSProperties;
+  const shellClass = introArmed
+    ? "intro-armed"
+    : introPlaying
+      ? "intro-playing"
+      : undefined;
 
   return (
-    <div id="app-shell" style={mainStyle}>
+    <div id="app-shell" className={shellClass} style={mainStyle}>
       <TitleBar />
       <AppMenu />
       {/* EditorToolbar 常驻显示（源/预览/分栏均渲染，MainArea 不再渲染）。
@@ -280,9 +316,9 @@ function App() {
       <nav
         className="sidebar"
         style={{
-          width: showNav ? sidebarWidth : 0,
-          opacity: showNav ? 1 : 0,
-          ["--panel-w" as string]: `${sidebarWidth}px`,
+          width: navVisible ? navPanelW : 0,
+          opacity: navVisible ? 1 : 0,
+          ["--panel-w" as string]: `${navPanelW}px`,
         }}
       >
         <div className="panel-clip">
@@ -290,7 +326,7 @@ function App() {
         </div>
       </nav>
       {/* 面板与主区的分隔/拖宽条（1px 发丝线 + 7px 热区，悬停提示可拖拽） */}
-      <PanelResizer place="sidebar" hidden={!showNav} />
+      <PanelResizer place="sidebar" hidden={!navVisible} />
       {/* T22 MainArea：source/preview/split 路由（格式工具栏已上移至 tab 条下）；T23 TranslationBar 宿主 */}
       <main className="main-area">
         <MainArea />
@@ -300,18 +336,22 @@ function App() {
           拖宽条随之换到 col4，主区仍在 col5。 */}
       <PanelResizer
         place="outline-left"
-        hidden={!outlineDockedLeft}
+        // armed 起始态大纲栏固定在右缘展开，col4 不能冒出左停靠的拖宽条
+        hidden={introArmed || !outlineDockedLeft}
       />
       <PanelResizer
         place="outline-right"
-        hidden={!showOutline || outlineSide !== "right"}
+        hidden={!introArmed && (!showOutline || outlineSide !== "right")}
       />
       <aside
         className={`outline-panel${outlineDockedLeft ? " dock-left" : ""}`}
         style={{
-          width: showOutline ? outlineWidth : 0,
-          opacity: showOutline ? 1 : 0,
-          ["--panel-w" as string]: `${outlineWidth}px`,
+          // intro-playing 期 width 不内联：让 CSS keyframes 接管收缩 + 回弹。
+          // inline style 与 keyframe animation 同改 width 时，内联胜出 → 看不到
+          // 回弹。armed 期仍要钉起始宽，所以这条三元只在 playing 为 false 时设值。
+          width: introPlaying ? undefined : outlineVisible ? outlinePanelW : 0,
+          opacity: outlineVisible ? 1 : 0,
+          ["--panel-w" as string]: `${outlinePanelW}px`,
         }}
       >
         <div className="panel-clip">

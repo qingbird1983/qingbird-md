@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { Minus, Square, X, Maximize2, Moon, PanelLeft, Settings, Sun } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { sysDark, useSettingsStore } from "../stores/useSettingsStore";
-import { useUiStore } from "../stores/useUiStore";
+import { useUiStore, INTRO_FROM_WIDTH } from "../stores/useUiStore";
 import TabBar from "./TabBar";
 
 const appWindow = getCurrentWindow();
@@ -18,6 +18,12 @@ export default function TitleBar() {
   const showNav = useUiStore((s) => s.showNav);
   const toggleNav = useUiStore((s) => s.toggleNav);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
+  // 启动动画起始态：工作区在屏幕上是 480 宽，标签条要跟那条可见分割线对齐，
+  // 而不是跟 store 里已实测出的终态最小宽。开演那一帧二者一起切回，margin 与
+  // 面板宽度共用 --panel-anim 过渡，天然同步滑回。
+  const introArmed = useUiStore((s) => s.introPhase) === "idle";
+  const effShowNav = introArmed || showNav;
+  const effSidebarWidth = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
   // ── 标签条起点跟随工作区分割线 ──
   // 下方工作区右缘分割线的窗口 x = sidebarWidth + 7（col1 面板 + col2 resizer 热区，
   // 7px 与 global.css .app-resizer 宽度一致，见下方 RESIZER_W）。标签条左缘 =
@@ -46,8 +52,8 @@ export default function TitleBar() {
   // 工作区分割线由 `.app-resizer.res-left::before`（left:auto / right:0 / 1px）
   // 贴其右缘绘制，故线体 = [sidebarWidth + RESIZER_W - 1, sidebarWidth + RESIZER_W)。
   const RESIZER_W = 7;
-  const tabMargin = showNav
-    ? Math.max(0, sidebarWidth + RESIZER_W - baseX - TAB_ALIGN_COMPENSATION)
+  const tabMargin = effShowNav
+    ? Math.max(0, effSidebarWidth + RESIZER_W - baseX - TAB_ALIGN_COMPENSATION)
     : 0;
 
   // ── 工作区最小宽度：让上下两条竖线共线 ──

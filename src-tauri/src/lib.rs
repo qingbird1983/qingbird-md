@@ -520,10 +520,69 @@ static SHOWN: Mutex<bool> = Mutex::new(false);
 /// 重建出来的窗口会被 on_page_load 继续当静默处理，永远不显示。
 static SILENT: AtomicBool = AtomicBool::new(false);
 
-/// 冷重建窗口前的标志复位（显示闩 + 静默标志），见两处注释。
+/// 本次启动是否带首开文件参数（文件关联双击）。
+///
+/// 前端启动动画只在「最终落在欢迎页」时演；文件参数走的是页面加载后
+/// 500ms 的 `document-changed` 发射（见 on_page_load），前端无法从
+/// take_pending_open 得知它的存在，只能由本标志经 `boot_info` 查询。
+/// 冷重建由 reset_startup_flags 复位（重建出来的会话不带首开参数）。
+static INITIAL_FILE_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// 冷重建窗口前的标志复位（显示闩 + 静默标志 + 首开参数标志），见各处注释。
 fn reset_startup_flags() {
     *SHOWN.lock().expect("shown mutex poisoned") = false;
     SILENT.store(false, Ordering::SeqCst);
+    INITIAL_FILE_PENDING.store(false, Ordering::SeqCst);
+}
+
+/// 看门狗兜底时长：前端启动序列（快照恢复 + 多个文件 IO）正常 <1s，
+/// 超时仍未调 boot_ready 就强制显示，宁可放弃动画也不能让窗口永不出现。
+const BOOT_SHOW_WATCHDOG_MS: u64 = 3000;
+
+/// 显示主窗口（一次性）：非静默且尚未显示时 show + focus，返回是否本次完成。
+///
+/// 两个调用方共用同一把闩：前端首帧摆好起始态后经 `boot_ready` 通知显示；
+/// on_page_load 派生的看门狗超时后兜底显示（前端卡死/IPC 失败时不能永不出现）。
+fn show_main_window(app: &tauri::AppHandle) -> bool {
+    if SILENT.load(Ordering::SeqCst) {
+        return false;
+    }
+    let mut shown = SHOWN.lock().expect("shown mutex poisoned");
+    if *shown {
+        return false;
+    }
+    *shown = true;
+    if let Some(w) = app.get_webview_window(hibernate::MAIN_LABEL) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    true
+}
+
+/// `boot_info` 命令的返回：前端据此决定启动动画该不该演。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BootInfo {
+    /// 静默启动（驻留托盘）：窗口本次根本不显示，动画无观众，不演。
+    silent: bool,
+    /// 本次带首开文件参数：500ms 后会有文档打开，欢迎页留不住，不演。
+    has_file_arg: bool,
+}
+
+#[tauri::command]
+fn boot_info() -> BootInfo {
+    BootInfo {
+        silent: SILENT.load(Ordering::SeqCst),
+        has_file_arg: INITIAL_FILE_PENDING.load(Ordering::SeqCst),
+    }
+}
+
+/// 前端首帧起始态已上屏：放行窗口显示。返回 false 表示窗口此前已显示
+/// （看门狗抢先）或本次为静默启动——前端据此放弃启动动画、直接落终态，
+/// 避免「用户先看到一帧中间态再缩回」的穿帮。
+#[tauri::command]
+fn boot_ready(app: tauri::AppHandle) -> bool {
+    show_main_window(&app)
 }
 
 /// 挂主窗口的「关闭=隐藏 + 排定休眠」钩子。
@@ -564,6 +623,8 @@ pub fn run() {
     SILENT.store(silent, Ordering::SeqCst);
     // CLI 文件参数一次解析两处共用：第二实例转交 / 首开直接加载。
     let file_arg = fileopen::file_arg_from_args(std::env::args().skip(1));
+    // 供前端 boot_info 查询：带文件参数启动时欢迎页留不住，不演启动动画。
+    INITIAL_FILE_PENDING.store(file_arg.is_some(), Ordering::SeqCst);
     let lock = single_instance::acquire_lock();
     if lock.is_none() {
         // Second launch: hand a file-association path to the running instance.
@@ -593,19 +654,19 @@ pub fn run() {
             if !matches!(ev.event(), tauri::webview::PageLoadEvent::Finished) {
                 return;
             }
-            // 非静默启动：首帧就绪后显示主窗口（visible:false 配置的补偿，
-            // 消除 webview 白屏；静默启动永不 show，驻留托盘）。
-            // 两个标志都是模块级：休眠冷重建后由 spawn_main_window 复位，
-            // 保证重建出来的窗口正常显示。
-            if !SILENT.load(Ordering::SeqCst) && !*SHOWN.lock().expect("shown mutex poisoned") {
-                *SHOWN.lock().expect("shown mutex poisoned") = true;
-                if let Some(w) = wv
-                    .app_handle()
-                    .get_webview_window(hibernate::MAIN_LABEL)
-                {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+            // 窗口显示改由前端握手指令驱动（boot_ready）：前端要先把
+            // 启动动画起始态（两栏展开到最宽）画上屏再放行 show，否则用户会
+            // 先看到默认态再跳到起始态。这里只留看门狗兜底：前端卡死/IPC
+            // 失败时超时强制显示，窗口不能永不出现。冷重建后 on_page_load
+            // 会再触发一次，SHOWN 闩保证看门狗与握手两条路径只 show 一次。
+            {
+                let h = wv.app_handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        BOOT_SHOW_WATCHDOG_MS,
+                    ));
+                    show_main_window(&h);
+                });
             }
             if let Some(p) = initial.lock().expect("initial file mutex poisoned").take() {
                 // 延迟发射；detached 线程不阻塞事件循环（现有逻辑原样）
@@ -664,6 +725,9 @@ pub fn run() {
             load_session,
             clear_session,
             take_pending_open,
+            // 启动动画握手（前端摆好首帧起始态后通知显示窗口）
+            boot_info,
+            boot_ready,
             // Task 10-11 追加于此
         ])
         .setup(move |app| {
