@@ -79,6 +79,12 @@ export async function runBootIntro() {
   } else {
     await nextFrame(); // 起始帧在屏幕上停留两帧，收缩才有「起手式」
     await nextFrame();
+    // 仪式感"起手式"：reveal 后让 armed 起始态（两栏展开 + 欢迎内容极小）
+    // 在屏幕上停留一会——用户能看见"展开最大化"才感觉到收缩是「过程」不是
+    // 「瞬变」。这是启动动画独有的展示时间，不算在 INTRO_ANIM_MS 里。
+    // 数值（500ms）来自用户反馈：太短（≈200ms）感觉"刷一下就过"、
+    // 太长（≈1000ms）拖启动感；500ms + 1280ms playing 总时长 ≈ 1.8s 节奏刚好。
+    await new Promise<void>((r) => setTimeout(r, 500));
     ui.startIntro();
     window.setTimeout(() => useUiStore.getState().finishIntro(), INTRO_ANIM_MS + 100);
   }
