@@ -18,7 +18,6 @@ import {
   revealSetRegion,
   revealStart,
   revealTick,
-  TICK_MS,
   type RevealCommit,
   type RevealState,
 } from "../lib/reveal";
@@ -85,7 +84,7 @@ let partialRegistered = false;
 // 打字机缓冲 + reveal 队列（不进 React state：tick 不驱动渲染，只有放行结果才 set）
 let twState: TypewriterState = typewriterStart();
 let revealState: RevealState = revealStart();
-let revealTimer: ReturnType<typeof setInterval> | undefined;
+let revealRaf = 0;
 let revealPatcher: ((c: RevealCommit) => void) | null = null;
 let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
 // 视口窗口下界超出视口底的预取块数（qingniao round2 定值）
@@ -197,19 +196,31 @@ function dispatchReveal(commits: RevealCommit[]) {
   if (changed) useTranslationStore.setState({ partialBlocks: blocks, partialCursor: cursor });
 }
 
-/** 有未排空的 reveal 队列就起 30ms tick；空闲/已在泵则不动。 */
+/** 有未排空的 reveal 队列就起 rAF 驱动的 tick 循环；空闲/已在泵则不动。
+ *
+ * 为何不用 setInterval：
+ * 1. Tauri WebView2（Chromium 内核）对最小化/失焦标签的 setInterval 会节流到
+ *    ≥1000ms，即使窗口激活时嵌套在事件回调里的 setInterval 也常被合并。
+ * 2. setInterval 不与显示器刷新对齐，每 tick 之间的间隔抖动会让用户看到
+ *    "卡顿"——偶发 100ms 空隙后接着连发 3 次 commit，画面像"整块替换"。
+ * 3. rAF 与显示器刷新同步(60Hz≈16.7ms)；revealTick 自带 wall-clock 自校准，
+ *    哪怕某帧被跳过，下一帧会把 shown 推回正确位置，无累积漂移。
+ * 4. typing 期间每帧调一次 revealTick 几乎零开销（纯比较运算），直到队列
+ *    空才自然退出循环。 */
 function pumpReveal() {
-  if (revealTimer !== undefined) return;
+  if (revealRaf !== 0) return;
   if (revealIdle(revealState)) return;
-  revealTimer = setInterval(() => {
-    const out = revealTick(revealState);
+  const step = () => {
+    const out = revealTick(revealState, performance.now());
     revealState = out.state;
     dispatchReveal(out.commits);
-    if (revealIdle(revealState) && revealTimer !== undefined) {
-      clearInterval(revealTimer);
-      revealTimer = undefined;
+    if (revealIdle(revealState)) {
+      revealRaf = 0;
+      return;
     }
-  }, TICK_MS);
+    revealRaf = requestAnimationFrame(step);
+  };
+  revealRaf = requestAnimationFrame(step);
 }
 
 function sameWindow(a: [number, number] | null, b: [number, number] | null): boolean {
