@@ -121,15 +121,21 @@ export interface ProgressPayload {
   total: number;
 }
 
-/** lib.rs TranslationPartialEvt：{gen, index, text, from_cache}。
+/** lib.rs TranslationPartialEvt：{gen, index, text, from_cache, streaming?}。
  * index 与 translation-done 的 pair 首元素同一索引空间：
  * translation 模式 = text runs（data-ri），bilingual 模式 = translatable 块（data-bi）。
- * from_cache = 缓存命中（前端跳过打字动画直接上屏）。 */
+ * from_cache = 缓存命中（前端跳过打字动画直接上屏）。
+ * streaming = 单单元裸发路径的实时增量（累积文本，随 SSE 增长）：前端直写
+ * 灰字省略号、不经过打字机队列；false/缺席 = 完整单元（走打字动画）。 */
 export interface TranslationPartialPayload {
   gen: number;
   index: number;
   text: string;
   from_cache: boolean;
+  streaming?: boolean;
+  /** 单元翻译失败：text 为原文回退。前端照常推进打字机放行（失败 run 跳过
+   * 打字、显示原文），避免该 run 缺失导致其后所有块永久等位。 */
+  failed?: boolean;
 }
 
 /**
@@ -167,7 +173,16 @@ export type ViewKind = "source" | "preview" | "split";
  * first_index 兼容保留 = 序列首元素（空收集为 0）。
  */
 export type TranslateStart =
-  | { kind: "started"; gen: number; first_index: number; indices: number[] }
+  | {
+      kind: "started";
+      gen: number;
+      first_index: number;
+      indices: number[];
+      /** 与 indices 等长、一一对应：每个收集单元所属的块索引（data-bi 空间）。
+       *  translation 模式 = run 所属块；bilingual 模式 = 块自身。前端据此把
+       *  同一块的 run 组装成"整段"打字单元（对齐 qingniao 节奏）。 */
+      indices_blocks: number[];
+    }
   | { kind: "cached"; done: DonePayload };
 
 /** dto.rs LookupExample */

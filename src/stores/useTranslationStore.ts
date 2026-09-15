@@ -19,6 +19,7 @@ import {
   revealStart,
   revealTick,
   type RevealCommit,
+  type RevealRun,
   type RevealState,
 } from "../lib/reveal";
 import { useUiStore, errText } from "./useUiStore";
@@ -86,6 +87,18 @@ let twState: TypewriterState = typewriterStart();
 let revealState: RevealState = revealStart();
 let revealRaf = 0;
 let revealPatcher: ((c: RevealCommit) => void) | null = null;
+/** 单单元裸发路径已流式直显（灰字+省略号）的 run；完整 Unit 到达时定格 */
+/** 本轮标记翻译失败（原文回退）的 run：跳过打字、推进放行，避免缺位卡死 */
+let failedRuns = new Set<number>();
+let streamed = new Set<number>();
+/** 流式直显过的 run 所属块：整块定格收样式，避免块打字时把已直显 run 重打闪回 */
+let streamedBlock = new Set<number>();
+/** run → 所属块（本轮收集；data-bi 空间，来自 TranslateStart.indices_blocks） */
+let blockOfRun = new Map<number, number>();
+/** 块 → 期望收集 run 数（块组装完成判定；bilingual 模式恒 1） */
+let blockRunCounts = new Map<number, number>();
+/** 块 → 已放行待组装的 run（bucket：runIndex → Released） */
+let blockAssembly = new Map<number, Map<number, import("../lib/typewriter").Released>>();
 let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
 // 视口窗口下界超出视口底的预取块数（qingniao round2 定值）
 const WINDOW_PREFETCH = 4;
@@ -189,8 +202,12 @@ function dispatchReveal(commits: RevealCommit[]) {
         blocks = new Map(blocks); // 首个定格条目才拷贝（tick 批次零拷贝）
         changed = true;
       }
-      blocks.set(c.index, c.text);
-      cursor = Math.max(cursor, c.index + 1);
+      // done/instant 按块携带全部 run：逐 run 落表（translation 模式 key=run
+      // 索引、bilingual 模式 key=块索引），committed 重放水位取 run 索引上界。
+      for (const r of c.runs) {
+        blocks.set(r.index, r.text);
+        cursor = Math.max(cursor, r.index + 1);
+      }
     }
   }
   if (changed) useTranslationStore.setState({ partialBlocks: blocks, partialCursor: cursor });
@@ -272,11 +289,52 @@ function handlePartial(p: TranslationPartialPayload) {
   // 模式护栏：批次期间切换阅读模式 ⇒ partial 的 index 空间（runs/块）与当前
   // 预览锚点错位，宁缺勿错（与上方 runContent 护栏同口径；换挡补跑由 done 处理）。
   if (useDocStore.getState().mode !== st.lastRunMode) return;
+  // 单元失败（原文回退）：照常推进打字机放行——否则该 run 缺失会让其后
+  // 所有块永久等位（done 前全部 pending、done 一次性回填）。
+  // 失败 run 不打字，块内其余 run 照常打；done/instant 落地时回打原文 = no-op。
+  if (p.failed) failedRuns.add(p.index);
+  // 单单元裸发增量：直写 DOM（灰字+省略号），不经过打字机队列——这就是
+  // qingniao `TranslationState::Streaming` 的"逐字吐出"；完整 Unit 到达再定格。
+  if (p.streaming) {
+    streamed.add(p.index);
+    const sb = blockOfRun.get(p.index);
+    if (sb !== undefined) streamedBlock.add(sb); // 所属块整块定格（防重打闪回）
+    revealPatcher?.({ kind: "stream", index: p.index, text: p.text });
+    return;
+  }
   const next = typewriterPush(twState, p.index, p.text, p.from_cache);
   twState = next.state;
   if (next.released.length === 0) return;
   for (const r of next.released) {
-    const out = revealPush(revealState, r.index, r.text, r.fromCache);
+    const b = blockOfRun.get(r.index);
+    if (b === undefined) {
+      // 兜底：收集序列必带块映射；无映射按 run 自身即时上屏
+      dispatchReveal([{ kind: "instant", index: r.index, runs: [{ index: r.index, text: r.text }] }]);
+      continue;
+    }
+    // 同一块的 run 在文档序中连续、按序放行；bucket 攒满 = 块凑齐 → 整段打字。
+    let bucket = blockAssembly.get(b);
+    if (!bucket) {
+      bucket = new Map();
+      blockAssembly.set(b, bucket);
+    }
+    bucket.set(r.index, r);
+    if (bucket.size < (blockRunCounts.get(b) ?? 1)) continue;
+    blockAssembly.delete(b);
+    const rels = Array.from(bucket.values()).sort((x, y) => x.index - y.index);
+    const runs: RevealRun[] = rels.map((rel) => ({
+      index: rel.index,
+      text: rel.text,
+      failed: failedRuns.has(rel.index),
+    }));
+    // 整块定格条件：流式直显过（样式已上屏）或全部缓存命中；否则进打字队列
+    const instant = streamedBlock.has(b) || rels.every((rel) => rel.fromCache);
+    streamedBlock.delete(b);
+    if (instant) {
+      dispatchReveal([{ kind: "instant", index: b, runs }]);
+      continue;
+    }
+    const out = revealPush(revealState, { index: b, runs }, false);
     revealState = out.state;
     dispatchReveal(out.commits);
   }
@@ -285,14 +343,33 @@ function handlePartial(p: TranslationPartialPayload) {
 
 /** 起跑时重置打字流（committed 保留——已定格译文跨窗口持续显示）。
  * 入参为本轮收集索引的完整文档序序列（终审 C1：缺口序列不再被
- * "连续 +1"游标误卡，见 typewriter.ts）。 */
-function resetStream(indices: number[]) {
+ * "连续 +1"游标误卡，见 typewriter.ts）及等长 run→块映射
+ * （indices_blocks：前端把同一块的 run 组装成"整段"打字单元）。 */
+function resetStream(indices: number[], indicesBlocks: number[]) {
   twState = typewriterStart(indices);
+  failedRuns.clear();
+  streamed.clear();
+  streamedBlock.clear();
+  blockAssembly = new Map();
+  blockOfRun = new Map();
+  blockRunCounts = new Map();
+  for (let i = 0; i < indices.length; i++) {
+    const runIdx = indices[i];
+    const b = indicesBlocks[i] ?? runIdx;
+    blockOfRun.set(runIdx, b);
+    blockRunCounts.set(b, (blockRunCounts.get(b) ?? 0) + 1);
+  }
 }
 
 /** 彻底清显示（全文 done 落整树 / 切原文 / 内容过期）。 */
 function clearAll() {
   twState = typewriterStart();
+  failedRuns.clear();
+  streamed.clear();
+  streamedBlock.clear();
+  blockAssembly = new Map();
+  blockOfRun = new Map();
+  blockRunCounts = new Map();
   const out = revealDrain(revealState);
   revealState = out.state;
   dispatchReveal(out.commits);
@@ -354,23 +431,82 @@ function handleDone(d: DonePayload) {
     }
     return;
   }
-  clearAll();
-  useTranslationStore.setState({ status: "idle", progress: null });
   // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与 payload html 全部过期，宁缺勿错不落库。
-  // 改走标签化 applyTranslationResult —— 翻译产物的归宿是当前 active tab。
   const contentFresh = !!dd.doc && dd.doc.content === st.runContent;
-  if (contentFresh) {
-    const translations = d.translations ? new Map(d.translations) : new Map<number, string>();
-    useDocStore.getState().applyTranslationResult(translations, doneHtmlOf(d, st.runContent!));
-    // (Task 11-c) 完成通报随落库走：内容过期跳过 apply 时不报「翻译完成」
-    //（既有瑕疵：跳过 apply 仍 toast 成功，误导用户以为过期产物已生效）。
-    ui.addToast("success", `翻译完成（${dd.doc?.name ?? ""}）`);
+  if (!contentFresh) {
+    clearAll();
+    useTranslationStore.setState({ status: "idle", progress: null });
+  } else {
+    // 不整树立即回填（避免"一大块变中文"）：未放行/流式直显块先定格上屏，
+    // 已入队块继续打字；等 reveal 排空后再整树替换收口（结构对齐，视觉无感）。
+    finalizeAfterReveal(d, ui, dd.doc?.name ?? "");
   }
   // 换挡补跑（startIfFresh 语义的收尾）：跑批期间用户切到另一翻译模式时，
   // 本轮 payload 形态与新模式不匹配 ⇒ 立刻按新模式补跑（后端缓存使重复批次近乎零成本）。
   if (dd.mode !== "original" && st.lastRunMode !== dd.mode) {
     useTranslationStore.getState().startIfFresh();
   }
+}
+
+/** 全文 done 收口：未放行块从 done 载荷瞬时上屏，已入队块继续打字；等 reveal
+ * 排空后整树替换落库（防整树一次性回填）。超时兜底：异常卡住时不能无限等。 */
+function finalizeAfterReveal(
+  d: DonePayload,
+  ui: ReturnType<typeof useUiStore.getState>,
+  docName: string,
+) {
+  const doneMap = new Map(d.translations ?? []);
+  const todo: RevealCommit[] = [];
+  // typewriter 等位清空：未放行 run 从 done 载荷定格上屏（partial 可能缺失）
+  for (const [, rel] of twState.pending) {
+    const b = blockOfRun.get(rel.index) ?? rel.index;
+    todo.push({ kind: "instant", index: b, runs: [{ index: rel.index, text: doneMap.get(rel.index) ?? rel.text }] });
+  }
+  twState = typewriterStart();
+  // 块组装残留（run 已放行但块未凑齐，如缺失/失败 run）→ 逐 run 定格
+  for (const bucket of blockAssembly.values()) {
+    for (const rel of bucket.values()) {
+      const b = blockOfRun.get(rel.index) ?? rel.index;
+      todo.push({ kind: "instant", index: b, runs: [{ index: rel.index, text: doneMap.get(rel.index) ?? rel.text }] });
+    }
+  }
+  blockAssembly = new Map();
+  // 流式直显中的 run：定格（移除省略号/灰字样式）
+  for (const [index, text] of doneMap) {
+    if (streamed.has(index)) {
+      streamed.delete(index);
+      const b = blockOfRun.get(index) ?? index;
+      todo.push({ kind: "instant", index: b, runs: [{ index, text }] });
+    }
+  }
+  streamed.clear();
+  streamedBlock.clear();
+  dispatchReveal(todo);
+  waitRevealIdle(() => {
+    const st2 = useTranslationStore.getState();
+    if (st2.gen !== d.gen) return; // 新一轮已起跑，旧 done 不落库
+    const dd2 = useDocStore.getState();
+    if (!dd2.doc || dd2.doc.content !== st2.runContent) return;
+    useDocStore.getState().applyTranslationResult(
+      new Map(d.translations ?? []),
+      doneHtmlOf(d, st2.runContent!),
+    );
+    useTranslationStore.setState({ status: "idle", progress: null });
+    ui.addToast("success", `翻译完成（${docName}）`);
+  });
+}
+
+/** 等 reveal 队列排空后回调（rAF 轮询，超时兜底）。 */
+function waitRevealIdle(fn: () => void, timeoutMs = 5000) {
+  const start = performance.now();
+  const check = () => {
+    if (revealIdle(revealState) || performance.now() - start > timeoutMs) {
+      fn();
+      return;
+    }
+    requestAnimationFrame(check);
+  };
+  requestAnimationFrame(check);
 }
 
 /** 当前视口 → 窗口（块索引空间，含预取）；无上报回退 [0, PREFETCH)。 */
@@ -430,7 +566,9 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
           });
           useDocStore.getState().mergeTranslations(d.translations ?? []);
           dispatchReveal(
-            (d.translations ?? []).map(([index, text]) => ({ kind: "instant", index, text }) as RevealCommit),
+            (d.translations ?? []).map(
+              ([index, text]) => ({ kind: "instant", index, runs: [{ index, text }] }) as RevealCommit,
+            ),
           );
           scheduleCanonicalRebuild();
           return; // 无 toast：窗口化不打扰（进度语义由后续 run 承担）
@@ -442,7 +580,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         return;
       }
       // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
-      resetStream(r.indices); // 新打字流放行序列（窗口化/跳过收集使索引带缺口，终审 C1）
+      resetStream(r.indices, r.indices_blocks); // 新打字流放行序列 + run→块映射（整段组装）
       if (win) {
         const out = revealSetRegion(revealState, win[0], win[1]);
         revealState = out.state;
@@ -570,6 +708,16 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null, scope: "off", lastWindow: null }));
     // 打字流等位丢弃（缺口永不再来），已定格/打字中保留自然收尾
     twState = typewriterStart();
+    // 块组装残留（取消中断，块未凑齐）→ 已放行 run 即时落地
+    const tail: RevealCommit[] = [];
+    for (const bucket of blockAssembly.values()) {
+      for (const rel of bucket.values()) {
+        const b = blockOfRun.get(rel.index) ?? rel.index;
+        tail.push({ kind: "instant", index: b, runs: [{ index: rel.index, text: rel.text }] });
+      }
+    }
+    blockAssembly = new Map();
+    dispatchReveal(tail);
     // 区域无界放开（±∞ 内不存在区域外索引 ⇒ 重锚 flush 集恒空，故不 dispatch）：
     // 已定格/打字中按 30ms 节奏自然排空；也排除「区域外残项卡住队首 →
     // revealIdle 恒 false → interval 30Hz 空转直到下次 setRegion/clearAll」的泄漏。

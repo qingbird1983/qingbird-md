@@ -57,3 +57,16 @@ export function lockTypingHost(el: HTMLElement, mode: Mode, index: number): HTML
 export function unlockTypingHost(target: HTMLElement | null) {
   if (target) target.style.minHeight = "";
 }
+
+/** 流式态样式开关（单单元裸发增量）：灰字+省略号标记"请求在途"，完整 Unit
+ * 定格（done/instant）时关闭。锚点缺失静默跳过（与 patchPartial 同口径）。
+ * translation 模式作用在 run 元素本身；bilingual 作用在 tr-box（nextElementSibling）。 */
+export function setStreamingFlag(el: HTMLElement, mode: Mode, index: number, on: boolean) {
+  const node =
+    mode === "bilingual"
+      ? (el.querySelector(`[data-bi="${index}"]`)?.nextElementSibling as HTMLElement | null)
+      : (el.querySelector(`[data-ri="${index}"]`) as HTMLElement | null);
+  if (node instanceof HTMLElement) {
+    node.classList.toggle("tr-streaming", on);
+  }
+}

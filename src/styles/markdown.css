@@ -500,6 +500,15 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   margin-bottom: 0;
 }
 
+/* 单单元裸发路径流式增量（qingniao Streaming 语义）：灰字 + 省略号标记
+   "请求在途"，完整单元定格（done/instant）时移除。 */
+.markdown-body .tr-streaming {
+  color: var(--md-muted);
+}
+.markdown-body .tr-streaming::after {
+  content: "…";
+}
+
 /* mermaid / KaTeX 占位符样式（spec 2026-08-30 §7.5） */
 .markdown-body .mermaid {
   text-align: center;

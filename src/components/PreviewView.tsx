@@ -35,7 +35,7 @@ import { useUiStore } from "../stores/useUiStore";
 import { contentWidthPx, edgeDragWidth } from "../lib/contentWidth";
 import { codeTextFrom } from "../lib/codeText";
 import { startColDrag } from "../lib/colDrag";
-import { lockTypingHost, patchPartial, unlockTypingHost } from "../lib/patchPartial";
+import { lockTypingHost, patchPartial, setStreamingFlag, unlockTypingHost } from "../lib/patchPartial";
 import { handlePreviewLinkClick } from "../lib/linkSafety";
 import {
   renderMathPlaceholders,
@@ -421,14 +421,25 @@ export default function PreviewView() {
           patchPartial(el, mode, c.index, c.text);
           break;
         case "done":
-          patchPartial(el, mode, c.index, c.text);
+          // 整段定型：块内全部 run 一次落地（translation 逐 run span；bilingual 单 run=块）
+          for (const r of c.runs) {
+            patchPartial(el, mode, r.index, r.text);
+            setStreamingFlag(el, mode, r.index, false);
+          }
           unlockTypingHost(typingHostRef.current.get(c.index) ?? null);
           typingHostRef.current.delete(c.index);
           anchorsDirtyRef.current = true; // 行高变化 → 锚点表标脏
           break;
         case "instant":
-          patchPartial(el, mode, c.index, c.text);
+          for (const r of c.runs) {
+            patchPartial(el, mode, r.index, r.text);
+            setStreamingFlag(el, mode, r.index, false);
+          }
           anchorsDirtyRef.current = true;
+          break;
+        case "stream":
+          patchPartial(el, mode, c.index, c.text);
+          setStreamingFlag(el, mode, c.index, true);
           break;
       }
     });

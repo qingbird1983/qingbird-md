@@ -92,6 +92,14 @@ pub struct TranslationPartialEvt {
     pub index: usize,
     pub text: String,
     pub from_cache: bool,
+    /// 单单元裸发路径的实时增量（累积文本）：true = 前端直写灰字省略号、
+    /// 不经过打字机队列；false = 完整单元（走打字动画）。from_cache 仅对
+    /// 完整单元有意义，流式增量恒 false。
+    pub streaming: bool,
+    /// 单元翻译失败：text = 原文（前端回退显示原文并跳过打字，但照常推进
+    /// 打字机放行——否则该 run 的缺失会让其后所有块永久等位，出现
+    /// "前几行打字 → 停住 → done 一次性回填"）。
+    pub failed: bool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -112,6 +120,10 @@ pub enum TranslateStart {
         /// 窗口化按需/文献区段跳过使收集索引带缺口（如 [1,3,5]），打字机
         /// 按此序列放行，缺口不再被误判为"等连续前缀"而永久停摆（终审 C1）。
         indices: Vec<usize>,
+        /// 与 indices 等长、一一对应：每个收集单元所属的块索引（data-bi 空间）。
+        /// translation 模式 = run 所属块；bilingual 模式 = 块自身（=indices）。
+        /// 前端据此把同一块的 run 组装成"整段"打字单元（对齐 qingniao 节奏）。
+        indices_blocks: Vec<usize>,
     },
     Cached {
         done: TranslationDoneEvt,
@@ -335,9 +347,13 @@ pub fn translate_document(
         .ok_or_else(|| format!("未知翻译源：{provider}"))?;
     let blocks = markdown::parse_blocks(&content);
     let win_range = window.map(|[top, end]| (top, end));
-    let units = match mode.as_str() {
-        "translation" => markdown::units::collect_text_runs_windowed(&blocks, win_range),
-        "bilingual" => markdown::units::collect_translatable_windowed(&blocks, win_range),
+    let (units, indices_blocks) = match mode.as_str() {
+        "translation" => markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range),
+        "bilingual" => {
+            let units = markdown::units::collect_translatable_windowed(&blocks, win_range);
+            let blocks_of = units.iter().map(|&(i, _)| i).collect::<Vec<_>>();
+            (units, blocks_of)
+        }
         other => return Err(format!("不支持的模式：{other}")),
     };
     let snapshot = state.cache.lock().expect("cache mutex poisoned").clone();
@@ -393,7 +409,7 @@ pub fn translate_document(
         bilingual,
         window.is_some(),
     );
-    Ok(TranslateStart::Started { r#gen, first_index, indices })
+    Ok(TranslateStart::Started { r#gen, first_index, indices, indices_blocks })
 }
 
 /// 会话收口重建：用前端累积的完整 translations 表渲染整树 canonical html。
@@ -461,7 +477,13 @@ fn spawn_translation(
             translate::engine::EngineEvent::Unit { index, text, from_cache } => {
                 let _ = app_evt.emit(
                     "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text, from_cache },
+                    TranslationPartialEvt { r#gen, index, text, from_cache, streaming: false, failed: false },
+                );
+            }
+            translate::engine::EngineEvent::Streaming { index, text } => {
+                let _ = app_evt.emit(
+                    "translation-partial",
+                    TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: true, failed: false },
                 );
             }
             translate::engine::EngineEvent::Progress { done, total } => {
@@ -478,7 +500,20 @@ fn spawn_translation(
                     );
                 }
             }
-            translate::engine::EngineEvent::Failed { .. } => {}
+            translate::engine::EngineEvent::Failed { index, .. } => {
+                // 失败单元照常转发（携带原文）：前端回退原文显示并跳过打字，
+                // 但必须推进打字机放行——否则该 run 缺失会让其后所有块
+                // 永久等位，出现"前几行打字→停住→done 一次性回填"。
+                let text = units
+                    .iter()
+                    .find(|(i, _)| *i == index)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or_default();
+                let _ = app_evt.emit(
+                    "translation-partial",
+                    TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: false, failed: true },
+                );
+            }
         };
 
         let results = translate::engine::run(&req, &mut work_cache, &emit);
@@ -664,12 +699,16 @@ mod tests {
             index: 12,
             text: "译文".into(),
             from_cache: true,
+            streaming: false,
+            failed: false,
         };
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["gen"], 4);
         assert_eq!(v["index"], 12);
         assert_eq!(v["text"], "译文");
         assert_eq!(v["from_cache"], true);
+        assert_eq!(v["streaming"], false);
+        assert_eq!(v["failed"], false);
     }
 
     #[test]
@@ -681,20 +720,24 @@ mod tests {
             r#gen: 6,
             first_index: 1,
             indices: vec![1, 3, 5],
+            indices_blocks: vec![0, 2, 2],
         };
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "started");
         assert_eq!(v["gen"], 6);
         assert_eq!(v["first_index"], 1);
         assert_eq!(v["indices"], serde_json::json!([1, 3, 5]));
+        assert_eq!(v["indices_blocks"], serde_json::json!([0, 2, 2]));
         // 全文 run：索引连续且从收集器首索引起（此处 0 起）
         let full = TranslateStart::Started {
             r#gen: 7,
             first_index: 0,
             indices: vec![0, 1, 2],
+            indices_blocks: vec![0, 0, 1],
         };
         let v2 = serde_json::to_value(&full).unwrap();
         assert_eq!(v2["indices"], serde_json::json!([0, 1, 2]));
+        assert_eq!(v2["indices_blocks"], serde_json::json!([0, 0, 1]));
     }
 
     #[test]

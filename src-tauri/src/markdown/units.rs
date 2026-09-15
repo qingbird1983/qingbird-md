@@ -50,21 +50,33 @@ pub fn collect_text_runs_windowed(
     blocks: &[Block],
     window: Option<(usize, usize)>,
 ) -> Vec<(usize, String)> {
+    collect_text_runs_windowed_blocks(blocks, window).0
+}
+
+/// 与 collect_text_runs_windowed 相同，但额外返回每个收集 run 所属的块索引
+/// （data-bi 空间），两数组等长、一一对应。前端据此把 run 组装成整段打字单元。
+pub fn collect_text_runs_windowed_blocks(
+    blocks: &[Block],
+    window: Option<(usize, usize)>,
+) -> (Vec<(usize, String)>, Vec<usize>) {
     let mut counter = 0usize;
     let mut bi = 0usize;
     let mut st = RefSkipState::default();
     let mut out = Vec::new();
-    walk_run_collect(blocks, &mut counter, &mut bi, &mut st, window, &mut out);
-    out
+    let mut blocks_out = Vec::new();
+    walk_run_collect_blocks(blocks, &mut counter, &mut bi, &mut st, window, &mut out, &mut blocks_out);
+    (out, blocks_out)
 }
 
-fn walk_run_collect(
+
+fn walk_run_collect_blocks(
     blocks: &[Block],
     counter: &mut usize,
     bi: &mut usize,
     st: &mut RefSkipState,
     window: Option<(usize, usize)>,
     out: &mut Vec<(usize, String)>,
+    blocks_out: &mut Vec<usize>,
 ) {
     for b in blocks {
         match b {
@@ -74,9 +86,9 @@ fn walk_run_collect(
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline(text, counter, out, in_window(b_idx, window));
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window));
                 } else {
-                    collect_runs_inline(text, counter, out, false);
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false);
                 }
             }
             Block::Paragraph { text } => {
@@ -85,15 +97,15 @@ fn walk_run_collect(
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline(text, counter, out, in_window(b_idx, window));
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window));
                 } else {
-                    collect_runs_inline(text, counter, out, false);
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false);
                 }
             }
-            Block::Quote { blocks } => walk_run_collect(blocks, counter, bi, st, window, out),
+            Block::Quote { blocks } => walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out),
             Block::List { items, .. } => {
                 for it in items {
-                    walk_run_collect(&it.blocks, counter, bi, st, window, out);
+                    walk_run_collect_blocks(&it.blocks, counter, bi, st, window, out, blocks_out);
                 }
             }
             Block::Table { headers, rows, .. } => {
@@ -103,9 +115,9 @@ fn walk_run_collect(
                     if trans {
                         let b_idx = *bi;
                         *bi += 1;
-                        collect_runs_inline(h, counter, out, in_window(b_idx, window));
+                        collect_runs_inline_blocks(h, counter, out, blocks_out, b_idx, in_window(b_idx, window));
                     } else {
-                        collect_runs_inline(h, counter, out, false);
+                        collect_runs_inline_blocks(h, counter, out, blocks_out, *bi, false);
                     }
                 }
                 for row in rows {
@@ -115,9 +127,9 @@ fn walk_run_collect(
                         if trans {
                             let b_idx = *bi;
                             *bi += 1;
-                            collect_runs_inline(cell, counter, out, in_window(b_idx, window));
+                            collect_runs_inline_blocks(cell, counter, out, blocks_out, b_idx, in_window(b_idx, window));
                         } else {
-                            collect_runs_inline(cell, counter, out, false);
+                            collect_runs_inline_blocks(cell, counter, out, blocks_out, *bi, false);
                         }
                     }
                 }
@@ -126,18 +138,20 @@ fn walk_run_collect(
             // 脚注定义的内容照常参与 bi/run 占号（渲染时移到文末但 walk
             // 顺序不变，索引与 html.rs 渲染保持逐位一致）
             Block::FootnoteDef { blocks, .. } => {
-                walk_run_collect(blocks, counter, bi, st, window, out)
+                walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out)
             }
             _ => {}
         }
     }
 }
 
-/// `collect` = false 时仍推进 run 计数（恒占号）但不收集。
-fn collect_runs_inline(
+/// `collect` = false 时仍推进 run 计数（恒占号）但不收集（_blocks 变体同时记录块号）。
+fn collect_runs_inline_blocks(
     inlines: &[Inline],
     counter: &mut usize,
     out: &mut Vec<(usize, String)>,
+    blocks_out: &mut Vec<usize>,
+    b_idx: usize,
     collect: bool,
 ) {
     for il in inlines {
@@ -147,18 +161,20 @@ fn collect_runs_inline(
                 *counter += 1;
                 if collect && !t.trim().is_empty() && needs_translation(t) {
                     out.push((idx, t.clone()));
+                    blocks_out.push(b_idx);
                 }
             }
             Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
-                collect_runs_inline(x, counter, out, collect)
+                collect_runs_inline_blocks(x, counter, out, blocks_out, b_idx, collect)
             }
-            Inline::Link { text, .. } => collect_runs_inline(text, counter, out, collect),
+            Inline::Link { text, .. } => collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, collect),
             Inline::Math(_) => {}
             Inline::FootnoteRef(_) => {} // 编号引用不占 run 号
             _ => {}
         }
     }
 }
+
 
 /// Collect translatable text units in document order (full document).
 pub fn collect_translatable(blocks: &[Block]) -> Vec<(usize, String)> {

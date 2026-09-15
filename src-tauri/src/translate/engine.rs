@@ -57,6 +57,10 @@ pub enum EngineEvent {
     /// One unit's translation is ready. `from_cache` = 缓存命中（前端据此
     /// 跳过打字动画直接上屏，qingniao round2 #5 语义）。
     Unit { index: usize, text: String, from_cache: bool },
+    /// 单单元裸发路径的实时增量（累积文本，随 SSE delta 增长）。前端据此
+    /// 直写 DOM（灰字+省略号，qingniao `TranslationState::Streaming` 语义），
+    /// 找回"逐字吐出"；同一 index 的 `Unit` 到达后再定格。
+    Streaming { index: usize, text: String },
     /// Progress across all units of the run.
     Progress { done: usize, total: usize },
     /// One unit failed; the rest of the run continues. 事件层刻意不消费
@@ -239,7 +243,7 @@ pub fn run(
                         break;
                     }
                     let batch = &batches[order[k]];
-                    process_batch(req, &pending_units, batch, &commit);
+                    process_batch(req, &pending_units, batch, &commit, emit);
                 }
             });
         }
@@ -274,23 +278,41 @@ fn process_batch(
     units: &[(usize, String)],
     batch: &[usize],
     commit: &(dyn Fn(usize, Result<String, String>) + Sync),
+    emit: &(dyn Fn(EngineEvent) + Sync),
 ) {
     if req.provider != "llm" {
         // Traditional engines have no batch protocol and no streaming: send
         // units one by one. Concurrency comes from the worker pool.
         for &slot in batch {
-            let r = translate_one(req, &units[slot].1);
+            let r = translate_one(req, &units[slot].1, &mut |_| {});
             commit(slot, r);
         }
         return;
     }
 
     let packed: Vec<(usize, String)> = batch.iter().map(|&s| (s, units[s].1.clone())).collect();
+    // 单单元批 = 裸发路径：累积内容转发 Streaming（qingniao 同款"渐进上屏"）。
+    // 批量批按分隔符增量解码，单元闭合才提交，不转发 Streaming。
+    let single_doc_index = if packed.len() == 1 { Some(units[packed[0].0].0) } else { None };
     // A unit too big for one request never enters the batch protocol: it is
     // split and sent as plain per-chunk requests instead.
     if packed.len() == 1 && packed[0].1.chars().count() > req.config.max_batch_chars {
-        let r = translate_one(req, &packed[0].1);
-        commit(packed[0].0, r);
+        let (slot, text) = &packed[0];
+        let doc_index = single_doc_index.expect("single batch has doc index");
+        let mut out = String::new();
+        for chunk in split_long(text, req.config.max_batch_chars) {
+            let piece = translate_one(req, &chunk, &mut |acc: &str| {
+                emit(EngineEvent::Streaming { index: doc_index, text: acc.to_string() });
+            });
+            match piece {
+                Ok(p) => out.push_str(&p),
+                Err(e) => {
+                    commit(*slot, Err(e));
+                    return;
+                }
+            }
+        }
+        commit(*slot, Ok(out));
         return;
     }
     let prompt = if packed.len() > 1 {
@@ -324,6 +346,9 @@ fn process_batch(
         }
         let delta = &acc[seen..];
         seen = acc.len();
+        if let Some(idx) = single_doc_index {
+            emit(EngineEvent::Streaming { index: idx, text: acc.to_string() });
+        }
         for (slot_in_batch, text) in decoder.push(delta) {
             if !text.is_empty() {
                 if let Some(&slot) = batch.get(slot_in_batch) {
@@ -357,7 +382,7 @@ fn process_batch(
             // re-sending the other N units would just burn N more timeouts.
             let mut fatal: Option<String> = None;
             if let Some(&first) = batch.first() {
-                match translate_one(req, &units[first].1) {
+                match translate_one(req, &units[first].1, &mut |_| {}) {
                     Ok(t) => {
                         delivered[0] = true;
                         commit(first, Ok(t));
@@ -383,7 +408,8 @@ fn process_batch(
         std::thread::scope(|s| {
             for &slot in &missing {
                 s.spawn(move || {
-                    let r = translate_one(req, &units[slot].1);
+                    let mut noop = |_: &str| {};
+                    let r = translate_one(req, &units[slot].1, &mut noop);
                     commit(slot, r);
                 });
             }
@@ -396,12 +422,16 @@ fn process_batch(
 /// Units longer than the provider's budget are split first: every engine has a
 /// per-request character ceiling, and a silently truncated or rejected reply is
 /// worse than two requests.
-fn translate_one(req: &EngineRequest, text: &str) -> Result<String, String> {
+fn translate_one(
+    req: &EngineRequest,
+    text: &str,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<String, String> {
     if text.chars().count() > req.config.max_batch_chars {
         let mut out = String::new();
         for chunk in split_long(text, req.config.max_batch_chars) {
             let piece = if req.provider == "llm" {
-                llm_once(req, &chunk)?
+                llm_once(req, &chunk, on_delta)?
             } else {
                 providers::provider(req.provider, &chunk, req.creds, req.http)?
             };
@@ -412,10 +442,14 @@ fn translate_one(req: &EngineRequest, text: &str) -> Result<String, String> {
     if req.provider != "llm" {
         return providers::provider(req.provider, text, req.creds, req.http);
     }
-    llm_once(req, text)
+    llm_once(req, text, on_delta)
 }
 
-fn llm_once(req: &EngineRequest, text: &str) -> Result<String, String> {
+fn llm_once(
+    req: &EngineRequest,
+    text: &str,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<String, String> {
     let chat = ChatRequest {
         base_url: req.creds.get("baseUrl").unwrap_or_default(),
         api_key: req.creds.get("apiKey").unwrap_or_default(),
@@ -428,8 +462,7 @@ fn llm_once(req: &EngineRequest, text: &str) -> Result<String, String> {
         thinking_off: true,
         timeout_ms: req.config.timeout_ms,
     };
-    let mut noop = |_: &str| {};
-    chat_stream(&chat, req.http, &mut noop).map(|c| strip_fence(&c))
+    chat_stream(&chat, req.http, on_delta).map(|c| strip_fence(&c))
 }
 
 /// Split `text` into chunks of at most `max_len` **characters**, preferring a
@@ -734,6 +767,82 @@ mod tests {
         let out = run(&req, &mut cache, &|_| {});
         assert_eq!(out, vec![Ok("纯译文，无标记".to_string())]);
         assert_eq!(http.take_records().len(), 1, "no wasted retry on a good answer");
+    }
+
+    #[test]
+    fn single_unit_batch_streams_increments() {
+        // 单单元裸发路径：每个 delta 以累积文本转发 Streaming（qingniao
+        // TranslationState::Streaming 语义），流结束后 Unit 定格。
+        let mut raw = String::new();
+        for d in ["你", "好", "，", "世界"] {
+            let payload =
+                serde_json::json!({ "choices": [ { "delta": { "content": d } } ] }).to_string();
+            raw.push_str(&format!("data: {payload}\n\n"));
+        }
+        raw.push_str("data: [DONE]\n\n");
+        let http = MockClient::new();
+        http.script_stream(raw);
+        let creds = llm_creds();
+        let u: Vec<(usize, String)> = vec![(7, "a".into())];
+        let mut cache = Cache::new();
+        let req = EngineRequest {
+            provider: "llm",
+            creds: &creds,
+            units: &u,
+            http: &http,
+            config: EngineConfig::for_provider("llm", 3000, 6),
+            cache_variant: "m@v1",
+        };
+        let events = Mutex::new(Vec::new());
+        let out = run(&req, &mut cache, &|e| events.lock().unwrap().push(e));
+        assert_eq!(out, vec![Ok("你好，世界".to_string())]);
+        let evs = events.into_inner().unwrap();
+        let streams: Vec<&str> = evs
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::Streaming { index, text } => {
+                    assert_eq!(*index, 7);
+                    Some(text.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(streams, vec!["你", "你好", "你好，", "你好，世界"]);
+        let units: Vec<usize> = evs
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::Unit { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(units, vec![7]);
+        assert_eq!(http.take_records().len(), 1, "no wasted retry on a good answer");
+    }
+
+    #[test]
+    fn multi_unit_batch_does_not_stream() {
+        // 批量批按分隔符增量解码：单元闭合才提交，不转发 Streaming
+        let http = MockClient::new();
+        http.script_stream(sse("<<<B0>>>AAA<<<END>>>\n<<<B1>>>BBB<<<END>>>\n"));
+        let creds = llm_creds();
+        let u: Vec<(usize, String)> = vec![(0, "a".into()), (1, "b".into())];
+        let mut cache = Cache::new();
+        let req = EngineRequest {
+            provider: "llm",
+            creds: &creds,
+            units: &u,
+            http: &http,
+            config: EngineConfig::for_provider("llm", 3000, 6),
+            cache_variant: "m@v1",
+        };
+        let events = Mutex::new(Vec::new());
+        let out = run(&req, &mut cache, &|e| events.lock().unwrap().push(e));
+        assert_eq!(out, vec![Ok("AAA".to_string()), Ok("BBB".to_string())]);
+        let evs = events.into_inner().unwrap();
+        assert!(
+            evs.iter().all(|e| !matches!(e, EngineEvent::Streaming { .. })),
+            "batch protocol must not emit Streaming"
+        );
     }
 
     #[test]
