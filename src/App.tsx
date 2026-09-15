@@ -247,15 +247,22 @@ function App() {
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const introPhase = useUiStore((s) => s.introPhase);
-  // armed = 窗口 reveal 前的起始态（两栏强制展开到最宽）；playing = 收缩进行中。
+  // armed = 窗口 reveal 前的起始态（两栏展开到比终态更宽）；playing = 收缩进行中。
   const introArmed = introPhase === "idle";
   const introPlaying = introPhase === "playing";
   // armed 期间显隐/宽度/停靠侧全部以起始态为准，快照恢复对 store 的改动要等
   // startIntro 那一帧才生效——否则隐藏期里就会先演一半。
   const navVisible = introArmed || showNav;
   const outlineVisible = introArmed || showOutline;
+  // armed 期宽度语义："比终态宽一些"的展开态。
+  // 侧栏用 INTRO_FROM_WIDTH（= PANEL_MAX 480），比默认 240 宽 240px，
+  // "展开最大化"语义足；窗口通常够放（1296 常见窗口下 480 + 主区 ≥800）。
+  // 大纲栏 armed 期 width 用 outlineWidth（默认 200）——若也用 480，1296 窗口
+  // 下 480 侧栏 + 480 大纲栏 + 边距 ≈ 990 > 主区可用宽度，会把主区压成 0 宽
+  // 露出 outline-panel 纯白盖住欢迎页。armed 用 outlineWidth，playing 用
+  // 专属 keyframes 从 --panel-w 变量（armed 时已写好）收到 0。
   const navPanelW = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
-  const outlinePanelW = introArmed ? INTRO_FROM_WIDTH : outlineWidth;
+  const outlinePanelW = outlineWidth;
 
   // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 大纲栏·左停靠 /
   // col4 该停靠的拖宽条 / col5 主区(1fr) / col6 大纲栏·右停靠的拖宽条 /
@@ -339,7 +346,10 @@ function App() {
       <aside
         className={`outline-panel${outlineDockedLeft ? " dock-left" : ""}`}
         style={{
-          width: outlineVisible ? outlinePanelW : 0,
+          // intro-playing 期 width 不内联：让 CSS keyframes 接管收缩 + 回弹。
+          // inline style 与 keyframe animation 同改 width 时，内联胜出 → 看不到
+          // 回弹。armed 期仍要钉起始宽，所以这条三元只在 playing 为 false 时设值。
+          width: introPlaying ? undefined : outlineVisible ? outlinePanelW : 0,
           opacity: outlineVisible ? 1 : 0,
           ["--panel-w" as string]: `${outlinePanelW}px`,
         }}

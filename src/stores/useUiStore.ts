@@ -91,8 +91,9 @@ interface UiState {
 
 /** 启动动画起始态两栏宽度（= 拖宽上限 PANEL_MAX，App.tsx 同值）：「展开最大化」。 */
 export const INTRO_FROM_WIDTH = 480;
-/** 启动动画时长：左右栏收缩与欢迎内容放大共用，三者同时落定（CSS 变量 --intro-anim 同值）。 */
-export const INTRO_ANIM_MS = 760;
+/** 启动动画时长：左右栏收缩与欢迎内容放大共用，三者同时落定（CSS 变量 --intro-anim 同值）。
+ *  2026-09-15 二轮调优：从 760 提到 1280（用户反馈"一闪而过"，且需要留足尾部回弹空间）。 */
+export const INTRO_ANIM_MS = 1280;
 
 let toastSeq = 0;
 
