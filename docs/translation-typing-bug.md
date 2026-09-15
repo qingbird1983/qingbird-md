@@ -9,6 +9,7 @@
 - 等翻译进度条跑完 100%，**整片一次性回填**（看不到打字机吐字）；
 - 用户参考小软件 `F:\AI data\work\qingniao`（Rust+windui）：点翻译后从头逐字吐字、一行行往下走，全部打完才收尾；
 - 用户第 4 轮反馈："没有改变，基本还是前面几行有效果，后面等进度条走完一下子回填。不过比之前观感上顺滑了点。"
+- **（2026-09-15 用户确认）本项目界面只有「译文」按钮，没有「翻译全文」按钮**——用户实际使用的就是「译文」（视口窗口 scope=viewport）路径，排查只走窗口分支，不走全文分支。
 
 ## 2. 已做修复（三轮，均全绿验证但未解决核心现象）
 
@@ -39,7 +40,7 @@
 1. **`src/lib/ipc.ts` 的 `api.listenPartial` 事件注册实现（尚未读取！）**——检查 Tauri 事件监听是否存在丢失/节流/批量拉取间隙；`invoke` 与 `listen` 的初始化时序。
 2. **Tauri 跨线程 emit 顺序**：worker 线程 emit Unit/Progress（`translation-partial`）与 bridge 线程 emit Done（`translation-done`）竞争，Done 可能先于部分 partial 到达前端 → `handleDone` 立即兜底回填。前端可在 handlePartial 里打日志统计"收到的 partial 数 vs done 载荷条数"验证。
 3. **引擎真实运行时是否对每个 run 都发了 partial**——加运行时计数（如 eprintln 或前端事件计数），确认是"没发"还是"发了没收到"。这是分叉点：前者查引擎，后者查通道。
-4. **用户实际场景未确认**：点的是「译文」（视口窗口 scope=viewport，只译窗口内，done 走 mergeTranslations + scheduleCanonicalRebuild 400ms 重建）还是「翻译全文」（win=null，done 走 finalizeAfterReveal）？两分支收口路径不同。**下次先问用户。**
+4. **用户场景已确认（2026-09-15）**：界面只有「译文」按钮、无「翻译全文」→ 走视口窗口分支（scope=viewport）。窗口 = `[v.top, v.bottom + 4]` 块索引空间，只收集窗口内块（通常 10-14 块）；done 走 `mergeTranslations + scheduleCanonicalRebuild`（400ms 定时器等 revealIdle，等不到就无限重试）——**下次优先核查 scheduleCanonicalRebuild 的实现：400ms 后是否无条件重建？重建时正在打字的块是否被覆盖？** 窗口只有约 10-14 块，用户却说"3-5 行后停"，说明缺失/卡停发生在窗口内很靠前的位置。
 5. **单单元裸发 Streaming 路径**（超长 run 拆分、单单元批次）：前端 `streamed` 直写灰字。若大量单单元批次，`streamedBlock` 导致整块 instant 定格（不走打字动画），观感"没打字"。
 6. **批次间隙（慢模型）**：8 units/batch + 6 路并发，慢模型下批次完成间隙 10-30s，打字"一阵一阵"；qingniao 是 3 路并发 + 更小批次。用户"顺滑了点"可能与并发/批次行为有关。可对比：把 `units_per_batch` 降到 4、并发降到 3（对齐 qingniao）实测。
 7. **前端等位超时自动放行**的设计讨论（破坏文档序，风险高，慎用）：仅在确认"某 run 永远等不到"时作为最后手段。
