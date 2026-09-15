@@ -29,6 +29,10 @@ body {
   height: 100%;
   grid-template-rows: auto auto 1fr auto;
   grid-template-columns: auto auto auto auto 1fr auto auto;
+  /* 启动仪式感动画时长（useUiStore INTRO_ANIM_MS 同值，改动两处同步）：
+     playing 时 JS 再把 --panel-anim 内联覆盖成同值，两栏收缩 / 标签条滑动 /
+     欢迎内容放大三者共用一个时长，同时落定。 */
+  --intro-anim: 760ms;
 }
 
 /* ── 自定义标题栏（替代 Tauri 原生标题栏）── */
@@ -3491,4 +3495,31 @@ body:has(.app-resizer.dragging) .tabbar {
 
 .welcome-dot {
   opacity: 0.5;
+}
+
+/* ============ 启动仪式感动画（2026-09-15）============
+   窗口 reveal 时两栏已展开到最宽，随后同步收缩；欢迎内容在同一时长里从小
+   放大落定。armed = reveal 前的隐藏起始帧（静态停在 keyframes 的 from 态，
+   与 playing 首帧逐字一致，开演时无跳变）；playing = 动画播放中。
+   时长走 #app-shell 上的 --intro-anim，与两栏收缩（JS 内联的 --panel-anim）
+   同一数值，三处同时落定。 */
+#app-shell.intro-armed .welcome-inner {
+  opacity: 0;
+  transform: scale(0.82);
+}
+
+#app-shell.intro-playing .welcome-inner {
+  /* 与两栏收缩同一条 ease 曲线、同一时长：缩放/淡入与面板宽度逐帧同节奏 */
+  animation: welcome-intro var(--intro-anim) ease both;
+}
+
+@keyframes welcome-intro {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

@@ -113,6 +113,12 @@ export const api = {
   /** 取走休眠期间积攒的 handoff 文件（休眠态 emit 无人接收，改由前端启动拉取） */
   takePendingOpen: () => invoke<string[]>("take_pending_open"),
 
+  // ---- 启动动画握手（lib.rs SHOWN 闩；窗口 visible:false 首帧补偿）----
+  /** 本次启动的环境信息：静默驻留 / 带首开文件参数时不演启动动画。 */
+  bootInfo: () => invoke<{ silent: boolean; hasFileArg: boolean }>("boot_info"),
+  /** 首帧起始态已上屏，放行窗口 show；返回 false = 看门狗已抢先显示，放弃动画。 */
+  bootReady: () => invoke<boolean>("boot_ready"),
+
   // ---- 事件（事件名与 lib.rs .emit(...) 注册逐字一致）----
   listenDocumentChanged: (cb: (p: string) => void) =>
     listen<{ path: string }>("document-changed", (e) => cb(e.payload.path)),

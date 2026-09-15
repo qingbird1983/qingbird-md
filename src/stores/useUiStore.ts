@@ -19,6 +19,15 @@ export interface Toast {
 /** 正文宽度四档（markdown.css .w-*；标准档不挂类，恒 A4 794px） */
 export type ContentWidth = "compact" | "normal" | "wide" | "full";
 
+/**
+ * 启动动画状态机（2026-09-15 欢迎页仪式感动画）：
+ * - idle：初始。窗口还没 show，面板读 introFromWidth 摆出「两栏展开到最宽」起始态。
+ * - playing：已放行 show 且起始帧上屏，宽度切回终值，CSS 过渡开始收缩。
+ * - skipped：本次不演（静默启动 / 带文件参数 / 恢复出文档 / 看门狗抢先），直接终态。
+ * - done：动画播完（时长见 --intro-anim），摘除 intro 状态避免后续面板操作误走进起始态。
+ */
+export type IntroPhase = "idle" | "playing" | "skipped" | "done";
+
 /** 大纲栏停靠侧：right = 窗口右缘（默认）；left = 吸附在工作区左缘（侧栏与主区之间） */
 export type OutlineSide = "left" | "right";
 
@@ -50,6 +59,15 @@ interface UiState {
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
+  /** 启动仪式感动画阶段，见 IntroPhase 注释。 */
+  introPhase: IntroPhase;
+
+  /** idle → playing：窗口已 show 且起始帧被看见，两栏开始向终态收缩。 */
+  startIntro(): void;
+  /** idle → skipped：本次不演（静默 / 带文件参数 / 恢复出文档 / 减动效 / 看门狗抢先）。 */
+  skipIntro(): void;
+  /** playing → done：动画播完，摘除 intro 渲染分支。 */
+  finishIntro(): void;
 
   toggleNav(): void;
   toggleOutline(): void;
@@ -70,6 +88,11 @@ interface UiState {
   /** 首次启动回填侧栏宽度（只在「无宽度记忆」时生效一次，见实现）。 */
   applyDefaultSidebarWidth(px: number): void;
 }
+
+/** 启动动画起始态两栏宽度（= 拖宽上限 PANEL_MAX，App.tsx 同值）：「展开最大化」。 */
+export const INTRO_FROM_WIDTH = 480;
+/** 启动动画时长：左右栏收缩与欢迎内容放大共用，三者同时落定（CSS 变量 --intro-anim 同值）。 */
+export const INTRO_ANIM_MS = 760;
 
 let toastSeq = 0;
 
@@ -117,6 +140,13 @@ export const useUiStore = create<UiState>()((set) => ({
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
+  introPhase: "idle",
+
+  // 转换都带阶段门：乱序调用（StrictMode 双跑、看门狗与握手竞争）只能空转，
+  // 不能把已演完的界面拽回起始态。
+  startIntro: () => set((s) => (s.introPhase === "idle" ? { introPhase: "playing" } : {})),
+  skipIntro: () => set((s) => (s.introPhase === "idle" ? { introPhase: "skipped" } : {})),
+  finishIntro: () => set((s) => (s.introPhase === "playing" ? { introPhase: "done" } : {})),
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
