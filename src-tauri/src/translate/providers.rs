@@ -1,6 +1,11 @@
 //! Translation provider implementations, ported from the Electron
 //! `src/translators/*.js`. All are pure (take an `&dyn HttpClient`) so they can
 //! be tested offline with the mock client.
+//!
+//! **方向是入参**（Step 1）：每个源都把 [`TargetLang`] 翻成自己那套语言码
+//! （`zh` / `zh-CN` / `zh-CHS`）写进请求体。改动前这些码全是写死的
+//! （MyMemory `langpair=en|zh-CN`、腾讯 `Target:"zh"`、LLM 常量 prompt），
+//! 于是 zh→en 会拿回中文译文——**不报错、只给错答案**。
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use super::http::HttpClient;
+use super::policy::{system_prompt, TargetLang};
 use super::sign::{hmac_sha256, md5, sha256_hex};
 
 /// Credentials for a provider (map of field key -> value). Never serialized
@@ -21,21 +27,40 @@ impl Creds {
     }
 }
 
-/// A provider's translate function signature.
-pub type ProviderFn = fn(&str, &Creds, &dyn HttpClient) -> Result<String, String>;
+/// A provider's translate function signature. The trailing `TargetLang` is the
+/// translation direction — every engine needs it, so it belongs in the type
+/// rather than in each implementation's hardcoded body.
+pub type ProviderFn = fn(&str, &Creds, &dyn HttpClient, TargetLang) -> Result<String, String>;
 
 /// Dispatch to a single provider by name.
-pub fn provider(provider: &str, text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+pub fn provider(
+    provider: &str,
+    text: &str,
+    creds: &Creds,
+    http: &dyn HttpClient,
+    target: TargetLang,
+) -> Result<String, String> {
     match provider {
-        "mymemory" => mymemory(text, creds, http),
-        "youdao" => youdao(text, creds, http),
-        "tencent" => tencent(text, creds, http),
-        "baidu" => baidu(text, creds, http),
-        "llm" => llm(text, creds, http),
-        "transmart" => transmart(text, creds, http),
-        "iciba" => iciba(text, creds, http),
-        "auto" => auto(text, creds, http),
+        "mymemory" => mymemory(text, creds, http, target),
+        "youdao" => youdao(text, creds, http, target),
+        "tencent" => tencent(text, creds, http, target),
+        "baidu" => baidu(text, creds, http, target),
+        "llm" => llm(text, creds, http, target),
+        "transmart" => transmart(text, creds, http, target),
+        "iciba" => iciba(text, creds, http, target),
+        "auto" => auto(text, creds, http, target),
         other => Err(format!("未知翻译源：{other}")),
+    }
+}
+
+/// 「译成中文」时的 (source, target) 语言码对；译成英文一律互换。
+///
+/// 各家用字不同（`zh` / `zh-CN` / `zh-CHS`），所以只统一**方向**，不强行统一
+/// 字面量——按 provider 各写一张两行表比再包一层映射更好读。
+fn codes(target: TargetLang, zh: (&'static str, &'static str)) -> (&'static str, &'static str) {
+    match target {
+        TargetLang::Zh => zh,
+        TargetLang::En => (zh.1, zh.0),
     }
 }
 
@@ -103,9 +128,15 @@ fn parse_json(body: &str) -> Result<Value, String> {
 }
 
 // ---- MyMemory (free) ----
-fn mymemory(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn mymemory(
+    text: &str,
+    _creds: &Creds,
+    http: &dyn HttpClient,
+    target: TargetLang,
+) -> Result<String, String> {
+    let (from, to) = codes(target, ("en", "zh-CN"));
     let url = format!(
-        "https://api.mymemory.translated.net/get?q={}&langpair=en|zh-CN",
+        "https://api.mymemory.translated.net/get?q={}&langpair={from}|{to}",
         query_encode(text)
     );
     let r = http.get(&url)?;
@@ -123,17 +154,18 @@ fn mymemory(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String,
 }
 
 // ---- Youdao (v3 sign) ----
-fn youdao(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn youdao(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
     let app_key = creds.get("appKey").ok_or("请先在「设置」中填写有道 App Key")?;
     let app_secret = creds.get("appSecret").ok_or("请先在「设置」中填写有道 App Secret")?;
     let salt = salt();
     let curtime = now_secs();
     let sign = sha256_hex(&format!("{app_key}{}{salt}{curtime}{app_secret}", truncate(text)));
 
+    let (from, to) = codes(target, ("en", "zh-CHS"));
     let params: Vec<(String, String)> = vec![
         ("q".into(), text.into()),
-        ("from".into(), "en".into()),
-        ("to".into(), "zh-CHS".into()),
+        ("from".into(), from.into()),
+        ("to".into(), to.into()),
         ("appKey".into(), app_key.into()),
         ("salt".into(), salt),
         ("sign".into(), sign),
@@ -157,16 +189,17 @@ fn youdao(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, St
 }
 
 // ---- Baidu (md5 sign) ----
-fn baidu(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn baidu(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
     let appid = creds.get("appid").ok_or("请先在「设置」中填写百度 APP ID")?;
     let key = creds.get("key").ok_or("请先在「设置」中填写百度密钥")?;
     let salt = salt();
     let sign = md5(&format!("{appid}{text}{salt}{key}"));
 
+    let (from, to) = codes(target, ("en", "zh"));
     let params: Vec<(String, String)> = vec![
         ("q".into(), text.into()),
-        ("from".into(), "en".into()),
-        ("to".into(), "zh".into()),
+        ("from".into(), from.into()),
+        ("to".into(), to.into()),
         ("appid".into(), appid.into()),
         ("salt".into(), salt),
         ("sign".into(), sign),
@@ -187,7 +220,7 @@ fn baidu(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, Str
 }
 
 // ---- Tencent TMT (TC3-HMAC-SHA256) ----
-fn tencent(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn tencent(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
     let secret_id = creds.get("secretId").ok_or("请先在「设置」中填写腾讯 SecretId")?;
     let secret_key = creds.get("secretKey").ok_or("请先在「设置」中填写腾讯 SecretKey")?;
     let region = creds.get("region").unwrap_or("ap-beijing");
@@ -196,10 +229,12 @@ fn tencent(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, S
     let action = "TextTranslate";
     let version = "2018-03-01";
 
+    // 语言码是大写字段值（`"Source"/"Target"`），与 URL 里的小写码不同族。
+    let (source, dst) = codes(target, ("en", "zh"));
     let payload = serde_json::json!({
         "SourceText": text,
-        "Source": "en",
-        "Target": "zh",
+        "Source": source,
+        "Target": dst,
         "ProjectId": 0,
     })
     .to_string();
@@ -265,7 +300,9 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 // ---- Tencent Transmart (free browser endpoint) ----
-fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
+    // 源侧吃 `"auto"`（自动识别），只有目标语言需要方向。
+    let (_, dst) = codes(target, ("en", "zh"));
     let body = serde_json::json!({
         "header": {
             "fn": "auto_translation_block",
@@ -274,7 +311,7 @@ fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String
         "type": "plain",
         "model_category": "normal",
         "source": { "lang": "auto", "text_block": text },
-        "target": { "lang": "zh" },
+        "target": { "lang": dst },
     })
     .to_string();
     let headers: Vec<(&str, &str)> = vec![
@@ -305,13 +342,14 @@ const ICIBA_CLIENT: &str = "6";
 const ICIBA_KEY: &str = "1000006";
 const ICIBA_SALT: &str = "7ece94d9f9c202b0d2ec557dg4r9bc";
 
-fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
     let timestamp = now_millis();
     let signature = md5(&format!("{ICIBA_PATH}{ICIBA_CLIENT}{ICIBA_KEY}{timestamp}{ICIBA_SALT}"));
     let url = format!(
         "https://dictionary.iciba.com/dictionary/fy/batch?client={ICIBA_CLIENT}&key={ICIBA_KEY}&timestamp={timestamp}&signature={signature}"
     );
-    let body = serde_json::json!({ "from": "auto", "to": "zh", "textList": [text] }).to_string();
+    let (_, dst) = codes(target, ("en", "zh"));
+    let body = serde_json::json!({ "from": "auto", "to": dst, "textList": [text] }).to_string();
     let headers: Vec<(&str, &str)> = vec![
         ("Origin", "https://www.iciba.com"),
         ("Referer", "https://www.iciba.com/"),
@@ -346,19 +384,23 @@ fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient) -> Result<String, St
 }
 
 // ---- Custom LLM (OpenAI-compatible) ----
-const SYSTEM_PROMPT: &str = "你是一名专业的中英翻译。把用户给出的文本翻译成简体中文，保留原文的格式、语气和段落结构，各段之间用换行分隔。只输出译文本身，不要添加任何解释、注释或前后缀。";
 
 /// Single-shot LLM translation (the `translate_text` command and the `auto`
 /// chain's callers). Routed through the streaming client so every LLM call in
 /// the app shares one request builder, one SSE reader and one error format —
 /// and so time-to-first-token is the same everywhere instead of depending on
 /// which code path happened to be used.
-fn llm(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+///
+/// Prompt 走 [`system_prompt`]——**同一份措辞、同一份注入防御**。改动前这里
+/// 另有一个写死"简体中文"的 `SYSTEM_PROMPT` 常量，与批量路径的 prompt 各写
+/// 各的：后来给 prompt 加不可信上下文声明时，这条路径就被漏掉了。
+fn llm(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
+    let prompt = system_prompt(target, false);
     let req = super::openai::ChatRequest {
         base_url: creds.get("baseUrl").unwrap_or_default(),
         api_key: creds.get("apiKey").unwrap_or_default(),
         model: creds.get("model").unwrap_or_default(),
-        system: SYSTEM_PROMPT,
+        system: &prompt,
         user: text,
         temperature: 0.1,
         max_tokens: None,
@@ -383,11 +425,11 @@ fn clean(s: &str) -> String {
 }
 
 // ---- auto chain ----
-fn auto(text: &str, creds: &Creds, http: &dyn HttpClient) -> Result<String, String> {
+fn auto(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
     let chain: [ProviderFn; 3] = [transmart, iciba, mymemory];
     let mut last_err = String::new();
     for f in chain {
-        match f(text, creds, http) {
+        match f(text, creds, http, target) {
             Ok(t) => return Ok(t),
             Err(e) => last_err = e,
         }
@@ -400,16 +442,94 @@ mod tests {
     use super::*;
     use crate::translate::http::test_mock::MockClient;
 
+    /// 方向是显式入参，每个用例自己挑一个（同 `policy.rs` 的 `ZH` 惯例）。
+    const ZH: TargetLang = TargetLang::Zh;
+    const EN: TargetLang = TargetLang::En;
+
     fn creds(pairs: &[(&str, &str)]) -> Creds {
         let m = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         Creds(m)
+    }
+
+    /// 全源凭据：一个 mock 客户端跑完所有 provider，便于逐条核对请求体。
+    fn all_creds() -> Creds {
+        creds(&[
+            ("appKey", "k"),
+            ("appSecret", "s"),
+            ("appid", "a"),
+            ("key", "b"),
+            ("secretId", "AKID"),
+            ("secretKey", "SECRET"),
+            ("baseUrl", "https://api.deepseek.com/v1"),
+            ("apiKey", "sk-test"),
+            ("model", "deepseek-chat"),
+        ])
+    }
+
+    /// **H4 回归**：方向必须进每一个 provider 的请求体。
+    ///
+    /// 改动前这些码全是写死的（MyMemory `langpair=en|zh-CN`、腾讯
+    /// `"Target":"zh"`、LLM 那个自己一份的 `SYSTEM_PROMPT`……），所以 zh→en
+    /// 这一遍会拿回中文译文——**不报错、只给错答案**，是最难被发现的一类坏。
+    /// 这个用例是那批硬编码点的哨兵：少接一个源就会变红。
+    #[test]
+    fn every_provider_request_carries_the_direction() {
+        let http = MockClient::new();
+        let c = all_creds();
+        for name in ["mymemory", "youdao", "baidu", "tencent", "transmart", "iciba", "llm"] {
+            let _ = provider(name, "你好", &c, &http, EN).expect(name);
+        }
+        // auto 是 [transmart, iciba, mymemory] 的链，链路每个成员都在上面单测过；
+        // 这里只确认它把方向透传下去了（首源成功即返回，故只打 transmart 一条）。
+        let _ = provider("auto", "你好", &c, &http, EN).unwrap();
+
+        let recs = http.take_records();
+        let find = |needle: &str| recs.iter().find(|r| r.url.contains(needle)).expect(needle).clone();
+
+        // MyMemory / iCiba / Transmart：URL 或 body 里的语言码反向
+        let m = find("mymemory");
+        assert!(
+            m.url.contains("langpair=zh-CN|en") || m.url.contains("langpair=zh-CN%7Cen"),
+            "MyMemory langpair 没反向：{}",
+            m.url
+        );
+        let tr: Value = serde_json::from_str(&find("transmart").body).unwrap();
+        assert_eq!(tr["target"]["lang"], "en", "Transmart target.lang 没反向");
+        let ic: Value = serde_json::from_str(&find("dictionary.iciba.com").body).unwrap();
+        assert_eq!(ic["to"], "en", "iCiba to 没反向");
+
+        // 有道 / 百度：表单字段 from/to 互换
+        let youdao_body = find("youdao").body;
+        assert!(
+            youdao_body.contains("from=zh-CHS") && youdao_body.contains("to=en"),
+            "有道 from/to 没互换：{youdao_body}"
+        );
+        let baidu_body = find("baidu").body;
+        assert!(
+            baidu_body.contains("from=zh") && baidu_body.contains("to=en"),
+            "百度 from/to 没互换：{baidu_body}"
+        );
+
+        // 腾讯云：JSON 字段是大写族
+        let t: Value = serde_json::from_str(&find("tmt.tencentcloudapi.com").body).unwrap();
+        assert_eq!(
+            (t["Source"].as_str(), t["Target"].as_str()),
+            (Some("zh"), Some("en")),
+            "腾讯云 Source/Target 没互换"
+        );
+
+        // LLM：方向在 prompt 措辞里，且不能两套方向指令并存
+        let l: Value = serde_json::from_str(&find("chat/completions").body).unwrap();
+        let sys = l["messages"][0]["content"].as_str().unwrap();
+        assert!(sys.contains("英文"), "LLM prompt 没带方向：{sys}");
+        assert!(!sys.contains("简体中文"), "LLM prompt 残留中文方向指令：{sys}");
     }
 
     #[test]
     fn youdao_request_body_has_v3_sign_and_parses() {
         let http = MockClient::new();
         let c = creds(&[("appKey", "k"), ("appSecret", "s")]);
-        let r = youdao("hello world", &c, &http).unwrap();
+        let r = youdao("hello world", &c, &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("youdao")).unwrap();
         for k in ["q=hello+world", "from=en", "to=zh-CHS", "appKey=k", "signType=v3"] {
@@ -422,7 +542,7 @@ mod tests {
     fn baidu_sign_is_md5_of_appid_q_salt_key() {
         let http = MockClient::new();
         let c = creds(&[("appid", "a"), ("key", "b")]);
-        let r = baidu("hello", &c, &http).unwrap();
+        let r = baidu("hello", &c, &http, ZH).unwrap();
         assert_eq!(r, "你好");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("baidu")).unwrap();
         assert!(rec.body.contains("appid=a"));
@@ -435,7 +555,7 @@ mod tests {
     fn tencent_tc3_signature_self_consistent() {
         let http = MockClient::new();
         let c = creds(&[("secretId", "AKID"), ("secretKey", "SECRET"), ("region", "ap-beijing")]);
-        let r = tencent("hello world", &c, &http).unwrap();
+        let r = tencent("hello world", &c, &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("tmt.tencentcloudapi.com")).unwrap();
         let h = |k: &str| rec.headers.iter().find(|(hk, _)| hk == k).map(|(_, v)| v.as_str()).unwrap_or("");
@@ -459,7 +579,7 @@ mod tests {
     #[test]
     fn mymemory_url_has_langpair() {
         let http = MockClient::new();
-        let r = mymemory("hello", &Creds::default(), &http).unwrap();
+        let r = mymemory("hello", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("mymemory")).unwrap();
         assert!(rec.url.contains("langpair=en|zh-CN") || rec.url.contains("langpair=en%7Czh-CN"));
@@ -469,7 +589,7 @@ mod tests {
     fn llm_builds_openai_request() {
         let http = MockClient::new();
         let c = creds(&[("baseUrl", "https://api.deepseek.com/v1"), ("apiKey", "sk-test"), ("model", "deepseek-chat")]);
-        let r = llm("hello world", &c, &http).unwrap();
+        let r = llm("hello world", &c, &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("chat/completions")).unwrap();
         assert_eq!(rec.url, "https://api.deepseek.com/v1/chat/completions");
@@ -488,31 +608,46 @@ mod tests {
     fn llm_normalizes_trailing_slash_and_no_key() {
         let http = MockClient::new();
         let c = creds(&[("baseUrl", "http://127.0.0.1:11434/v1/"), ("model", "qwen2.5:7b")]);
-        let r = llm("hi", &c, &http).unwrap();
+        let r = llm("hi", &c, &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
         let rec = http.take_records().into_iter().find(|x| x.url.contains("11434")).unwrap();
         assert_eq!(rec.url, "http://127.0.0.1:11434/v1/chat/completions");
         assert!(!rec.headers.iter().any(|(k, _)| k == "Authorization"));
     }
 
+    /// 单串 LLM 路径与 `engine::llm_once` 共用同一份 prompt（含注入防御）。
+    /// 这两条路径历史上各写各的 prompt，加防御时漏了一条——这个断言钉住它们。
+    #[test]
+    fn llm_prompt_is_the_shared_one_with_injection_defence() {
+        let http = MockClient::new();
+        let c = creds(&[("baseUrl", "https://x.test/v1"), ("model", "m")]);
+        let _ = llm("hi", &c, &http, ZH).unwrap();
+        let body: Value = serde_json::from_str(
+            &http.take_records().into_iter().find(|x| x.url.contains("chat/completions")).unwrap().body,
+        )
+        .unwrap();
+        let sys = body["messages"][0]["content"].as_str().unwrap();
+        assert_eq!(sys, system_prompt(ZH, false), "单串路径必须复用共享 prompt");
+    }
+
     #[test]
     fn iciba_parses_data_out() {
         let http = MockClient::new();
-        let r = iciba("hello", &Creds::default(), &http).unwrap();
+        let r = iciba("hello", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好");
     }
 
     #[test]
     fn transmart_parses_auto_translation() {
         let http = MockClient::new();
-        let r = transmart("hello world", &Creds::default(), &http).unwrap();
+        let r = transmart("hello world", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
     }
 
     #[test]
     fn auto_chain_falls_through() {
         let http = MockClient::new();
-        let r = auto("hello world", &Creds::default(), &http).unwrap();
+        let r = auto("hello world", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
     }
 

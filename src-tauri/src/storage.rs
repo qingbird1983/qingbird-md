@@ -79,6 +79,14 @@ pub struct Settings {
     /// 当前生效档案的 id（空串 = 没有选中任何档案，用 `providers["llm"]` 原值）
     #[serde(default)]
     pub llm_active: String,
+    /// 翻译方向（目标语言短标签 `"zh"` / `"en"`）。`#[serde(default)]` = 空串，
+    /// 前端 `normalizeTarget` 与 Rust `TargetLang::from_tag` 都回落 `zh`——
+    /// 老配置文件读出来就是改动前行为，升级零感知。
+    ///
+    /// 合法值清单的真源在 `src-tauri/src/translate/policy.rs`；这里不设白名单，
+    /// 未知值在两处解析口都被收成 zh，多一处白名单只会多一处漂移。
+    #[serde(default)]
+    pub translate_target: String,
 }
 
 impl Default for Settings {
@@ -100,6 +108,7 @@ impl Default for Settings {
             autostart: false,
             llm_profiles: Vec::new(),
             llm_active: String::new(),
+            translate_target: String::new(),
         }
     }
 }

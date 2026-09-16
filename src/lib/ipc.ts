@@ -14,6 +14,7 @@ import type {
   TranslationPartialPayload,
   DonePayload,
   Mode,
+  TargetLang,
   WordLookupDTO,
   LookupDeltaPayload,
   TranslateStart,
@@ -22,7 +23,10 @@ import type {
 
 export const api = {
   // ---- 文件 ----
-  openFile: (p: string) => invoke<DocDTO>("open_file", { path: p }),
+  // targetLang：翻译方向（"zh"/"en"）。首渲的 data-bi 占号随方向变，必须与
+  // 随后 translate_document 传的是同一个值（详见 types/ipc.ts 的 TargetLang）。
+  openFile: (p: string, targetLang: TargetLang) =>
+    invoke<DocDTO>("open_file", { path: p, targetLang }),
   saveFile: (p: string, c: string) =>
     invoke<number | null>("save_file", { path: p, content: c }),
   /** 当前磁盘 mtime（毫秒）；文件不存在/不可访问为 null。 */
@@ -61,7 +65,8 @@ export const api = {
 
   // ---- 编辑器 / 预览 ----
   applyOp: (o: EditOp) => invoke<EditResult>("apply_op", { op: o }),
-  parse: (c: string) => invoke<ParseResult>("parse_markdown", { content: c }),
+  parse: (c: string, targetLang: TargetLang) =>
+    invoke<ParseResult>("parse_markdown", { content: c, targetLang }),
   resolveImage: (s: string, b: string | null) =>
     invoke<string | null>("resolve_image", { src: s, baseDir: b }),
   // T25: 预览链接外部打开（Rust 侧 scheme 白名单，拒绝 javascript: 等）
@@ -78,6 +83,7 @@ export const api = {
     p: string,
     creds: Record<string, string>,
     window: [number, number] | null,
+    targetLang: TargetLang,
   ) =>
     invoke<TranslateStart>("translate_document", {
       content: c,
@@ -85,13 +91,21 @@ export const api = {
       provider: p,
       creds,
       window,
+      targetLang,
     }),
   /** 会话收口重建：用累积 translations 渲染整树 canonical html（Task: 收口） */
   renderTranslated: (
     c: string,
     m: "translation" | "bilingual",
     translations: Array<[number, string]>,
-  ) => invoke<ParseResult>("render_translated", { content: c, mode: m, translations }),
+    targetLang: TargetLang,
+  ) =>
+    invoke<ParseResult>("render_translated", {
+      content: c,
+      mode: m,
+      translations,
+      targetLang,
+    }),
   stopTranslation: () => invoke<void>("stop_translation"),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧

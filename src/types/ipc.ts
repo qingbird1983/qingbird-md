@@ -112,6 +112,12 @@ export interface Settings {
    * 因而侥幸无损——写死字面量时就会踩坑，所以这里钉住。
    */
   autostart: boolean;
+  /**
+   * 翻译方向（"zh" / "en"；空串或未知值由前端 `normalizeTarget` 回落 "zh"）。
+   * 同 `autostart`：整包 `save_settings` 走 serde 反序列化，字段名没登记就会
+   * 被静默丢成默认值——必须列在类型里。
+   */
+  translate_target: string;
 }
 
 /** lib.rs TranslationProgressEvt：序列化为 {gen, done, total}（r#gen → "gen"） */
@@ -162,6 +168,15 @@ export interface DonePayload {
 
 export type Mode = "original" | "translation" | "bilingual";
 export type ViewKind = "source" | "preview" | "split";
+
+/**
+ * 翻译方向（目标语言）。
+ *
+ * 与 Rust `translate::policy::TargetLang` 一一对应，字面量就是 `TargetLang::tag()`
+ * ——**它就是缓存键里的那个短标签**，不是展示文案（改它作废全部译文缓存）。
+ * 目前只有中/英两档（UI 是双向切换）；要扩语种时这里加字面量、UI 换成下拉。
+ */
+export type TargetLang = "zh" | "en";
 
 /**
  * lib.rs TranslateStart：translate_document 的返回。

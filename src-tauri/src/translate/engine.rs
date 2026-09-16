@@ -329,14 +329,14 @@ fn translate_one(
             let piece = if req.provider == "llm" {
                 llm_once(req, &chunk, on_delta)?
             } else {
-                providers::provider(req.provider, &chunk, req.creds, req.http)?
+                providers::provider(req.provider, &chunk, req.creds, req.http, req.target)?
             };
             out.push_str(&piece);
         }
         return Ok(out);
     }
     if req.provider != "llm" {
-        return providers::provider(req.provider, text, req.creds, req.http);
+        return providers::provider(req.provider, text, req.creds, req.http, req.target);
     }
     llm_once(req, text, on_delta)
 }

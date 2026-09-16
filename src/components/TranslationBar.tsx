@@ -11,6 +11,9 @@ import { useTranslationStore } from "../stores/useTranslationStore";
 
 const MODE_LABEL: Record<string, string> = { translation: "译文", bilingual: "中英对照" };
 const SCOPE_LABEL: Record<string, string> = { viewport: "视口翻译", full: "全文翻译" };
+/** 方向短标签（与状态条同口径：说"译成什么"）——本轮 run 的方向要说清楚，
+    否则中英混排文档里看不出这批译文是哪个方向的。 */
+const DIR_LABEL: Record<string, string> = { zh: "译中", en: "译英" };
 
 export default function TranslationBar() {
   const running = useTranslationStore((s) => s.status === "running");
@@ -19,6 +22,7 @@ export default function TranslationBar() {
   const mode = useDocStore((s) => s.mode);
   const scope = useTranslationStore((s) => s.scope);
   const providerKey = useSettingsStore((s) => s.settings?.provider ?? "—");
+  const target = useSettingsStore((s) => s.target);
   // T23 评审清理：显示翻译源 label 而非 key；元数据缺失时回退 key
   const [providerLabel, setProviderLabel] = useState("");
   useEffect(() => {
@@ -46,7 +50,8 @@ export default function TranslationBar() {
       <span className="tb-label">
         {/* 朱砂「译」印：译中任务卡的品牌记忆点（DESIGN.md §4，CSS seal-pulse 动效） */}
         <span className="tb-seal" aria-hidden="true">译</span>
-        {SCOPE_LABEL[scope] ?? "翻译"} · {MODE_LABEL[mode] ?? ""} · {provider}
+        {SCOPE_LABEL[scope] ?? "翻译"} · {MODE_LABEL[mode] ?? ""} ·{" "}
+        {DIR_LABEL[target] ?? target} · {provider}
       </span>
       <div className="tb-track" aria-hidden="true">
         <div className="tb-fill" style={{ width: `${pct ?? 0}%` }} />

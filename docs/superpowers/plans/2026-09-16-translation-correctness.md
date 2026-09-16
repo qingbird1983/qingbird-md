@@ -422,11 +422,49 @@ pub fn key(provider: &str, variant: &str, text: &str) -> String {
 
 > 这三项与互译/核查功能无依赖关系，可以先发、单独收反馈，也让互译功能的 diff 更干净。
 
-**第 1 步——方向参数化贯通**
+**第 1 步——方向参数化贯通** ✅ **已完成**
 
-4. `target_lang` / `source_lang` 从 `translate_document` 入参贯穿到 prompt 模板与 4 个 provider 请求体（H4 清单）。
-5. 方向变更走 `switchMode` 同级的 reset（H2）：`resetDisplay()` + 清 `translations` + 清 `doneHtml`。
-6. UI：`TranslationBar.tsx` 加目标语言选择（先中/英两档），偏好落 `useSettingsStore`。**语言方向走参数化模板**（"译成 X 语言"），不逐语言写死 prompt（§七 #4）。
+> **落地记录（v5.3，2026-09-16）**
+> - 方向载体进设置：`Settings.translate_target`（`#[serde(default)]`，空串=zh）。前端
+>   `normalizeTarget` 与 Rust `TargetLang::from_tag` **同一口径**（只认 `"en"`，其余
+>   回落 `"zh"`）——两边多认一个字面量就会出现"同一篇文档两处算出不同索引空间"。
+> - **入参从 1 个命令变成 4 个**（这是计划里没写、但 H2 逼出来的）：
+>   `translate_document` / `render_translated` / `parse_markdown` / `open_file`
+>   四个**产出或消费 `data-bi` 编号**的命令全部带 `target_lang`。只改
+>   `translate_document` 的话，预览 DOM 还是旧方向的块号，而 `lib/patchPartial.ts`
+>   正是按 `[data-bi="N"]` 往 DOM 里贴流式译文 → **中途贴错块**（终态由
+>   `render_translated` 兜住，只看结果看不出来）。
+> - `htmlCache` 的键由 `contentKey` 扩成 `{contentKey, target}`，并在
+>   `setTranslateTarget` 里**等重解析落地再起跑**（`reparseTab` 的 await），
+>   消掉"起跑比 DOM 编号早"的那个窗口。
+> - UI 落点**改了**：计划原写 `TranslationBar.tsx`，但那个组件
+>   `status === "running"` 之外恒返回 `null`——把唯一的切换入口放进去，
+>   用户在没有翻译在跑时**根本看不见它**，也就没法"先选方向再翻"。
+>   实际落在**底部状态栏**（紧邻「阅读模式 / 翻译源 / 翻译状态」，常驻可见、
+>   单击切换）；`TranslationBar` 改为**显示**本轮方向（`译中`/`译英`）。
+> - 全源请求体方向化（H4 余下 3 处 + 同族 5 处）：MyMemory `langpair`、
+>   有道/百度 `from`/`to`、腾讯云 `Source`/`Target`、Transmart `target.lang`、
+>   iCiba `to`、LLM prompt。`providers.rs` 的私有 `SYSTEM_PROMPT` 常量删除，
+>   改走 `policy::system_prompt(target, false)`——**顺带补上了它一直缺的注入防御**
+>   （那条路径此前与批量路径各写各的 prompt）。
+> - 划词/单串路径（`translate_text`）**刻意不动**：选区查词没有方向入口，
+>   取 `default_target()`。`default_target()` 的语义因此从"Step 1 的接线点"
+>   改为"无方向入参路径的兜底"。
+> - 门禁：`cargo check --all-targets` **0 error 0 warning**、`cargo test`
+>   **265 passed**（261 + 4 条方向守卫）、`tsc --noEmit` 0 输出、`vitest`
+>   **18 文件 209 用例**（204 + 新文件 5 条）。
+> - 新增守卫（每条都能在"少接一处"时变红）：`providers.rs::every_provider_request_carries_the_direction`
+>   （逐源核对请求体语言码）、`bridge.rs::render_translated_numbering_follows_the_direction`
+>   （zh 下纯中文文档无 `data-bi`、en 下块 0/1 各占号；未知 tag 回落 zh）、
+>   `policy.rs::tag_round_trips_and_unknown_values_fall_back_to_chinese`、
+>   `src/stores/useDocStore.direction.test.ts`（清显示 / 按新方向重解析 / 用新方向
+>   起跑 / 同方向 no-op / 原文模式不自动起跑）。
+> - ⚠️ **用户侧可见**：方向进缓存键（Step 0 已 bump `PROMPT_VERSION` 到 v2），
+>   从 zh 切到 en 是**另一套缓存条目**，首次翻英文要重新走一遍网络。
+
+4. ✅ `target_lang` 从 `translate_document` 入参贯穿到 prompt 模板与 provider 请求体（H4 清单）。**实际范围扩到 4 个命令**（见上）。
+5. ✅ 方向变更走 `switchMode` 同级的 reset（H2）：`resetDisplay()` + 清 `translations` + 清 `doneHtml`，外加按新方向重解析基础 html。
+6. ✅ UI：方向切换落**状态栏**（原计划的 `TranslationBar` 常驻性不成立，见上）；偏好落 `useSettingsStore.target` → `settings.translate_target`。**语言方向走参数化模板**（"译成 X 语言"），不逐语言写死 prompt（§七 #4）。
 
 **第 2 步——译文另存为（用户可立刻感知）**
 
@@ -476,9 +514,10 @@ pub fn key(provider: &str, variant: &str, text: &str) -> String {
 
 ## 六、红线（本次新增，需并入项目红线）
 
-1. **`needs_translation()` 三处必须同步**——`units.rs:block_translatable`、`units.rs:collect_runs_inline_blocks`、`html.rs:push_inlines`。任何单点改动都会破坏"占号与收集逐位一致"→ `data-ri` 错位 → 译文贴错位置。**必须有守卫测试。**
-2. **方向是索引空间的一部分**——方向变更必须走 `resetDisplay()` + 清 `translations` + 清 `doneHtml`，与 `switchMode` 同级。不得只改 settings 字段。
+1. **`needs_translation()` 三处必须同步**——`units.rs:block_translatable`、`units.rs:collect_runs_inline_blocks`、`html.rs:Ctx::bi_advance`。任何单点改动都会破坏"占号与收集逐位一致"→ `data-bi` 错位 → 译文贴错位置。**必须有守卫测试。**（`data-ri` 空间方向无关；方向只影响 `data-bi`。）
+2. **方向是索引空间的一部分**——方向变更必须走 `resetDisplay()` + 清 `translations` + 清 `doneHtml` + **按新方向重解析基础 html**，与 `switchMode` 同级。不得只改 settings 字段。
 3. **缓存 key 必须含方向**（含非 LLM provider 的空 variant 路径）。缺了不报错，只给错答案。
+4. **方向必须同时进四个命令**（Step 1 立）——`translate_document`（收集+缓存键）、**`render_translated`（收口渲染）、`parse_markdown` / `open_file`（基础 html）**。后三个产出/消费的正是 `data-bi` 编号，`lib/patchPartial.ts` 按 `[data-bi="N"]` 贴流式译文 → 任一处方向不同 = 中途贴错块（终态被 `render_translated` 兜住，**只看结果测不出来**）。前端 `htmlCache` 的键也必须带方向。
 4. **导出必须复用 `collect_text_runs` 的索引空间**，不得自建 walker。
 5. **AI 核查只产出 issue 清单，不直接改文档**；应用修复必须逐条、可审计、带锚点校验。
 6. **核查 provider 锁定 `llm`**——`youdao`/`tencent`/`baidu`/`mymemory`/`transmart`/`iciba`/`auto` **全部禁用**（含 `auto` 的兜底链）。未配 LLM 凭据时核查入口**禁用 + 明示原因**，**绝不允许静默降级**到免费源。

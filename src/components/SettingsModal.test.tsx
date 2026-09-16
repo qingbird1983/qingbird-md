@@ -83,6 +83,7 @@ const SEED: Settings = {
   llm_profiles: [],
   llm_active: "",
   autostart: false,
+  translate_target: "zh",
 };
 
 let host: HTMLDivElement;

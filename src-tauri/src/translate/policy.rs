@@ -1,7 +1,8 @@
 //! 翻译方向策略：目标语言、可译判定、prompt 措辞、缓存键版本化。
 //!
-//! 自 `engine.rs` 提取（P0-1 拆分），内容为**原样搬迁**——只有模块位置变了，
-//! 判定逻辑、prompt 措辞、缓存键格式一字未改。
+//! 自 `engine.rs` 提取（P0-1 拆分）：判定逻辑、prompt 措辞、缓存键格式原样搬迁，
+//! 只有模块位置变了；Step 1 起本文件另外承载 `TargetLang::from_tag` 这类
+//! 「方向怎么进系统」的收口。
 //!
 //! 为什么单独成模块：「怎么判定 / 怎么措辞 / 缓存怎么版本化」与「怎么跑」是两个
 //! 不同的变化原因。Step 1 接入语言切换时，改动全部落在本文件，不必在千行的
@@ -11,19 +12,18 @@ use super::batch;
 
 /// 翻译方向 = 目标语言。
 ///
-/// **Step 0（本 patch）**：所有生产调用点仍传 [`TargetLang::Zh`]，行为与改动前
-/// 完全一致——这一步只把"方向"变成**一个显式参数**，让后续接 UI 选语言时
-/// 不需要再动判定逻辑本身。
+/// **Step 0**：把"方向"从全局隐含状态变成**一个显式参数**，所有调用点先统一传
+/// [`TargetLang::Zh`]，行为与改动前逐位一致。
+/// **Step 1**：接上 UI 双向切换（中 ⇄ 英），方向从 `translate_document` 入参
+/// 一路贯穿到 provider 请求体与 html 渲染。
 ///
 /// 为什么它必须显式、且必须进缓存 key：中英混排文档里同一个串（如
 /// `Hello 世界`）会同时出现在两个方向的单元集合里，方向不同的译文不同。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TargetLang {
-    /// 当前唯一的生产方向（Step 0 与旧行为完全等价）。
+    /// 译成简体中文（en → zh）。
     Zh,
-    /// zh→en 方向。Step 0 还没有 UI 入口，只有测试构造它；
-    /// **Step 1 接入语言切换后必须删掉这个 allow**（届时它会被真实构造）。
-    #[allow(dead_code)]
+    /// 译成英文（zh → en）。
     En,
 }
 
@@ -44,6 +44,18 @@ impl TargetLang {
         match self {
             TargetLang::Zh => "简体中文",
             TargetLang::En => "英文",
+        }
+    }
+
+    /// 缓存键短标签 → 方向（命令入参 / 设置字段的解析口）。
+    ///
+    /// **未知值一律回落 [`TargetLang::Zh`]，不报错**：方向来自命令入参或盘上的
+    /// 配置文件，两者都可能被手改、可能来自旧版本、将来还可能多出语种。
+    /// 方向解析失败不该让整篇翻译直接失败——回落到改动前的行为最安全。
+    pub fn from_tag(tag: &str) -> Self {
+        match tag.trim() {
+            "en" => TargetLang::En,
+            _ => TargetLang::Zh,
         }
     }
 }
@@ -139,12 +151,13 @@ pub fn cache_variant(provider: &str, model: &str, target: TargetLang) -> String 
     }
 }
 
-/// ★ **Step 1 的接线点。** 目前恒返回 [`TargetLang::Zh`]（= 改动前行为）。
+/// **无方向入参路径的兜底方向**：划词/查词这类没有语言选择入口的调用点，
+/// 以及测试与老配置，一律取这里。**有方向入参的路径不许用它**——那等于悄悄
+/// 把用户选的方向丢掉。
 ///
-/// 为什么要有这个函数而不是到处写 `TargetLang::Zh`：Step 1 把
-/// `translate_document` 的 `target_lang` 入参接进来时，**只需替换这一个函数
-/// 的实现**（改成从入参取值），不必满仓库去找"哪里还在写死 zh"。所有生产调用
-/// 点都必须经由此函数取方向——**看到直接写 `TargetLang::Zh` 的生产代码就是 bug**。
+/// 为什么要有这个函数而不是到处写 `TargetLang::Zh`：所有生产调用点都必须
+/// 经由此函数取方向——**看到直接写 `TargetLang::Zh` 的生产代码就是 bug**
+/// （它绕过了这条唯一的默认值收口）。
 pub const fn default_target() -> TargetLang {
     TargetLang::Zh
 }
@@ -184,6 +197,18 @@ mod tests {
         assert!(!needs_translation("it’s fine — really", TargetLang::En));
         assert!(!needs_translation("“quoted ASCII”", TargetLang::En));
         assert!(needs_translation("中文，全角标点。", TargetLang::En));
+    }
+
+    #[test]
+    fn tag_round_trips_and_unknown_values_fall_back_to_chinese() {
+        for t in [TargetLang::Zh, TargetLang::En] {
+            assert_eq!(TargetLang::from_tag(t.tag()), t, "tag 必须可往返");
+        }
+        // 方向来自命令入参和盘上的配置，两者都可能手改/来自旧版本/将来多语种。
+        // 这里只要求**不 panic、回落到改动前行为**，不要求报错。
+        for junk in ["", "  ", "zh", "ja", "EN", "english"] {
+            assert_eq!(TargetLang::from_tag(junk), TargetLang::Zh, "{junk:?}");
+        }
     }
 
     #[test]

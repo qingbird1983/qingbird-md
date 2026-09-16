@@ -270,7 +270,16 @@ pub fn translate_text(
     }
     std::thread::spawn(move || {
         let http = translate::http::UreqClient::shared();
-        translate::providers::provider(&provider, &text, &translate::providers::Creds(creds), http)
+        // 划词/单串路径**没有方向入口**（选区只有"查一下"这一个动作，没有语言选择
+        // UI）→ 取默认方向。这是 `default_target()` 存在的正当理由；有方向入参的
+        // 路径（translate_document 等）必须用入参，不许走这里。
+        translate::providers::provider(
+            &provider,
+            &text,
+            &translate::providers::Creds(creds),
+            http,
+            translate::engine::default_target(),
+        )
     })
     .join()
     .map_err(|_| "翻译线程崩溃".to_string())
@@ -346,6 +355,7 @@ pub fn translate_document(
     provider: String,
     creds: HashMap<String, String>,
     window: Option<[usize; 2]>,
+    target_lang: String,
     state: tauri::State<AppTxn>,
 ) -> Result<TranslateStart, String> {
     note_translate_activity();
@@ -353,10 +363,12 @@ pub fn translate_document(
         .ok_or_else(|| format!("未知翻译源：{provider}"))?;
     let blocks = markdown::parse_blocks(&content);
     let win_range = window.map(|[top, end]| (top, end));
-    // ★ 方向从这里取（Step 1 会把 `default_target()` 换成 `translate_document`
-    // 的入参）。**本函数内所有下游调用必须用同一个 target 值**——收集、缓存 key、
-    // html 渲染三处的方向只要有一个不一致，索引空间就会错位。
-    let target = translate::engine::default_target();
+    // ★ 本轮的翻译方向。**本函数内所有下游调用必须用同一个 target 值**——
+    // 收集、缓存 key、html 渲染三处的方向只要有一个不一致，`data-bi` 编号空间
+    // 就会错位 → 译文贴错块（且不报错）。前端也必须把同一个方向传给
+    // `parse_markdown` / `open_file` / `render_translated`，那边产出的
+    // html 正是这些编号的落点。
+    let target = translate::engine::TargetLang::from_tag(&target_lang);
     let (units, indices_blocks) = match mode.as_str() {
         "translation" => markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range, target),
         "bilingual" => {
@@ -432,6 +444,7 @@ pub fn render_translated(
     content: String,
     mode: String,
     translations: Vec<(usize, String)>,
+    target_lang: String,
 ) -> Result<markdown::html::ParseResult, String> {
     let bilingual = match mode.as_str() {
         "translation" => false,
@@ -439,8 +452,14 @@ pub fn render_translated(
         other => return Err(format!("不支持的模式：{other}")),
     };
     let map: HashMap<usize, String> = translations.into_iter().collect();
-    // 会话收口也走同一个方向来源：Step 1 会把它换成命令入参（前端持有当前方向）。
-    Ok(markdown::html::render_html(&content, &map, bilingual, translate::engine::default_target()))
+    // 收口渲染与起跑用**同一个方向**：这里算出的 `data-bi` 编号必须和
+    // `translate_document` 收集时逐位一致，否则整表译文会错位到别的块。
+    Ok(markdown::html::render_html(
+        &content,
+        &map,
+        bilingual,
+        translate::engine::TargetLang::from_tag(&target_lang),
+    ))
 }
 
 fn spawn_translation(
@@ -605,7 +624,9 @@ fn spawn_translation(
 mod tests {
     use super::*;
 
-    /// Step 0 所有生产方向仍是 zh；测试沿用同一常量，避免十几处重复字面量。
+    /// 本文件这些用例验证的是缓存命中 / 索引空间 / wire 形状，结论与方向无关，
+    /// 一律在 zh 下成立。**方向切换本身由 policy.rs / units.rs / providers.rs
+    /// 的专用用例覆盖**（含 bar 那一侧的前端用例）。
     const ZH: TargetLang = TargetLang::Zh;
 
     // ---- 方向薄包装 ----
@@ -879,12 +900,28 @@ mod tests {
             "# Ti\n\nHello world".into(),
             "bilingual".into(),
             vec![(0usize, "中文标题".into()), (1usize, "你好世界".into())],
+            "zh".into(),
         )
         .unwrap();
         assert!(r.html.contains(r#"<div class="tr-box">中文标题</div>"#));
         assert!(r.html.contains(r#"<div class="tr-box">你好世界</div>"#));
-        let r2 = render_translated("Hi".into(), "original".into(), vec![]).unwrap_err();
+        let r2 = render_translated("Hi".into(), "original".into(), vec![], "zh".into()).unwrap_err();
         assert!(r2.contains("不支持的模式"));
+    }
+
+    /// 收口渲染的方向必须真的落到 `data-bi` 编号上——这是「译文贴错块」那条
+    /// 红线的渲染侧哨兵。纯中文文档在 zh 下**整篇不可译**（没有块占号），
+    /// 在 en 下**每个块都可译**（块 0/1 各占一号）。
+    #[test]
+    fn render_translated_numbering_follows_the_direction() {
+        let content = "# 标题\n\n正文段落";
+        let zh = render_translated(content.into(), "translation".into(), vec![], "zh".into()).unwrap();
+        let en = render_translated(content.into(), "translation".into(), vec![], "en".into()).unwrap();
+        assert!(!zh.html.contains("data-bi="), "zh 下纯中文文档无可译块：{}", zh.html);
+        assert!(en.html.contains(r#"data-bi="0""#) && en.html.contains(r#"data-bi="1""#), "{}", en.html);
+        // 未知 tag 回落 zh（老配置/手改入参不得让渲染崩掉）
+        let junk = render_translated(content.into(), "translation".into(), vec![], "klingon".into()).unwrap();
+        assert_eq!(junk.html, zh.html);
     }
 
     #[test]

@@ -76,12 +76,16 @@ pub fn decode_bytes(bytes: &[u8]) -> (String, &'static str) {
 /// 打开文档：读取 + doc_dto 内完成首次 markdown 渲染（parse 随文档一趟下发）。
 /// async 命令：render_html 是 CPU 密集操作（大文档 release 下可达百 ms 级），
 /// 必须离开主线程，否则解析期间整个窗口冻结（同 T9 pick_* 先例）。
+///
+/// `target_lang` 是当前翻译方向（`"zh"` / `"en"`，未知值回落 zh）：首渲的
+/// `data-bi` 占号由它决定，必须与随后 `translate_document` 的入参一致。
 #[tauri::command]
-async fn open_file(path: String) -> Result<dto::DocDTO, String> {
+async fn open_file(path: String, target_lang: String) -> Result<dto::DocDTO, String> {
     let p = std::path::PathBuf::from(&path);
     let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;
     let (content, encoding) = decode_bytes(&bytes);
-    Ok(dto::doc_dto(&p, content, encoding))
+    let target = translate::engine::TargetLang::from_tag(&target_lang);
+    Ok(dto::doc_dto(&p, content, encoding, target))
 }
 
 /// 保存文档；返回写盘后的 mtime（毫秒），前端记为新的外部修改检测基线。
@@ -473,14 +477,16 @@ fn resolve_image(src: String, base_dir: Option<String>) -> Option<String> {
 
 /// 编辑期重新渲染（open_file 已随文档首渲，此处只服务内容变化后的重解析）。
 /// async：同 open_file，解析离开主线程。
+///
+/// `target_lang` 同 `open_file`：`data-bi` 占号随方向变，前端切方向后必须
+/// 用新方向重解析，否则预览 DOM 的块编号与本轮翻译的索引空间对不上。
 #[tauri::command]
-async fn parse_markdown(content: String) -> markdown::html::ParseResult {
-    // 方向决定 data-bi 编号推进方式，必须与翻译期一致；Step 1 会换成命令入参。
+async fn parse_markdown(content: String, target_lang: String) -> markdown::html::ParseResult {
     markdown::html::render_html(
         &content,
         &std::collections::HashMap::new(),
         false,
-        translate::engine::default_target(),
+        translate::engine::TargetLang::from_tag(&target_lang),
     )
 }
 

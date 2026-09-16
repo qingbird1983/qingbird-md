@@ -36,13 +36,20 @@ pub fn file_mtime_millis(path: &std::path::Path) -> Option<i64> {
 }
 
 /// Build a [`DocDTO`] from a resolved path, its decoded content and encoding.
-pub fn doc_dto(path: &std::path::Path, content: String, encoding: &str) -> DocDTO {
-    // 方向决定 data-bi 编号推进方式，必须与翻译期一致；Step 1 会换成命令入参。
+///
+/// `target` 是当前翻译方向：它决定 `data-bi` 的占号（哪些块可译随方向变），
+/// **必须与后续 `translate_document` 用同一个值**，否则流式译文会贴错块。
+pub fn doc_dto(
+    path: &std::path::Path,
+    content: String,
+    encoding: &str,
+    target: crate::translate::engine::TargetLang,
+) -> DocDTO {
     let parse = crate::markdown::html::render_html(
         &content,
         &Default::default(),
         false,
-        crate::translate::engine::default_target(),
+        target,
     );
     DocDTO {
         name: path
@@ -144,9 +151,12 @@ pub struct WordLookupDTO {
 mod tests {
     use super::*;
 
+    /// 本文件的用例只关心 DTO 形状，方向无关，一律钉在 zh。
+    const ZH: crate::translate::engine::TargetLang = crate::translate::engine::TargetLang::Zh;
+
     #[test]
     fn doc_dto_counts_chars_lines_and_dirs() {
-        let d = doc_dto(std::path::Path::new("docs/note.md"), "a\nbb\nccc".into(), "UTF-8");
+        let d = doc_dto(std::path::Path::new("docs/note.md"), "a\nbb\nccc".into(), "UTF-8", ZH);
         assert_eq!(d.name, "note.md");
         assert!(d.path.as_deref().unwrap().ends_with("note.md"));
         assert_eq!(d.base_dir.as_deref(), Some("docs"));
@@ -158,7 +168,7 @@ mod tests {
 
     #[test]
     fn doc_dto_root_path_has_no_name_no_base_dir() {
-        let d = doc_dto(std::path::Path::new("/"), String::new(), "UTF-8");
+        let d = doc_dto(std::path::Path::new("/"), String::new(), "UTF-8", ZH);
         assert_eq!(d.name, "?");
         assert_eq!(d.base_dir, None);
         assert_eq!(d.char_count, 0);
@@ -167,7 +177,7 @@ mod tests {
 
     #[test]
     fn doc_dtos_serde_roundtrip() {
-        let d = doc_dto(std::path::Path::new("a.md"), "hi".into(), "UTF-8");
+        let d = doc_dto(std::path::Path::new("a.md"), "hi".into(), "UTF-8", ZH);
         let json = serde_json::to_string(&d).unwrap();
         let back: DocDTO = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, "a.md");

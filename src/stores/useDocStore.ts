@@ -11,10 +11,11 @@
 import { create } from "zustand";
 import { undo, redo } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
-import type { DocDTO, Mode, ParseResult, SessionSnapshot, SessionTab, ViewKind } from "../types/ipc";
+import type { DocDTO, Mode, ParseResult, SessionSnapshot, SessionTab, TargetLang, ViewKind } from "../types/ipc";
 import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
 import { useUiStore, errText } from "./useUiStore";
 import { useTranslationStore } from "./useTranslationStore";
+import { useSettingsStore } from "./useSettingsStore";
 import { useRecentStore } from "./useRecentStore";
 
 interface OpenTab {
@@ -34,7 +35,13 @@ interface OpenTab {
   translations: Map<number, string>;
   doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null;
   parseResult: ParseResult | null;
-  htmlCache: { contentKey: string; result: ParseResult } | null;
+  /**
+   * 内容 → 解析结果的缓存。**方向也要进 key**（`target` 字段）：`data-bi`
+   * 的占号随方向变，同一份内容在 zh / en 下是不同的 html。只比 contentKey
+   * 会让切方向后沿用旧方向的 DOM 编号，而本轮翻译按新方向收集 → 流式译文
+   * 贴错块（终态由 doneHtml 兜住，中途那几秒是错的）。
+   */
+  htmlCache: { contentKey: string; target: TargetLang; result: ParseResult } | null;
 }
 
 // 应用启动时检查 randomUUID 可用性；Tauri WebView2 是 Chromium 内核通常支持，
@@ -59,7 +66,7 @@ interface DocState {
   cursorSel: [number, number];
   isDirty: boolean;
   parseResult: ParseResult | null;
-  htmlCache: { contentKey: string; result: ParseResult } | null;
+  htmlCache: { contentKey: string; target: TargetLang; result: ParseResult } | null;
   doneHtml: { contentKey: string; mode: Exclude<Mode, "original">; html: string } | null;
   translations: Map<number, string>;
 
@@ -94,6 +101,13 @@ interface DocState {
   checkExternalChange(): Promise<void>;
   switchView(v: ViewKind): void;
   switchMode(m: Mode): void;
+  /**
+   * 切换翻译方向（中 ⇄ 英）。**与 switchMode 同级的一次索引空间变更**：
+   * 落偏好 + `resetDisplay()` + 清 `translations` + 清 `doneHtml` + 按新方向
+   * 重解析基础 html，最后在阅读模式下重跑。UI 必须走这个动作，不要直接调
+   * `useSettingsStore.setTarget`（那会漏掉整套 reset）。
+   */
+  setTranslateTarget(t: TargetLang): Promise<void>;
   ensureParsed(): void;
 
   /** 翻译完成回写入口（useTranslationStore 调用），写入当前激活标签。 */
@@ -168,6 +182,15 @@ function normMode(m: string): Mode {
   return m === "translation" || m === "bilingual" ? m : "original";
 }
 
+/**
+ * 当前翻译方向。**单源** = `useSettingsStore.target`（由 settings 派生）。
+ *
+ * 凡是「结果要落进某个索引空间」的调用（open_file / parse_markdown /
+ * translate_document / render_translated）都必须经由此函数取方向——四处传的
+ * 必须是同一个值，任一处不同就会让占号与收集对不上。
+ */
+const currentTarget = (): TargetLang => useSettingsStore.getState().target;
+
 export const useDocStore = create<DocState>()((set, get) => {
   // —— 派生投影集合（一个辅助函数，actions 用它一次写完 tab 与投影）——
   function patchActive(mut: (t: OpenTab) => OpenTab): void {
@@ -191,6 +214,35 @@ export const useDocStore = create<DocState>()((set, get) => {
     const nextActiveId = s.activeId;
     // 投影仍按当前 activeId 算（不变）。本写入不动 activeId。
     set({ tabs, ...projection(tabs, nextActiveId) });
+  }
+
+  /**
+   * 按当前方向重解析指定 tab 的 markdown，落地 parseResult + htmlCache。
+   *
+   * 与 `ensureParsed` 共用同一段逻辑，差别只在**是否去抖**：编辑期连续重解析
+   * 要走 150ms 去抖（ensureParsed），而切方向必须**立刻且等它落地**——
+   * 流式 partial 是按 `data-bi` 往 DOM 里贴的（lib/patchPartial.ts），基础 html
+   * 若还停在旧方向的编号上，那几秒的译文就会贴到别的块。
+   *
+   * 三道过期护栏：tab 被关、内容被改、方向又被切走 —— 任一命中即丢弃结果。
+   */
+  async function reparseTab(id: string, target: TargetLang): Promise<void> {
+    const t0 = get().tabs.find((x) => x.id === id);
+    if (!t0) return;
+    const key = t0.content;
+    try {
+      const r = await api.parse(key, target);
+      const cur = get().tabs.find((x) => x.id === id);
+      if (!cur || cur.content !== key) return;
+      if (cur.htmlCache?.contentKey === key && cur.htmlCache.target === target) return;
+      patchTab(id, (c) => ({
+        ...c,
+        parseResult: r,
+        htmlCache: { contentKey: key, target, result: r },
+      }));
+    } catch (e) {
+      useUiStore.getState().addToast("error", `解析失败：${errText(e)}`);
+    }
   }
 
   // —— 休眠恢复（docs/webview-hibernate-plan.md 步骤 7）——
@@ -257,8 +309,10 @@ export const useDocStore = create<DocState>()((set, get) => {
         get().switchTab(existing.id);
         return;
       }
+      // 打开时就按当前方向首渲：parse 里的 data-bi 占号要跟随后续翻译的同方向。
+      const target = currentTarget();
       try {
-        const d = await api.openFile(path);
+        const d = await api.openFile(path, target);
         const tab: OpenTab = {
           id: newId(),
           path,
@@ -274,7 +328,7 @@ export const useDocStore = create<DocState>()((set, get) => {
           translations: new Map(),
           doneHtml: null,
           parseResult: d.parse,
-          htmlCache: { contentKey: d.content, result: d.parse },
+          htmlCache: { contentKey: d.content, target, result: d.parse },
         };
         set((s) => commit([...s.tabs, tab], tab.id));
         // 最近打开文档登记：这里是所有「按路径打开」的唯一漏斗，记在这儿才不漏
@@ -561,8 +615,9 @@ export const useDocStore = create<DocState>()((set, get) => {
     reloadTab: async (id) => {
       const t = get().tabs.find((x) => x.id === id);
       if (!t?.path) return;
+      const target = currentTarget();
       try {
-        const d = await api.openFile(t.path);
+        const d = await api.openFile(t.path, target);
         // 按 id 写：await 期间 active 可能已切走。视图/模式/滚动保留（用户语境），
         // 内容、解析、翻译态、光标全量重置（翻译按行号索引，旧内容下已失效）。
         patchTab(id, (cur) => ({
@@ -573,7 +628,7 @@ export const useDocStore = create<DocState>()((set, get) => {
           mtime: d.mtime,
           encoding: d.encoding,
           parseResult: d.parse,
-          htmlCache: { contentKey: d.content, result: d.parse },
+          htmlCache: { contentKey: d.content, target, result: d.parse },
           translations: new Map(),
           doneHtml: null,
           cursorSel: [0, 0],
@@ -618,29 +673,38 @@ export const useDocStore = create<DocState>()((set, get) => {
       if (m !== "original") useTranslationStore.getState().startIfFresh();
     },
 
+    setTranslateTarget: async (t) => {
+      const cur = activeTab(get());
+      const split = useTranslationStore.getState();
+      if (!cur) {
+        // 无文档：只有偏好要落，没有索引空间要重置。
+        useSettingsStore.getState().setTarget(t);
+        return;
+      }
+      if (useSettingsStore.getState().target === t) return;
+      // 1) 偏好先落（乐观更新是同步的）——下面的重解析与起跑都从 settings 取方向。
+      useSettingsStore.getState().setTarget(t);
+      // 2) **与 switchMode 同级的一次索引空间变更**（H2 红线）：`data-bi` 的
+      //    占号由方向决定，所以旧显示、旧打字流、旧译文表、旧 doneHtml 全部作废。
+      //    resetDisplay 会 gen 前跳并通知后端取消在途 run——迟到的事件自然失配丢弃。
+      split.resetDisplay();
+      patchActive((c) => ({ ...c, translations: new Map(), doneHtml: null }));
+      // 3) 基础 html 按新方向重解析，并**等它落地**（理由见 reparseTab 注释）。
+      //    顺带让后端有一点时间把上一轮 run 收干净，降低"已有翻译在进行"的撞车概率。
+      await reparseTab(cur.id, t);
+      // 4) 阅读模式下重跑（resetDisplay 已把 gen 前跳、译文表已清 ⇒ startIfFresh
+      //    必然判 fresh，除非用户此刻已切到原文模式）。
+      if (activeTab(get())?.mode !== "original") useTranslationStore.getState().startIfFresh();
+    },
+
     ensureParsed: () => {
       const t = activeTab(get());
       if (!t) return;
-      if (t.htmlCache?.contentKey === t.content) return;
+      // 方向也要比：同一份内容在 zh / en 下是不同的 html（data-bi 占号不同）。
+      if (t.htmlCache?.contentKey === t.content && t.htmlCache.target === currentTarget()) return;
       clearTimeout(parseTimer);
       const myId = t.id;
-      parseTimer = setTimeout(async () => {
-        const cur = activeTab(get());
-        if (!cur || cur.id !== myId) return;
-        const key = cur.content;
-        try {
-          const r = await api.parse(key);
-          const cur2 = activeTab(get());
-          if (!cur2 || cur2.id !== myId || cur2.content !== key) return; // 切走/关掉/内容被改 = 过期
-          patchActive((c) => ({
-            ...c,
-            parseResult: r,
-            htmlCache: { contentKey: key, result: r },
-          }));
-        } catch (e) {
-          useUiStore.getState().addToast("error", `解析失败：${errText(e)}`);
-        }
-      }, 150);
+      parseTimer = setTimeout(() => void reparseTab(myId, currentTarget()), 150);
     },
 
     applyTranslationResult: (translations, doneHtml) => {

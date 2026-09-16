@@ -1,5 +1,7 @@
-// 底部状态条：doc.path ●脏标 · 字符 X · 行 Y · 阅读模式 · provider · 翻译状态。
-// 纯展示组件——全部订阅走各 store 的字段级选择器，不在壳层放逻辑。
+// 底部状态条：doc.path ●脏标 · 字符 X · 行 Y · 阅读模式 · 翻译方向 · provider
+// · 翻译状态。纯展示组件——全部订阅走各 store 的字段级选择器，不在壳层放逻辑。
+// 唯一例外是「翻译方向」那一段：它是个双向切换钮（中 ⇄ 英），但同样只做
+// "把点击转交给 store 动作"这一件事，不在这里持有任何方向状态。
 import { useDocStore } from "../stores/useDocStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
@@ -10,11 +12,16 @@ const MODE_LABEL: Record<string, string> = {
   bilingual: "双语",
 };
 
+/** 方向短标签。文案是"译成什么"，不是"什么语言"——后者歧义（源还是目标？）。 */
+const DIR_LABEL: Record<string, string> = { zh: "译成中文", en: "译成英文" };
+
 export default function StatusBar() {
   const doc = useDocStore((s) => s.doc);
   const isDirty = useDocStore((s) => s.isDirty);
   const mode = useDocStore((s) => s.mode);
+  const setTranslateTarget = useDocStore((s) => s.setTranslateTarget);
   const provider = useSettingsStore((s) => s.settings?.provider ?? null);
+  const target = useSettingsStore((s) => s.target);
   const trStatus = useTranslationStore((s) => s.status);
   const progress = useTranslationStore((s) => s.progress);
 
@@ -46,11 +53,23 @@ export default function StatusBar() {
           </span>
         )}
       </div>
-      {/* 右侧：字数/行数 · 编码 · 阅读模式 · 翻译源 · 翻译状态 */}
+      {/* 右侧：字数/行数 · 编码 · 阅读模式 · 翻译方向 · 翻译源 · 翻译状态 */}
       <div className="status-right">
         {stats && <span>{stats}</span>}
         {doc?.encoding && doc.path && <span>{doc.encoding}</span>}
         <span>{MODE_LABEL[mode] ?? mode}</span>
+        {/* 双向切换：点一次换一个方向。切换走 useDocStore.setTranslateTarget
+            （不是直接改设置）——它会连带清显示/清译文表/按新方向重解析，
+            因为 data-bi 的占号随方向变（见该动作注释）。 */}
+        <button
+          type="button"
+          className="status-dir"
+          title={`翻译方向：${DIR_LABEL[target]}（点击切换为${target === "zh" ? "英文" : "中文"}）`}
+          aria-label={`翻译方向：${DIR_LABEL[target]}，点击切换`}
+          onClick={() => void setTranslateTarget(target === "zh" ? "en" : "zh")}
+        >
+          {DIR_LABEL[target]}
+        </button>
         <span>{provider ?? "—"}</span>
         <span>{transLabel}</span>
       </div>

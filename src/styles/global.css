@@ -1757,6 +1757,32 @@ button.menu-btn:disabled,
   color: var(--zhu); /* 未保存：朱砂（DESIGN.md §2 语义铁律） */
 }
 
+/* 翻译方向切换（中 ⇄ 英）。状态条里**唯一的可点段**，其余都是纯展示。
+   做成文字钮而不是胶囊：它表达的是一个偏好值（当前译成哪种语言），不是
+   开/关状态——用胶囊会读成"这个开关是开的"。hover 才着色，避免在满行
+   小字里显得抢眼；focus-visible 给足键盘可达性。 */
+.status-bar .status-dir {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.14s var(--ease), background 0.14s var(--ease);
+}
+
+.status-bar .status-dir:hover {
+  color: var(--accent-strong);
+  background: var(--accent-weak);
+}
+
+.status-bar .status-dir:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ============ 分隔线 / 拖宽条 ============ */
 /* 1px 发丝线居中于 7px 热区，既是分隔也是拖柄；悬停/拖拽中加深提示
    （.dragging 由 lib/colDrag 开关——capture 下指针会漂出热区，:hover 不可靠）。 */

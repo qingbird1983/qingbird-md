@@ -2,7 +2,7 @@
 // 每次变更即持久化（save_settings 成功后后端广播 settings-updated，
 // 本 store 的监听回调只在 theme 变化时收敛 theme 并提示——绝不回写，防广播风暴）。
 import { create } from "zustand";
-import type { Settings } from "../types/ipc";
+import type { Settings, TargetLang } from "../types/ipc";
 import { api } from "../lib/ipc";
 import { normalizePalette, type PaletteId } from "../lib/paletteSeeds";
 import { useUiStore, errText } from "./useUiStore";
@@ -14,6 +14,8 @@ interface SettingsState {
   theme: Theme;
   /** 主题配色（与明暗正交）；真源清单见 lib/paletteSeeds.ts */
   palette: PaletteId;
+  /** 翻译方向（目标语言）。默认 zh = 改动前行为；落盘在 settings.translate_target */
+  target: TargetLang;
 
   /** 启动加载 + 注册 settings-updated 监听（整个应用生命周期只挂一次）。 */
   load(): Promise<void>;
@@ -22,15 +24,30 @@ interface SettingsState {
   updateCredentials(k: string, v: Record<string, string>): void;
   setTheme(t: Theme): void;
   setPalette(p: PaletteId): void;
+  setTarget(t: TargetLang): void;
   credsFor(provider: string): Record<string, string>;
 }
 
 const normalizeTheme = (t: string): Theme => (t === "light" || t === "dark" ? t : "auto");
 
 /**
+ * 方向归一化：只认 "en"，其余（空串/未知/未来新语种）一律 `zh`。
+ *
+ * 与 Rust `TargetLang::from_tag` 同一口径——**两边必须一致**：前端拿它去起跑
+ * 与渲染，后端拿它算缓存键与 `data-bi` 占号，任一边多认一个字面量都会让
+ * 「同一篇文档两处算出不同索引空间」。
+ */
+export const normalizeTarget = (t: string | undefined): TargetLang => (t === "en" ? "en" : "zh");
+
+/**
  * 跨源同步（监听回调专用，不落盘）：广播来的设置只收敛「外观」两项
  * （theme / palette），不整包覆写 settings——否则会打翻正在编辑的表单草稿。
  * 本地态先改再判断，是为了防止 echo → save → 广播 → echo 死循环。
+ *
+ * **刻意不收 translations_target（方向）**：外观是纯展示，收敛即刻生效；
+ * 方向却是**索引空间的一部分**（`data-bi` 占号随它变），必须与「清显示 + 清
+ * translations + 清 doneHtml」那一整套 reset 一起走（useDocStore.setTranslateTarget）。
+ * 在这里顺手收敛，等于制造一次「方向变了但没有 reset」的静默错位。
  */
 function applyRemote(incoming: Settings) {
   const t = normalizeTheme(incoming.theme);
@@ -52,11 +69,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   settings: null,
   theme: "auto",
   palette: normalizePalette(""),
+  target: "zh",
 
   load: async () => {
     try {
       const s = await api.loadSettings();
-      set({ settings: s, theme: normalizeTheme(s.theme), palette: normalizePalette(s.palette) });
+      set({
+        settings: s,
+        theme: normalizeTheme(s.theme),
+        palette: normalizePalette(s.palette),
+        target: normalizeTarget(s.translate_target),
+      });
     } catch (e) {
       useUiStore.getState().addToast("error", `读取设置失败：${errText(e)}`);
       return;
@@ -74,7 +97,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   save: async (next) => {
     const prev = get().settings;
-    set({ settings: next, theme: normalizeTheme(next.theme), palette: normalizePalette(next.palette) });
+    set({
+      settings: next,
+      theme: normalizeTheme(next.theme),
+      palette: normalizePalette(next.palette),
+      // 方向同样由 settings 派生（单源）：设置弹窗整包保存时也保持镜像一致。
+      target: normalizeTarget(next.translate_target),
+    });
     try {
       await api.saveSettings(next);
     } catch (e) {
@@ -124,6 +153,24 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   credsFor: (provider) => get().settings?.providers[provider] ?? {},
+
+  // 与 setTheme/setPalette 同构的守卫写法：必须读 cur 上的**归一化值**再比，
+  // 不能先本地 set——那样守卫恒假、盘上无落痕，下次启动读回旧值。
+  //
+  // ⚠️ **本动作只负责"偏好落盘"，不负责 reset 显示态**。方向变更必须连带
+  // `resetDisplay()` + 清 translations + 清 doneHtml（索引空间变了），那套动
+  // 作在 `useDocStore.setTranslateTarget` 里、与 switchMode 同级。UI 不要直接
+  // 调本动作，否则会造出"方向变了但旧译文还在"的错位态。
+  setTarget: (t) => {
+    const cur = get().settings;
+    if (!cur) {
+      // 设置尚未加载（load 还没 resolve）：仅本地翻转，等 load 完成再覆盖。
+      set({ target: t });
+      return;
+    }
+    if (normalizeTarget(cur.translate_target) === t) return;
+    void get().save({ ...cur, translate_target: t });
+  },
 }));
 
 // T30 主题 → DOM 贯通：body[data-theme] 恒为解析后的 dark|light。

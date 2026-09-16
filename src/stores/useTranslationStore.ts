@@ -5,6 +5,7 @@ import type {
   DonePayload,
   Mode,
   ProgressPayload,
+  TargetLang,
   TranslationPartialPayload,
   WordLookupDTO,
   LookupDeltaPayload,
@@ -115,6 +116,16 @@ let invokeInFlight = false;
 const WINDOW_PREFETCH = 4;
 
 export type TranslateScope = "off" | "viewport" | "full";
+
+/**
+ * 当前翻译方向（**单源** = `useSettingsStore.target`）。
+ *
+ * 起跑（translate_document）与会话收口重建（render_translated）必须取同一个
+ * 值：两处的 `data-bi` 编号空间不一致时，整表译文会错位到别的块。方向本身
+ * 的变更入口是 `useDocStore.setTranslateTarget`（带一整套 reset），这里只读。
+ */
+const currentTarget = (): TargetLang => useSettingsStore.getState().target;
+
 
 /**
  * 截断 JSON 的渐进字段提取（流式渲染用）：从可能中途截断的 LLM 输出里
@@ -276,6 +287,7 @@ function scheduleCanonicalRebuild() {
         dd.doc.content,
         dd.mode as "translation" | "bilingual",
         Array.from(dd.translations.entries()) as Array<[number, string]>,
+        currentTarget(),
       );
       const dd2 = useDocStore.getState();
       if (!dd2.doc || dd2.doc.content !== st.runContent) return; // 内容已变，丢弃
@@ -587,6 +599,7 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         sp.provider,
         useSettingsStore.getState().credsFor(sp.provider),
         win,
+        currentTarget(),
       );
       if (r.kind === "cached") {
         const d = r.done;
