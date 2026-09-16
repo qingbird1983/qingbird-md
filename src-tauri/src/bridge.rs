@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::translate::cache::Cache;
+use crate::translate::engine::TargetLang;
 use crate::{dto, markdown, storage, translate};
 
 use super::AppTxn;
@@ -160,12 +161,15 @@ pub(crate) fn html_payload_parts(
     content: &str,
     trans: &HashMap<usize, String>,
     bilingual_batch: bool,
+    target: TargetLang,
 ) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
-    let orig = markdown::html::render_html(content, &HashMap::new(), false);
+    // ⚠️ 三次 render_html 传**同一个** target：orig 里的 data-bi 锚点会被前端
+    // 当作 partial 事件的 key，方向与收集侧不一致就会错位。
+    let orig = markdown::html::render_html(content, &HashMap::new(), false, target);
     let (html_translation, html_bilingual) = if bilingual_batch {
-        (None, Some(markdown::html::render_html(content, trans, true).html))
+        (None, Some(markdown::html::render_html(content, trans, true, target).html))
     } else {
-        (Some(markdown::html::render_html(content, trans, false).html), None)
+        (Some(markdown::html::render_html(content, trans, false, target).html), None)
     };
     (orig.html, html_translation, html_bilingual, orig.outline)
 }
@@ -181,11 +185,12 @@ fn sweep_cached_pairs(
     variant: &str,
     blocks: &[markdown::model::Block],
     bilingual: bool,
+    target: TargetLang,
 ) -> Vec<(usize, String)> {
     let units = if bilingual {
-        markdown::units::collect_translatable(blocks)
+        markdown::units::collect_translatable(blocks, target)
     } else {
-        markdown::units::collect_text_runs(blocks)
+        markdown::units::collect_text_runs(blocks, target)
     };
     units
         .into_iter()
@@ -206,6 +211,7 @@ fn cached_done_evt(
     content: &str,
     bilingual_batch: bool,
     windowed: bool,
+    target: TargetLang,
 ) -> Option<TranslationDoneEvt> {
     let results: Vec<Result<String, String>> = texts
         .iter()
@@ -227,7 +233,7 @@ fn cached_done_evt(
         (None, None, None, None)
     } else {
         let (html_original, html_translation, html_bilingual, outline) =
-            html_payload_parts(content, &map, bilingual_batch);
+            html_payload_parts(content, &map, bilingual_batch, target);
         (Some(html_original), html_translation, html_bilingual, Some(outline))
     };
     Some(TranslationDoneEvt {
@@ -347,10 +353,14 @@ pub fn translate_document(
         .ok_or_else(|| format!("未知翻译源：{provider}"))?;
     let blocks = markdown::parse_blocks(&content);
     let win_range = window.map(|[top, end]| (top, end));
+    // ★ 方向从这里取（Step 1 会把 `default_target()` 换成 `translate_document`
+    // 的入参）。**本函数内所有下游调用必须用同一个 target 值**——收集、缓存 key、
+    // html 渲染三处的方向只要有一个不一致，索引空间就会错位。
+    let target = translate::engine::default_target();
     let (units, indices_blocks) = match mode.as_str() {
-        "translation" => markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range),
+        "translation" => markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range, target),
         "bilingual" => {
-            let units = markdown::units::collect_translatable_windowed(&blocks, win_range);
+            let units = markdown::units::collect_translatable_windowed(&blocks, win_range, target);
             let blocks_of = units.iter().map(|&(i, _)| i).collect::<Vec<_>>();
             (units, blocks_of)
         }
@@ -362,6 +372,7 @@ pub fn translate_document(
     let variant = translate::engine::cache_variant(
         &provider,
         creds.get("model").map(|s| s.as_str()).unwrap_or_default(),
+        target,
     );
     if let Some(mut done) = cached_done_evt(
         &provider,
@@ -372,13 +383,14 @@ pub fn translate_document(
         &content,
         bilingual,
         window.is_some(),
+        target,
     ) {
         // 窗口化缓存全命中：窗口 pairs 之外，把整篇缓存命中单元一并扫荡
         // 回带（见 sweep_cached_pairs 注释）——前端凭完整表整屏瞬时替换，
         // 不必滚到哪补到哪。全文（window=None）路径本就带全部 pairs，不扫。
         if window.is_some() {
             done.translations =
-                Some(sweep_cached_pairs(&snapshot, &provider, &variant, &blocks, bilingual));
+                Some(sweep_cached_pairs(&snapshot, &provider, &variant, &blocks, bilingual, target));
         }
         return Ok(TranslateStart::Cached { done });
     }
@@ -408,6 +420,7 @@ pub fn translate_document(
         content,
         bilingual,
         window.is_some(),
+        target,
     );
     Ok(TranslateStart::Started { r#gen, first_index, indices, indices_blocks })
 }
@@ -426,7 +439,8 @@ pub fn render_translated(
         other => return Err(format!("不支持的模式：{other}")),
     };
     let map: HashMap<usize, String> = translations.into_iter().collect();
-    Ok(markdown::html::render_html(&content, &map, bilingual))
+    // 会话收口也走同一个方向来源：Step 1 会把它换成命令入参（前端持有当前方向）。
+    Ok(markdown::html::render_html(&content, &map, bilingual, translate::engine::default_target()))
 }
 
 fn spawn_translation(
@@ -442,6 +456,7 @@ fn spawn_translation(
     content: String,
     bilingual: bool,
     windowed: bool,
+    target: TargetLang,
 ) {
     std::thread::spawn(move || {
         let http0 = translate::http::UreqClient::shared();
@@ -453,6 +468,7 @@ fn spawn_translation(
         let variant = translate::engine::cache_variant(
             &provider,
             creds.get("model").unwrap_or_default(),
+            target,
         );
 
         let units: Vec<(usize, String)> =
@@ -469,6 +485,7 @@ fn spawn_translation(
             http: &http,
             config,
             cache_variant: &variant,
+            target,
         };
 
         let app_evt = app.clone();
@@ -555,7 +572,7 @@ fn spawn_translation(
                 }
             } else {
                 let (html_original, html_translation, html_bilingual, outline) =
-                    html_payload_parts(&content, &map, bilingual);
+                    html_payload_parts(&content, &map, bilingual, target);
                 TranslationDoneEvt {
                     r#gen,
                     ok: true,
@@ -587,6 +604,55 @@ fn spawn_translation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Step 0 所有生产方向仍是 zh；测试沿用同一常量，避免十几处重复字面量。
+    const ZH: TargetLang = TargetLang::Zh;
+
+    // ---- 方向薄包装 ----
+    // 本文件这些测试验证的是缓存命中 / 索引空间 / wire 形状，结论与方向无关，
+    // 一律在 zh 下成立。用本地遮蔽（本地项优先于 glob import）把方向钉成常量：
+    // 省掉十几处字面量，同时让「本文件不覆盖方向切换」在签名上可见——方向本身
+    // 由 engine.rs / units.rs 的专用测试覆盖。生产调用点仍必须显式传方向。
+    fn html_payload_parts(
+        content: &str,
+        trans: &HashMap<usize, String>,
+        bilingual_batch: bool,
+    ) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
+        super::html_payload_parts(content, trans, bilingual_batch, ZH)
+    }
+
+    fn cached_done_evt(
+        provider: &str,
+        variant: &str,
+        snapshot: &Cache,
+        indices: &[usize],
+        texts: &[String],
+        content: &str,
+        bilingual_batch: bool,
+        windowed: bool,
+    ) -> Option<TranslationDoneEvt> {
+        super::cached_done_evt(
+            provider,
+            variant,
+            snapshot,
+            indices,
+            texts,
+            content,
+            bilingual_batch,
+            windowed,
+            ZH,
+        )
+    }
+
+    fn sweep_cached_pairs(
+        snapshot: &Cache,
+        provider: &str,
+        variant: &str,
+        blocks: &[markdown::model::Block],
+        bilingual: bool,
+    ) -> Vec<(usize, String)> {
+        super::sweep_cached_pairs(snapshot, provider, variant, blocks, bilingual, ZH)
+    }
 
     #[test]
     fn done_payload_parts_sorts_pairs_and_picks_first_error() {

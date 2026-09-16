@@ -37,7 +37,13 @@ pub fn file_mtime_millis(path: &std::path::Path) -> Option<i64> {
 
 /// Build a [`DocDTO`] from a resolved path, its decoded content and encoding.
 pub fn doc_dto(path: &std::path::Path, content: String, encoding: &str) -> DocDTO {
-    let parse = crate::markdown::html::render_html(&content, &Default::default(), false);
+    // 方向决定 data-bi 编号推进方式，必须与翻译期一致；Step 1 会换成命令入参。
+    let parse = crate::markdown::html::render_html(
+        &content,
+        &Default::default(),
+        false,
+        crate::translate::engine::default_target(),
+    );
     DocDTO {
         name: path
             .file_name()

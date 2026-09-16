@@ -1,5 +1,5 @@
 use super::model::{Block, Inline};
-use crate::translate::engine::needs_translation;
+use crate::translate::engine::{needs_translation, TargetLang};
 use crate::translate::skip::RefSkipState;
 
 /// Concatenated plain text of an inline run.
@@ -31,16 +31,28 @@ fn in_window(i: usize, window: Option<(usize, usize)>) -> bool {
     }
 }
 
-/// 单块可译判定：喂 skip 状态机 + needs_translation。三处（html.rs / 两 walker）
-/// 共用同一逻辑，保证占号与收集逐位一致。
-fn block_translatable(st: &mut RefSkipState, heading: Option<u8>, plain: &str) -> bool {
+/// 单块可译判定：喂 skip 状态机 + needs_translation。
+///
+/// **这是「块空间（`data-bi`）」的唯一判定点**，本文件两个 walker 与
+/// `html.rs::Ctx::bi_advance` 必须与它逐位一致，否则占号与收集会错位 →
+/// 译文贴错块。`html.rs` 那边调用同一个 `needs_translation`，方向参数必须
+/// 是**同一个值**（不要一边传 Zh 一边传 En）。
+///
+/// `target` 是本块翻译方向；`st` 的喂入顺序与方向无关（skip 只看标题层级
+/// 与文本，不看方向），所以只把 `target` 交给 `needs_translation`。
+fn block_translatable(
+    st: &mut RefSkipState,
+    heading: Option<u8>,
+    plain: &str,
+    target: TargetLang,
+) -> bool {
     let blocked = st.feed(heading.map(|l| (l, plain)));
-    needs_translation(plain) && !blocked
+    needs_translation(plain, target) && !blocked
 }
 
 /// Collect translatable inline text *runs* in document order (full document).
-pub fn collect_text_runs(blocks: &[Block]) -> Vec<(usize, String)> {
-    collect_text_runs_windowed(blocks, None)
+pub fn collect_text_runs(blocks: &[Block], target: TargetLang) -> Vec<(usize, String)> {
+    collect_text_runs_windowed(blocks, None, target)
 }
 
 /// 窗口化 run 收集：只收集所属块（data-bi 空间）在窗口内的 run；
@@ -49,8 +61,9 @@ pub fn collect_text_runs(blocks: &[Block]) -> Vec<(usize, String)> {
 pub fn collect_text_runs_windowed(
     blocks: &[Block],
     window: Option<(usize, usize)>,
+    target: TargetLang,
 ) -> Vec<(usize, String)> {
-    collect_text_runs_windowed_blocks(blocks, window).0
+    collect_text_runs_windowed_blocks(blocks, window, target).0
 }
 
 /// 与 collect_text_runs_windowed 相同，但额外返回每个收集 run 所属的块索引
@@ -58,13 +71,23 @@ pub fn collect_text_runs_windowed(
 pub fn collect_text_runs_windowed_blocks(
     blocks: &[Block],
     window: Option<(usize, usize)>,
+    target: TargetLang,
 ) -> (Vec<(usize, String)>, Vec<usize>) {
     let mut counter = 0usize;
     let mut bi = 0usize;
     let mut st = RefSkipState::default();
     let mut out = Vec::new();
     let mut blocks_out = Vec::new();
-    walk_run_collect_blocks(blocks, &mut counter, &mut bi, &mut st, window, &mut out, &mut blocks_out);
+    walk_run_collect_blocks(
+        blocks,
+        &mut counter,
+        &mut bi,
+        &mut st,
+        window,
+        &mut out,
+        &mut blocks_out,
+        target,
+    );
     (out, blocks_out)
 }
 
@@ -77,59 +100,60 @@ fn walk_run_collect_blocks(
     window: Option<(usize, usize)>,
     out: &mut Vec<(usize, String)>,
     blocks_out: &mut Vec<usize>,
+    target: TargetLang,
 ) {
     for b in blocks {
         match b {
             Block::Heading { level, text } => {
                 let plain = inline_plain_text(text);
-                let trans = block_translatable(st, Some(*level), &plain);
+                let trans = block_translatable(st, Some(*level), &plain, target);
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window));
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
                 } else {
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false);
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false, target);
                 }
             }
             Block::Paragraph { text } => {
                 let plain = inline_plain_text(text);
-                let trans = block_translatable(st, None, &plain);
+                let trans = block_translatable(st, None, &plain, target);
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window));
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
                 } else {
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false);
+                    collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false, target);
                 }
             }
-            Block::Quote { blocks } => walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out),
+            Block::Quote { blocks } => walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out, target),
             Block::List { items, .. } => {
                 for it in items {
-                    walk_run_collect_blocks(&it.blocks, counter, bi, st, window, out, blocks_out);
+                    walk_run_collect_blocks(&it.blocks, counter, bi, st, window, out, blocks_out, target);
                 }
             }
             Block::Table { headers, rows, .. } => {
                 for h in headers {
                     let plain = inline_plain_text(h);
-                    let trans = block_translatable(st, None, &plain);
+                    let trans = block_translatable(st, None, &plain, target);
                     if trans {
                         let b_idx = *bi;
                         *bi += 1;
-                        collect_runs_inline_blocks(h, counter, out, blocks_out, b_idx, in_window(b_idx, window));
+                        collect_runs_inline_blocks(h, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
                     } else {
-                        collect_runs_inline_blocks(h, counter, out, blocks_out, *bi, false);
+                        collect_runs_inline_blocks(h, counter, out, blocks_out, *bi, false, target);
                     }
                 }
                 for row in rows {
                     for cell in row {
                         let plain = inline_plain_text(cell);
-                        let trans = block_translatable(st, None, &plain);
+                        let trans = block_translatable(st, None, &plain, target);
                         if trans {
                             let b_idx = *bi;
                             *bi += 1;
-                            collect_runs_inline_blocks(cell, counter, out, blocks_out, b_idx, in_window(b_idx, window));
+                            collect_runs_inline_blocks(cell, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
                         } else {
-                            collect_runs_inline_blocks(cell, counter, out, blocks_out, *bi, false);
+                            collect_runs_inline_blocks(cell, counter, out, blocks_out, *bi, false, target);
                         }
                     }
                 }
@@ -138,7 +162,7 @@ fn walk_run_collect_blocks(
             // 脚注定义的内容照常参与 bi/run 占号（渲染时移到文末但 walk
             // 顺序不变，索引与 html.rs 渲染保持逐位一致）
             Block::FootnoteDef { blocks, .. } => {
-                walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out)
+                walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out, target)
             }
             _ => {}
         }
@@ -146,6 +170,10 @@ fn walk_run_collect_blocks(
 }
 
 /// `collect` = false 时仍推进 run 计数（恒占号）但不收集（_blocks 变体同时记录块号）。
+///
+/// `target` 只影响「是否收集」这**一个**布尔；run 计数恒推进（与
+/// `html.rs::push_inlines` 的 `sub_counter += 1` 对齐）。所以方向即使改了，
+/// run 索引空间也不会漂——漂的只可能是"哪些 run 有译文"。
 fn collect_runs_inline_blocks(
     inlines: &[Inline],
     counter: &mut usize,
@@ -153,21 +181,22 @@ fn collect_runs_inline_blocks(
     blocks_out: &mut Vec<usize>,
     b_idx: usize,
     collect: bool,
+    target: TargetLang,
 ) {
     for il in inlines {
         match il {
             Inline::Text(t) => {
                 let idx = *counter;
                 *counter += 1;
-                if collect && !t.trim().is_empty() && needs_translation(t) {
+                if collect && !t.trim().is_empty() && needs_translation(t, target) {
                     out.push((idx, t.clone()));
                     blocks_out.push(b_idx);
                 }
             }
             Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
-                collect_runs_inline_blocks(x, counter, out, blocks_out, b_idx, collect)
+                collect_runs_inline_blocks(x, counter, out, blocks_out, b_idx, collect, target)
             }
-            Inline::Link { text, .. } => collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, collect),
+            Inline::Link { text, .. } => collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, collect, target),
             Inline::Math(_) => {}
             Inline::FootnoteRef(_) => {} // 编号引用不占 run 号
             _ => {}
@@ -177,19 +206,20 @@ fn collect_runs_inline_blocks(
 
 
 /// Collect translatable text units in document order (full document).
-pub fn collect_translatable(blocks: &[Block]) -> Vec<(usize, String)> {
-    collect_translatable_windowed(blocks, None)
+pub fn collect_translatable(blocks: &[Block], target: TargetLang) -> Vec<(usize, String)> {
+    collect_translatable_windowed(blocks, None, target)
 }
 
 /// 窗口化块收集：只收集块索引 ∈ 窗口的单元（索引空间 = data-bi）。
 pub fn collect_translatable_windowed(
     blocks: &[Block],
     window: Option<(usize, usize)>,
+    target: TargetLang,
 ) -> Vec<(usize, String)> {
     let mut counter = 0usize;
     let mut st = RefSkipState::default();
     let mut out = Vec::new();
-    walk_collect(blocks, &mut counter, &mut st, window, &mut out);
+    walk_collect(blocks, &mut counter, &mut st, window, &mut out, target);
     out
 }
 
@@ -199,12 +229,13 @@ fn walk_collect(
     st: &mut RefSkipState,
     window: Option<(usize, usize)>,
     out: &mut Vec<(usize, String)>,
+    target: TargetLang,
 ) {
     for b in blocks {
         match b {
             Block::Heading { level, text } => {
                 let plain = inline_plain_text(text);
-                if block_translatable(st, Some(*level), &plain) {
+                if block_translatable(st, Some(*level), &plain, target) {
                     if in_window(*counter, window) {
                         out.push((*counter, plain.clone()));
                     }
@@ -213,23 +244,23 @@ fn walk_collect(
             }
             Block::Paragraph { text } => {
                 let plain = inline_plain_text(text);
-                if block_translatable(st, None, &plain) {
+                if block_translatable(st, None, &plain, target) {
                     if in_window(*counter, window) {
                         out.push((*counter, plain.clone()));
                     }
                     *counter += 1;
                 }
             }
-            Block::Quote { blocks } => walk_collect(blocks, counter, st, window, out),
+            Block::Quote { blocks } => walk_collect(blocks, counter, st, window, out, target),
             Block::List { items, .. } => {
                 for it in items {
-                    walk_collect(&it.blocks, counter, st, window, out);
+                    walk_collect(&it.blocks, counter, st, window, out, target);
                 }
             }
             Block::Table { headers, rows, .. } => {
                 for h in headers {
                     let p = inline_plain_text(h);
-                    if block_translatable(st, None, &p) {
+                    if block_translatable(st, None, &p, target) {
                         if in_window(*counter, window) {
                             out.push((*counter, p.clone()));
                         }
@@ -239,7 +270,7 @@ fn walk_collect(
                 for row in rows {
                     for cell in row {
                         let p = inline_plain_text(cell);
-                        if block_translatable(st, None, &p) {
+                        if block_translatable(st, None, &p, target) {
                             if in_window(*counter, window) {
                                 out.push((*counter, p.clone()));
                             }
@@ -249,7 +280,7 @@ fn walk_collect(
                 }
             }
             Block::Math { .. } => {}
-            Block::FootnoteDef { blocks, .. } => walk_collect(blocks, counter, st, window, out),
+            Block::FootnoteDef { blocks, .. } => walk_collect(blocks, counter, st, window, out, target),
             _ => {}
         }
     }
@@ -260,12 +291,17 @@ mod tests {
     use super::*;
     use crate::markdown::{parse_blocks};
 
+    /// 本模块测试默认译成中文（= Step 0 的生产行为）。
+    const ZH: TargetLang = TargetLang::Zh;
+    /// 反向。用于"同一份文档两个方向必须给出不同单元集合"的守卫。
+    const EN: TargetLang = TargetLang::En;
+
     #[test]
     fn collect_runs_indexes_all_texts() {
         // Parity with the egui renderer: every non-empty run with ASCII
         // letters is collected, CJK-only runs are not.
         let blocks = parse_blocks("Hi\n\n中文 skip");
-        let runs = collect_text_runs(&blocks);
+        let runs = collect_text_runs(&blocks, ZH);
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[0], (0, "Hi".into()));
         assert_eq!(runs[1], (1, "中文 skip".into()));
@@ -274,7 +310,7 @@ mod tests {
     #[test]
     fn collect_translatable_uses_block_plain_text() {
         let blocks = parse_blocks("# Eng title\n\n## 中文标题");
-        let u = collect_translatable(&blocks);
+        let u = collect_translatable(&blocks, ZH);
         assert_eq!(u.len(), 1);          // 中文标题被 needs_translation 跳过
         assert_eq!(u[0].1, "Eng title");  // inline 前缀不带 "# "
     }
@@ -282,11 +318,11 @@ mod tests {
     #[test]
     fn windowed_translatable_filters_by_block_index() {
         let blocks = parse_blocks("One\n\nTwo\n\nThree\n\nFour\n\nFive");
-        let all = collect_translatable(&blocks);
+        let all = collect_translatable(&blocks, ZH);
         assert_eq!(all.len(), 5);
-        let w = collect_translatable_windowed(&blocks, Some((1, 3)));
+        let w = collect_translatable_windowed(&blocks, Some((1, 3)), ZH);
         assert_eq!(w, vec![(1usize, "Two".into()), (2usize, "Three".into())]);
-        assert_eq!(collect_translatable_windowed(&blocks, Some((4, 99))).len(), 1);
+        assert_eq!(collect_translatable_windowed(&blocks, Some((4, 99)), ZH).len(), 1);
     }
 
     #[test]
@@ -294,7 +330,7 @@ mod tests {
         // 两段各两个 run；窗口只含第二段 → 只收集第二段的 run，
         // 但 run 索引保持全局（第二段首 run = 2）。
         let blocks = parse_blocks("Alpha**beta**\n\nGamma**delta**");
-        let w = collect_text_runs_windowed(&blocks, Some((1, 2)));
+        let w = collect_text_runs_windowed(&blocks, Some((1, 2)), ZH);
         assert_eq!(w, vec![(2usize, "Gamma".into()), (3usize, "delta".into())]);
     }
 
@@ -303,7 +339,7 @@ mod tests {
         let blocks = parse_blocks(
             "# Intro\n\n## References\n\n**Smith** 2020.\n\n## Acknowledgements\n\nThanks to all.",
         );
-        let u = collect_translatable(&blocks);
+        let u = collect_translatable(&blocks, ZH);
         assert_eq!(
             u,
             vec![
@@ -313,7 +349,7 @@ mod tests {
             ]
         );
         // 区段内 run 不收集，但 run 计数照常推进（References/Smith 2020. 占 run idx 1-3）
-        let r = collect_text_runs(&blocks);
+        let r = collect_text_runs(&blocks, ZH);
         assert_eq!(
             r,
             vec![
@@ -328,7 +364,7 @@ mod tests {
     fn chinese_only_blocks_still_feed_skip_state() {
         // 纯中文块在区段内/外都不收集，但不影响后续复位判定
         let blocks = parse_blocks("## References\n\n纯中文\n\n## 结论\n\nResult text");
-        let u = collect_translatable(&blocks);
+        let u = collect_translatable(&blocks, ZH);
         assert_eq!(u, vec![(0usize, "Result text".into())]);
     }
 
@@ -338,7 +374,7 @@ mod tests {
     fn footnote_def_blocks_participate_in_bi() {
         // 定义内容照常占 bi 号（渲染时搬运到文末但 walk 顺序不变）
         let blocks = parse_blocks("Hello[^1]\n\n[^1]: The Eng note");
-        let u = collect_translatable(&blocks);
+        let u = collect_translatable(&blocks, ZH);
         assert_eq!(
             u,
             vec![(0usize, "Hello".into()), (1usize, "The Eng note".into())]
@@ -349,7 +385,7 @@ mod tests {
     fn mark_children_recursed_in_runs() {
         // Mark 内的 Text 照常占 run 号（与 html.rs push_inlines 递归一致）
         let blocks = parse_blocks("==Eng one== Eng two");
-        let r = collect_text_runs(&blocks);
+        let r = collect_text_runs(&blocks, ZH);
         assert_eq!(
             r,
             vec![(0usize, "Eng one".into()), (1usize, " Eng two".into())]
@@ -360,10 +396,56 @@ mod tests {
     fn footnote_ref_occupies_no_run() {
         // FootnoteRef 是编号引用，不占 run 号；定义内容照常占号
         let blocks = parse_blocks("See[^1] this\n\n[^1]: x");
-        let r = collect_text_runs(&blocks);
+        let r = collect_text_runs(&blocks, ZH);
         assert_eq!(
             r,
             vec![(0usize, "See".into()), (1usize, " this".into()), (2usize, "x".into())]
+        );
+    }
+
+    // ---- H1：方向参数化（2026-09-16 Step 0）----
+
+    #[test]
+    fn zh_to_en_collects_chinese_blocks_that_zh_direction_skips() {
+        // 改前最严重的那条：`needs_translation` 方向无关（"含 ASCII 字母才需译"），
+        // 于是 **zh→en 时纯中文段被整段静默跳过**，译出来是空的。
+        let blocks = parse_blocks("这是纯中文\n\nHello world");
+        assert_eq!(
+            collect_translatable(&blocks, EN),
+            vec![(0usize, "这是纯中文".into())],
+            "反向只收中文块"
+        );
+        assert_eq!(
+            collect_translatable(&blocks, ZH),
+            vec![(0usize, "Hello world".into())],
+            "正向只收英文块"
+        );
+    }
+
+    #[test]
+    fn run_index_space_stays_global_regardless_of_direction() {
+        // run 空间（data-ri）**方向无关**：Text 恒占号，方向只决定"收不收集"。
+        // 这条是防"顺手把方向也塞进 run 计数"的守卫。
+        let blocks = parse_blocks("这是纯中文\n\nHello world");
+        let zh = collect_text_runs(&blocks, ZH);
+        let en = collect_text_runs(&blocks, EN);
+        // 被收集的文案不同（方向决定），但 **run 号是同一套**：中文块占 0，英文块占 1
+        assert_eq!(zh, vec![(1usize, "Hello world".into())]);
+        assert_eq!(en, vec![(0usize, "这是纯中文".into())]);
+    }
+
+    #[test]
+    fn block_index_space_is_direction_dependent() {
+        // 块空间（data-bi）**方向相关**：只有可译块才推进 bi。
+        // 所以「切方向必须重置显示态」这条红线在单测层面就成立。
+        let blocks = parse_blocks("纯中文段\n\nHello world\n\n又一段中文");
+        assert_eq!(
+            collect_translatable(&blocks, ZH),
+            vec![(0usize, "Hello world".into())]
+        );
+        assert_eq!(
+            collect_translatable(&blocks, EN),
+            vec![(0usize, "纯中文段".into()), (1usize, "又一段中文".into())]
         );
     }
 }

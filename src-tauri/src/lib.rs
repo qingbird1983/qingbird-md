@@ -475,7 +475,13 @@ fn resolve_image(src: String, base_dir: Option<String>) -> Option<String> {
 /// async：同 open_file，解析离开主线程。
 #[tauri::command]
 async fn parse_markdown(content: String) -> markdown::html::ParseResult {
-    markdown::html::render_html(&content, &std::collections::HashMap::new(), false)
+    // 方向决定 data-bi 编号推进方式，必须与翻译期一致；Step 1 会换成命令入参。
+    markdown::html::render_html(
+        &content,
+        &std::collections::HashMap::new(),
+        false,
+        translate::engine::default_target(),
+    )
 }
 
 // ---- 编辑器纯逻辑外壳 ----

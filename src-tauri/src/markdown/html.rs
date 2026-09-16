@@ -20,7 +20,7 @@ use syntect::highlighting::Color;
 use super::model::{Block, Inline};
 use super::syntax::highlight_spans;
 use super::units::inline_plain_text;
-use crate::translate::engine::needs_translation;
+use crate::translate::engine::{needs_translation, TargetLang};
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct OutlineItem {
@@ -73,9 +73,18 @@ struct Ctx<'t> {
     fn_html: String,
     /// 已分配锚点 id 的引用 label（多次引用同一脚注只给首个 id，防重复）
     fn_refs: std::collections::HashSet<String>,
+    /// 本次渲染的翻译方向。**必须与调用方收集译文时所传的方向一致**：
+    /// `data-bi` 的占号由它决定，方向不同则同一份 translations 表会错位。
+    /// 放在 Ctx 里而不是穿参数，是因为 `bi_advance` 被十几个渲染分支调用。
+    target: TargetLang,
 }
 
-pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: bool) -> ParseResult {
+pub fn render_html(
+    content: &str,
+    trans: &HashMap<usize, String>,
+    bilingual: bool,
+    target: TargetLang,
+) -> ParseResult {
     let blocks = super::model::parse_blocks(content);
     let mut ctx = Ctx {
         sub: if trans.is_empty() || bilingual { None } else { Some(trans) },
@@ -88,6 +97,7 @@ pub fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: boo
         fn_nums: HashMap::new(),
         fn_html: String::new(),
         fn_refs: std::collections::HashSet::new(),
+        target,
     };
     // 预扫：脚注定义按出现顺序编号（引用在定义之前渲染，需先备好映射）。
     // 预扫递归顺序与渲染 walk 一致，编号即文档顺序。
@@ -308,7 +318,7 @@ impl<'t> Ctx<'t> {
         let blocked = self
             .ref_state
             .feed(heading.map(|l| (l, plain)));
-        if !needs_translation(plain) || blocked {
+        if !needs_translation(plain, self.target) || blocked {
             return None;
         }
         let idx = self.bi_counter;
@@ -551,6 +561,31 @@ fn align_style(a: u8) -> &'static str {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// 测试专用影子函数：本模块的测试默认跑「译成中文」方向（= Step 0 的生产行为）。
+    ///
+    /// 为什么要有它：`render_html` 加了 `target` 参数后，本文件 40 多处调用点若
+    /// 逐个加参，diff 会被噪音淹没、且每一处都要人判断"这里该传什么方向"——
+    /// 而它们**本来就全是 zh 方向**。收成一个影子函数（局部定义优先于
+    /// `use super::*` 的 glob 导入）后，测试读起来更清楚，生产调用点则仍然
+    /// **被迫显式传方向**，不会出现"忘了传就用默认"的坑。
+    fn render_html(
+        content: &str,
+        trans: &HashMap<usize, String>,
+        bilingual: bool,
+    ) -> ParseResult {
+        super::render_html(content, trans, bilingual, TargetLang::Zh)
+    }
+
+    /// 极少数要显式验证方向行为的用例用这个（别改影子函数去迁就个别用例）。
+    fn render_html_dir(
+        content: &str,
+        trans: &HashMap<usize, String>,
+        bilingual: bool,
+        target: TargetLang,
+    ) -> ParseResult {
+        super::render_html(content, trans, bilingual, target)
+    }
 
     #[test]
     fn original_mode_renders_basic_markdown() {
@@ -1034,7 +1069,7 @@ A--&gt;B
         }
         let blocks = crate::markdown::parse_blocks(md);
         let collected: Vec<usize> =
-            crate::markdown::units::collect_translatable(&blocks).iter().map(|&(i, _)| i).collect();
+            crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh).iter().map(|&(i, _)| i).collect();
         assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
     }
 
@@ -1091,7 +1126,76 @@ A--&gt;B
         }
         let blocks = crate::markdown::parse_blocks(md);
         let collected: Vec<usize> =
-            crate::markdown::units::collect_translatable(&blocks).iter().map(|&(i, _)| i).collect();
+            crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh).iter().map(|&(i, _)| i).collect();
         assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
+    }
+
+    /// 抠出 html 里依序出现的 `data-bi` 编号。
+    fn data_bi_sequence(html: &str) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut rest = html;
+        while let Some(p) = rest.find("data-bi=\"") {
+            let after = &rest[p + 9..];
+            let end = after.find('"').unwrap();
+            out.push(after[..end].parse::<usize>().unwrap());
+            rest = &after[end + 1..];
+        }
+        out
+    }
+
+    /// 抠出 html 里依序出现的 `data-ri` 编号。
+    fn data_ri_sequence(html: &str) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut rest = html;
+        while let Some(p) = rest.find("data-ri=\"") {
+            let after = &rest[p + 9..];
+            let end = after.find('"').unwrap();
+            out.push(after[..end].parse::<usize>().unwrap());
+            rest = &after[end + 1..];
+        }
+        out
+    }
+
+    #[test]
+    fn zh_to_en_lockstep_holds_too() {
+        // ★ H1 守卫（2026-09-16 Step 0）：改前 `needs_translation` 方向无关，
+        // 这一对断言在中文文档上**必然失败**——渲染侧与收集侧会各算各的。
+        //
+        // 这条测试的存在意义是钉死「渲染占号 == 收集索引」这条铁律**在另一个
+        // 方向下也成立**。只测 zh 方向的话，方向一参数化就可能出现
+        // 「收集按 En、渲染按 Zh」的错配，而索引错位不报错、只把译文贴到别的块。
+        let md = concat!(
+            "纯中文标题\n\n",
+            "这是纯中文段落，含标点。\n\n",
+            "> 引用的中文\n\n",
+            "- 列表中文\n- English item\n\n",
+            "| 中文表头 | Hcol |\n|---|---|\n| 中文格 | Cell eng |\n\n",
+            "## 参考文献\n\n张三 2020。\n\n",
+            "## 结论\n\n最后一段中文\n",
+        );
+        let blocks = crate::markdown::parse_blocks(md);
+
+        for target in [TargetLang::Zh, TargetLang::En] {
+            let r = render_html_dir(md, &HashMap::new(), false, target);
+            let rendered_bi = data_bi_sequence(&r.html);
+            let collected_bi: Vec<usize> = crate::markdown::units::collect_translatable(&blocks, target)
+                .iter()
+                .map(|&(i, _)| i)
+                .collect();
+            assert_eq!(
+                rendered_bi, collected_bi,
+                "{target:?} 方向下 渲染 data-bi 序列 与 collect_translatable 必须逐位一致"
+            );
+        }
+
+        // 且两个方向的块空间**确实不同**——否则上一条断言是空转的。
+        let zh_bi = data_bi_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::Zh).html);
+        let en_bi = data_bi_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::En).html);
+        assert_ne!(zh_bi, en_bi, "块空间必须方向相关，不然这个守卫测不出东西");
+
+        // run 空间（data-ri）方向无关：Text 恒占号，两方向编号集合相同。
+        let zh_ri = data_ri_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::Zh).html);
+        let en_ri = data_ri_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::En).html);
+        assert_eq!(zh_ri, en_ri, "run 空间方向无关：占号只跟 walk 走");
     }
 }
