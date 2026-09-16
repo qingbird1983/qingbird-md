@@ -33,14 +33,14 @@ fn in_window(i: usize, window: Option<(usize, usize)>) -> bool {
 
 /// 单块可译判定：喂 skip 状态机 + needs_translation。
 ///
-/// **这是「块空间（`data-bi`）」的唯一判定点**，本文件两个 walker 与
-/// `html.rs::Ctx::bi_advance` 必须与它逐位一致，否则占号与收集会错位 →
-/// 译文贴错块。`html.rs` 那边调用同一个 `needs_translation`，方向参数必须
-/// 是**同一个值**（不要一边传 Zh 一边传 En）。
+/// **这是「块空间（`data-bi`）」的唯一判定点**。四个调用方——本文件的
+/// `walk_run_collect_blocks` / `walk_collect`、`html.rs::Ctx::bi_advance`、
+/// `cmark.rs`（译文另存为 writer）——都必须走它，否则占号与收集会错位 →
+/// 译文贴错块。方向参数必须是**同一个值**（不要一边传 Zh 一边传 En）。
 ///
 /// `target` 是本块翻译方向；`st` 的喂入顺序与方向无关（skip 只看标题层级
 /// 与文本，不看方向），所以只把 `target` 交给 `needs_translation`。
-fn block_translatable(
+pub(crate) fn block_translatable(
     st: &mut RefSkipState,
     heading: Option<u8>,
     plain: &str,
@@ -48,6 +48,20 @@ fn block_translatable(
 ) -> bool {
     let blocked = st.feed(heading.map(|l| (l, plain)));
     needs_translation(plain, target) && !blocked
+}
+
+/// 单个 run（`Inline::Text`）是否**有译文**。
+///
+/// 与 `block_translatable` 的区别：这个只决定"这个 run 收不收集"，**不决定
+/// run 索引空间**——run 计数恒推进（每个 `Inline::Text` 都占号，见
+/// `collect_runs_inline_blocks` 与 `html.rs::push_inlines` 的 `sub_counter += 1`）。
+/// 所以本函数改动只影响译文表的**内容**，不会让编号漂移。
+///
+/// 「占号与收集逐位一致」的另一半在这里：`cmark.rs`（译文另存为）的取译文
+/// 分支必须与收集侧同口径——收集时用本函数过滤，导出时只认「表里有就替换」，
+/// 两者共同保证同一个 run 号在两边指同一段文本。
+pub(crate) fn run_collectable(t: &str, target: TargetLang) -> bool {
+    !t.trim().is_empty() && needs_translation(t, target)
 }
 
 /// Collect translatable inline text *runs* in document order (full document).
@@ -188,7 +202,7 @@ fn collect_runs_inline_blocks(
             Inline::Text(t) => {
                 let idx = *counter;
                 *counter += 1;
-                if collect && !t.trim().is_empty() && needs_translation(t, target) {
+                if collect && run_collectable(t, target) {
                     out.push((idx, t.clone()));
                     blocks_out.push(b_idx);
                 }

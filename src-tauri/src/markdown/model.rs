@@ -61,7 +61,9 @@ pub enum Block {
 
 /// 解析开关的唯一出处——`parse_blocks` 与 [`top_level_block_lines`] 必须同源，
 /// 否则两者的顶层事件序列会分叉，源行锚点与块一一对应的前提就没了。
-fn options() -> Options {
+/// `cmark::front_matter` 也用它，理由同上：换个开关可能让文首那三行
+/// `---` 从 MetadataBlock 变成别的结构，切出来的 front matter 就错了。
+pub(crate) fn options() -> Options {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_TASKLISTS);

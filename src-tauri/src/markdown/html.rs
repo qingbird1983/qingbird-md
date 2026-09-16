@@ -20,7 +20,7 @@ use syntect::highlighting::Color;
 use super::model::{Block, Inline};
 use super::syntax::highlight_spans;
 use super::units::inline_plain_text;
-use crate::translate::engine::{needs_translation, TargetLang};
+use crate::translate::engine::TargetLang;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct OutlineItem {
@@ -315,10 +315,10 @@ impl<'t> Ctx<'t> {
     /// 参考文献区段内的块不占号（skip 判定与收集器同源，Task skip.rs）。
     /// 返回 None 表示本块不占号（不开 data-bi、不追加 tr-box）。
     fn bi_advance(&mut self, plain: &str, heading: Option<u8>) -> Option<usize> {
-        let blocked = self
-            .ref_state
-            .feed(heading.map(|l| (l, plain)));
-        if !needs_translation(plain, self.target) || blocked {
+        // 判定走 units 的**唯一实现**（feed + needs_translation）——此前这里
+        // 是同一逻辑的第二份拷贝，与收集器/导出 writer 靠注释对齐；三处任一
+        // 漂移都会让译文贴错块且不报错，故收敛为单点。
+        if !super::units::block_translatable(&mut self.ref_state, heading, plain, self.target) {
             return None;
         }
         let idx = self.bi_counter;

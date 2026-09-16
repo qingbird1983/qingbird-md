@@ -107,6 +107,14 @@ export const api = {
       targetLang,
     }),
   stopTranslation: () => invoke<void>("stop_translation"),
+  /**
+   * 译文另存为（Step 2，单语）：translations 的 key 是 `data-ri` run 空间，
+   * 与 translateDocument 的收集共用同一索引空间。**只有单语（translation）
+   * 模式的表才是 run 空间**——双语模式的 key 是块号，传进来会整体错位，
+   * 所以调用方必须先断言 mode === "translation"。
+   */
+  exportTranslation: (c: string, translations: Array<[number, string]>) =>
+    invoke<string>("export_translation", { content: c, translations }),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
   lookupWord: (t: string, c: Record<string, string>) =>

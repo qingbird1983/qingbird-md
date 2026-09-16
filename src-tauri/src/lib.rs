@@ -725,6 +725,9 @@ pub fn run() {
             bridge::stop_translation,
             // Task 5: 会话收口重建（用前端累积 translations 渲染整树 canonical html）
             bridge::render_translated,
+            // Step 2: 译文另存为（translations → Markdown 文本；落盘走
+            // pick_save_path + save_file，与「导出 HTML」同一套路，零新 IO 命令）
+            bridge::export_translation,
             // Task 9: 对话框
             pick_file,
             pick_folder,
