@@ -17,6 +17,7 @@ import SettingsModal from "./components/SettingsModal";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 import { openFile } from "./components/commands";
+import { exportActiveTranslation } from "./lib/exportTranslation";
 import { comboMatches } from "./lib/hotkeys";
 import { HOTKEYS, effectiveHotkeys, type AppHotkeyId } from "./lib/hotkeyRegistry";
 import type { Mode } from "./types/ipc";
@@ -50,6 +51,9 @@ const APP_ACTIONS: Record<AppHotkeyId, () => void> = {
     if (n?.trim()) void ws.createFileIn(null, n.trim());
   },
   save: () => void useDocStore.getState().saveDoc(false),
+  // 不可导出时（无译文 / 双语模式 / 翻译中）与菜单同款：给一句说明的 toast，
+  // 而不是静默无动作——快捷键路径没有禁用态可看，不提示就等于"按了没反应"。
+  export_translation: () => void exportActiveTranslation(),
   refresh_ws: () => {
     if (useWorkspaceStore.getState().folders.length > 0) {
       void useWorkspaceStore.getState().refresh();

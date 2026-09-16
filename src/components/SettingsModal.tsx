@@ -9,15 +9,17 @@
 //   于是「忘了点保存」这种事故从设计上就不存在了。
 //
 // 两种语义，别混：
-//   ① 即时生效类（「外观」页：明暗 / 配色 / 正文宽度）——点即写盘，不进草稿。
-//      明暗与配色走 useSettingsStore.save；正文宽度是纯 UI 偏好，走 useUiStore
-//      + localStorage（不进 Rust 设置文件）。
+//   ① 即时生效类（「外观」页：明暗 / 配色 / 正文宽度；「翻译」页：翻译方向）
+//      ——点即写盘，不进草稿。明暗与配色走 useSettingsStore.save；正文宽度是纯
+//      UI 偏好，走 useUiStore + localStorage（不进 Rust 设置文件）；翻译方向必须
+//      走 useDocStore.setTranslateTarget（它带索引空间 reset + 重译，直调
+//      useSettingsStore.setTarget 会留下"方向变了、旧译文还在"的错位态）。
 //   ② 草稿类（翻译源 / 凭据 / 快捷键 / 划词 / 大模型档案）——改动进本地 draft，
 //      关闭时统一落盘。这样后端广播（settings-updated）不会打翻正在编辑的表单。
 //
 // 保命细节（saveAndClose 里）：draft 是打开弹窗那一刻的快照，里面也带着旧的
-// theme/palette。若整包写回，用户「先切配色 → 再关闭」就会把旧配色覆盖回去。
-// 所以落盘时这两项一律取 store 的当前值。
+// theme/palette/translate_target。若整包写回，用户「先切配色/方向 → 再关闭」就会
+// 把旧值覆盖回去。所以落盘时这三项一律取 store 的当前值。
 //
 // 安全：凭据输入框一律 password 型（secret 字段），绝不打印 / toast 任何载荷。
 
@@ -38,8 +40,9 @@ import {
 } from "lucide-react";
 import Modal from "./Modal";
 import { api } from "../lib/ipc";
-import type { LlmProfile, ProviderInfo, Settings } from "../types/ipc";
+import type { LlmProfile, ProviderInfo, Settings, TargetLang } from "../types/ipc";
 import { isDarkTheme, useSettingsStore, type Theme } from "../stores/useSettingsStore";
+import { useDocStore } from "../stores/useDocStore";
 import { PALETTES, PALETTE_IDS, paletteSwatch } from "../lib/paletteSeeds";
 import { allowsBare, keyName } from "../lib/hotkeys";
 import {
@@ -109,6 +112,12 @@ const CATS: Array<{ id: CatId; label: string; icon: typeof PaletteIcon; keys: st
  *  llm 单列，其余「要密钥 = 专业源 / 不要密钥 = 免费源」，后端以后加源自动归位，
  *  不会出现「注册表加了、前端漏分组」的两处同步问题。 */
 type ProvGroup = "free" | "pro" | "llm";
+
+/** 翻译方向选项（与 TargetLang 一一对应；数组顺序 = 面板里的显示顺序）。 */
+const TARGET_OPTIONS: Array<[TargetLang, string]> = [
+  ["zh", "译成中文"],
+  ["en", "译成英文"],
+];
 
 const PROV_GROUPS: Array<[ProvGroup, string]> = [
   ["free", "免费源"],
@@ -202,6 +211,10 @@ export default function SettingsModal() {
   const contentWidth = useUiStore((s) => s.contentWidth);
   const customWidth = useUiStore((s) => s.customWidth);
   const setContentWidth = useUiStore((s) => s.setContentWidth);
+  // 翻译方向同属「点即生效」：它要连带 reset 索引空间 + 重译，所以只能走
+  // `useDocStore.setTranslateTarget`（`useSettingsStore.setTarget` 只负责落盘，
+  // 直调会造出「方向变了、旧译文还在」的错位态，见那个 store 的注释）。
+  const translateTarget = useSettingsStore((s) => s.target);
 
   // ---- 导航 + 搜索 ----
   const [cat, setCat] = useState<CatId>("look");
@@ -340,9 +353,9 @@ export default function SettingsModal() {
   const saveAndClose = useCallback(() => {
     const { draft: d, formProvider: fp, formCreds: fc } = latest.current;
     if (d) {
-      // theme / palette 是「点即生效」字段：以 store 的当前值为准（用户可能刚在
-      // 「外观」页点过配色，而 draft 是打开弹窗时的旧快照）。不这样覆盖的话，
-      // 「切了配色 → 关窗」会把旧配色写回盘。
+      // theme / palette / translate_target 是「点即生效」字段：以 store 的当前值为准
+      // （用户可能刚在「外观」页点过配色、或在「翻译」页换过方向，而 draft 是打开
+      // 弹窗时的旧快照）。不这样覆盖的话，「切了配色/方向 → 关窗」会把旧值写回盘。
       const cur = useSettingsStore.getState().settings;
       // 当前这栏凭据顺手写回它对应的档案（用户可能改了字段却直接关窗）
       const llmProfiles = d.llm_active
@@ -352,6 +365,7 @@ export default function SettingsModal() {
         ...d,
         theme: cur?.theme ?? d.theme,
         palette: cur?.palette ?? d.palette,
+        translate_target: cur?.translate_target ?? d.translate_target,
         provider: fp,
         providers: { ...d.providers, [fp]: fc },
         llm_profiles: llmProfiles,
@@ -783,6 +797,26 @@ export default function SettingsModal() {
 
             {activeCat === "translate" && (
               <>
+                <section className="set-sec">
+                  <h3 className="set-sec-title">翻译方向</h3>
+                  <p className="set-sec-desc">
+                    决定整篇译文的目标语言，也决定「译文另存为」的文件名后缀。
+                    切换会立即作废当前译文并按新方向重新翻译。
+                  </p>
+                  <div className="setseg" role="group" aria-label="翻译方向">
+                    {TARGET_OPTIONS.map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className={translateTarget === v ? "on" : ""}
+                        onClick={() => void useDocStore.getState().setTranslateTarget(v)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
                 <section className="set-sec">
                   <h3 className="set-sec-title">翻译源</h3>
                   <p className="set-sec-desc">

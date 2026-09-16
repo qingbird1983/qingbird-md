@@ -7,6 +7,7 @@
 // 给「不想开面板、只想快速换一套纸色」的人的第二条路——按 paletteSeeds 的
 // 真源清单生成，不手抄色名。
 import { api } from "../lib/ipc";
+import { canExportTranslation, exportActiveTranslation } from "../lib/exportTranslation";
 import { PALETTES, PALETTE_IDS } from "../lib/paletteSeeds";
 import { useDocStore } from "../stores/useDocStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
@@ -43,6 +44,14 @@ export const COMMANDS: Command[] = [
     keywords: ["save as"],
     enabled: hasDoc,
     run: () => void useDocStore.getState().saveDoc(true),
+  },
+  {
+    // 启用判据与菜单/tooltip/快捷键执行前复检同一个 canExportTranslation
+    // （面板是条件挂载的，此处求值即"打开面板那一刻"的快照，正合用）。
+    label: "译文另存为…",
+    keywords: ["export", "translation", "save as"],
+    enabled: () => canExportTranslation().ok,
+    run: () => void exportActiveTranslation(),
   },
   {
     label: "打开文件…",

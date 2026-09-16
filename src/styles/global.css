@@ -277,7 +277,9 @@ body {
 }
 
 /* 一级菜单内：带二级的分类与直接动作（设置/关于/退出）之间的分隔线 */
-.app-menu-root-sep {
+/* 一级与二级菜单共用同一条分割线：分组之间拉一条，把大分类分开 */
+.app-menu-root-sep,
+.app-menu-sub-sep {
   height: 1px;
   margin: 4px 8px;
   background: var(--sep-bg);
@@ -287,7 +289,9 @@ body {
 .app-menu-sub {
   position: fixed;
   z-index: 1101;
-  width: 208px;
+  /* 比原来的 208 宽出一截：菜单项现在右侧挂键位提示（最长的是 Ctrl+Shift+O），
+     208 会把「打开工作区…」这类长条目挤到换行 */
+  width: 244px;
   max-height: calc(100vh - 70px);
   overflow-y: auto;
   padding: 6px 8px;
@@ -295,6 +299,22 @@ body {
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow-strong);
+}
+
+/* 菜单项右侧的键位提示。用 float 而不是把按钮改成 flex：
+   `.active::before` 那个 ✓ 是 float:left + 负 margin 定位的，
+   按钮一旦变 flex 容器 float 就失效，勾号会变成普通 flex item 挤坏布局。 */
+.app-menu-sub button .app-menu-hk {
+  float: right;
+  margin-left: 24px;
+  color: var(--muted-fg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.app-menu-sub button:disabled .app-menu-hk {
+  opacity: 0.5;
 }
 
 .app-menu-label {

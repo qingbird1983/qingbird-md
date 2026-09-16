@@ -55,6 +55,7 @@ export const APP_HOTKEY_IDS = [
   "open_folder",
   "new_file",
   "save",
+  "export_translation",
   "refresh_ws",
   "toggle_view",
   "split_view",
@@ -76,6 +77,9 @@ export const HOTKEYS: HotkeyDef[] = [
   { id: "open_folder", label: "打开文件夹", def: "Ctrl+Shift+O", group: "file" },
   { id: "new_file", label: "新建文件", def: "Ctrl+N", group: "file" },
   { id: "save", label: "保存文档", def: "Ctrl+S", group: "file" },
+  // 译文另存为（Step 2）。用 Shift 变体而不是 Ctrl+Shift+S：后者在多数软件里
+  // 是「文档另存为」，与本应用既有的「另存为…」语义撞车，容易按错。
+  { id: "export_translation", label: "译文另存为", def: "Ctrl+Shift+E", group: "file" },
   { id: "refresh_ws", label: "刷新工作区", def: "F5", group: "file" },
 
   // ── 视图 ──

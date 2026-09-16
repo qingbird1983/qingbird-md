@@ -210,9 +210,16 @@ describe("设置面板骨架", () => {
 });
 
 describe("翻译与模型页", () => {
+  /** 按内容取分段控件——本页已有两处（翻译方向 / 翻译源分组），
+   *  写 `querySelector(".setseg")` 取到的是"页面第一个"，往上加一栏就会取错。 */
+  const segByText = (t: string) =>
+    Array.from(host.querySelectorAll<HTMLDivElement>(".setseg")).find((s) =>
+      (s.textContent ?? "").includes(t),
+    )!;
+
   it("三分组分段控件 + 划词开关 + 连接测试", () => {
     goCat(1);
-    const seg = host.querySelector(".setseg")!;
+    const seg = segByText("免费源");
     expect(Array.from(seg.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
       "免费源",
       "专业源",
@@ -222,6 +229,18 @@ describe("翻译与模型页", () => {
     expect(pane().textContent).toContain("划词翻译");
     expect(pane().textContent).toContain("连接测试");
     expect(pane().textContent).toContain("测试连接");
+  });
+
+  // 互译方向此前只有状态栏那个切换按钮，设置面板里没有入口（与「划词翻译」
+  // 主界面开关 + 设置项的双入口不对称）。这里钉住设置项的存在与默认态；
+  // 切换行为本身（reset 索引空间 + 重译）由 useDocStore.direction.test.ts 覆盖，
+  // 不在这份 UI 测试里重复。
+  it("翻译方向：分段控件两个选项，默认选中译成中文", () => {
+    goCat(1);
+    const btns = Array.from(segByText("译成中文").querySelectorAll<HTMLButtonElement>("button"));
+    expect(btns.map((b) => b.textContent)).toEqual(["译成中文", "译成英文"]);
+    expect(btns[0]!.className).toContain("on");
+    expect(btns[1]!.className).not.toContain("on");
   });
 
   // 用户第 1 条：LLM 组的下拉是「伪选择」（注册表里这一组只有一个源），

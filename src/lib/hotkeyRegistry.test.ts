@@ -66,6 +66,19 @@ describe("快捷键注册表", () => {
     const custom = new Set(HOTKEYS.map((h) => h.label));
     for (const f of FIXED_HOTKEYS) expect(custom.has(f.label)).toBe(false);
   });
+
+  // 汉堡菜单用 `hk.<id>` 取生效键位渲染到菜单项右侧。id 写错一个字母的后果是
+  // **静默的**：那个菜单项只是不再显示键位，没有任何报错、tsc 也拦不住
+  // （effectiveHotkeys 的返回类型是 Record<string, string>）。这里把菜单源码里
+  // 的静态 id 抠出来跟注册表对一遍。
+  it("汉堡菜单引用的键位 id 都在注册表里", () => {
+    const menu = readAsset("../components/AppMenu.tsx");
+    const ids = [...menu.matchAll(/\bhk\.(\w+)/g)].map((m) => m[1]!);
+    expect(ids.length, "AppMenu 里一个 hk.<id> 都没匹配到，正则或写法变了？").toBeGreaterThan(4);
+    for (const id of ids) {
+      expect(hotkeyDef(id), `AppMenu 引用了注册表里没有的 ${id}`).toBeDefined();
+    }
+  });
 });
 
 // ────────────────── ② 默认键必须能被解析器认出来 ──────────────────
