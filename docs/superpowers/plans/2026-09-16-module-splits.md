@@ -24,13 +24,18 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 # 前端：测试是独立 *.test.ts(x) 文件，按文件名区分即可
 ```
 
-**总量基线（2026-09-16 实测）**
+**总量基线（2026-09-16 实测；**已于 Step 0 `19364ee` 之后复测**）**
 
 | 树 | 文件数 | 生产行 | 测试行 | 合计 |
 | --- | --- | --- | --- | --- |
-| `src-tauri/src`（Rust） | 37 | 8,096 | 3,914 | 12,010 |
-| `src`（TS/TSX/CSS） | 83 | 15,715 | 2,311 | 18,026 |
-| **合计** | **120** | **23,811** | **6,225** | **30,036** |
+| `src-tauri/src`（Rust） | 37 | 8,135 | 4,052 | 12,187 |
+| `src`（TS/TSX/CSS） | 83 | 15,664 | 2,311 | 17,975 |
+| **合计** | **120** | **23,799** | **6,363** | **30,162** |
+
+> **Step 0 带来的增量**：Rust 生产 +39 / 测试 **+138** / 合计 +177。其中 `html.rs` 测试块
+> **548 → 642（+94）**——加的是 `render_html` 的测试本地薄包装（`render_html_dir`）与
+> 「zh→en 锁步」守卫测试。**功能扩展推高测试体量是必然的**，这也是 P0-2「测试先外迁」
+> 排在最前面的原因：先腾出空间，后面几步（Step 1/2/3）往里加测试就不会把文件顶爆。
 
 ---
 
@@ -54,18 +59,23 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 
 | 生产 | 总量 | 内联测试 | 文件 | 超标项 |
 | --- | --- | --- | --- | --- |
-| **806** | 993 | 187 | `src-tauri/src/lib.rs` | 生产 ✗ 总量 ✗ |
+| **812** | 999 | 187 | `src-tauri/src/lib.rs` | 生产 ✗ 总量 ✗ |
 | **751** | 781 | 30 | `capture/window.rs` | 生产 ✗ 总量 ✗ |
-| **620** | **1093** | **473** | `translate/engine.rs` | 生产 ✗ 总量 ✗ 测试 ✗ |
+| **634** | **1107** | **473** | `translate/engine.rs` | 生产 ✗ 总量 ✗ 测试 ✗ |
 | **599** | 807 | 208 | `markdown/model.rs` | 生产 ✗ 总量 ✗ |
-| **559** | **1107** | **548** | `markdown/html.rs` | 生产 ✗ 总量 ✗ 测试 ✗ |
-| **546** | 829 | 283 | `bridge.rs` | 生产 ✗ 总量 ✗ |
+| **559** | **1201** | **642** | `markdown/html.rs` | 生产 ✗ 总量 ✗ 测试 ✗✗ |
+| **559** | 886 | 327 | `bridge.rs` | 生产 ✗ 总量 ✗ |
 | **429** | 652 | 223 | `hibernate.rs` | 生产 ✗ |
 | 397 | 525 | 128 | `translate/providers.rs` | — |
 | 366 | 605 | 239 | `translate/lookup.rs` | — |
 | 288 | 451 | 163 | `markdown/units.rs` | — |
 
 其余 27 个文件生产均 < 300 行，健康。
+
+> **Step 0 后的变化（相对上一版）**：`engine.rs` 生产 620→634、`bridge.rs` 546→559、
+> `lib.rs` 806→812（都是逐点透传方向参数的净增）；**`html.rs` 生产未变（559），但内联测试
+> 548→642**。三条 + 一条说明同一件事：**不先做 P0-2，Step 1/2/3 每往 `html.rs` 加一个守卫
+> 测试就多 50~100 行测试代码压在同一个文件里**。
 
 ### 3.2 前端
 
@@ -89,7 +99,7 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 
 ### P0 — 立刻拆（挡在眼下这几步的路上）
 
-#### P0-1 `translate/engine.rs`（1093 / 生产 620 / 测试 473）
+#### P0-1 `translate/engine.rs`（1107 / 生产 634 / 测试 473）
 
 **为什么是 P0**：Step 0（本 patch）正在改它；Step 1「方向参数化」的改动面**全在它里面**；Step 4「AI 核查」还会再回来（`EngineConfig` 复用）。
 
@@ -103,11 +113,11 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 
 **纪律**：`policy` / `packing` 的项原本是 `pub`，迁走后仍在 `translate` 模块内，可见性不变；`engine.rs` 用 `pub use` 把常用项再导出一次（`translate::engine::TargetLang` 这类旧路径**保留**），这样 `bridge.rs` / `units.rs` / `html.rs` 的 `use` 路径**一行都不用改**，拆分 diff 里出现的全是 `mod`/`use`。
 
-#### P0-2 `markdown/html.rs` —— 先只做**测试外迁**（1107 → 约 559）
+#### P0-2 `markdown/html.rs` —— 先只做**测试外迁**（1201 → 约 559）
 
 **为什么是 P0**：Step 2「译文另存为」要复用它的 walker；Step 3 的 issue 跳转要吃它写的 `data-ri` / `data-bi`。
 
-**第一步（零风险，先做）**：548 行内联测试挪到 `markdown/html_tests.rs`，html.rs 里留：
+**第一步（零风险，先做）**：642 行内联测试挪到 `markdown/html_tests.rs`，html.rs 里留：
 
 ```rust
 #[cfg(test)]
@@ -128,7 +138,7 @@ mod tests;
 | P1-2 | `src/styles/global.css` | 3590 | §9 要往里加 `.panel-slot` / `.panel-handle` / 状态栏 AI 钮 | 按关注面切：`layout-shell`（网格/栏） / `panels`（侧栏·大纲·拖宽条） / `editor`（工具栏/标签条） / `preview` / `overlays`（弹窗/菜单/toast）；**入口用一个 `@import` 列表固定顺序** |
 | P1-3 | `stores/useDocStore.ts` | 666 | Step 1 的 `switchMode` 同级 reset | 快照恢复 / 文档生命周期 / 模式切换 三块 |
 | P1-4 | `components/PreviewView.tsx` | 715 | Step 3 issue 跳转 + 锁窗 | 渲染与 patch 应用 / 分栏联动与滚动 / 选区与浮窗 三块 |
-| P1-5 | `bridge.rs` | 829 / 生产 546 | Step 1（方向入参）、Step 2（导出命令） | 命令层（`#[tauri::command]`）/ 载荷组装（html payload、cached_done_evt）/ 事件发射 三块 |
+| P1-5 | `bridge.rs` | 886 / 生产 559 | Step 1（方向入参）、Step 2（导出命令） | 命令层（`#[tauri::command]`）/ 载荷组装（html payload、cached_done_evt）/ 事件发射 三块 |
 | P1-6 | `markdown/html.rs` 生产二次拆 | 559 | 同 P0-2 | 见 P0-2 第二步 |
 
 > **P1-2 的 CSS 拆分有一条容易翻车的点**：CSS 的**声明顺序决定同特异度规则的胜负**。拆文件时如果靠打包器/`@import` 的自然顺序去碰运气，会出现"某些样式突然被覆盖"。所以入口必须写**显式顺序列表**，且拆完要跑真引擎探针（`tools/css-probe.py`）比对关键元素的计算值，不能只看截图。
@@ -137,7 +147,7 @@ mod tests;
 
 | # | 文件 | 行数 | 备注 |
 | --- | --- | --- | --- |
-| P2-1 | `src-tauri/src/lib.rs` | 993 / 生产 806 | Tauri 命令注册中枢。**Step 2 加导出命令之前**先拆（命令注册 / 全局状态 / 启动装配） |
+| P2-1 | `src-tauri/src/lib.rs` | 999 / 生产 812 | Tauri 命令注册中枢。**Step 2 加导出命令之前**先拆（命令注册 / 全局状态 / 启动装配） |
 | P2-2 | `capture/window.rs` | 781 / 生产 751 | 截图翻译窗口。生产占比 96%，没有测试兜底 → 拆之前**先补测试** |
 | P2-3 | `markdown/model.rs` | 807 / 生产 599 | 解析器。改它风险高（牵扯全部索引空间）→ **放最后**，且拆分必须零逻辑改动 |
 | P2-4 | `hibernate.rs` | 652 / 生产 429 | 休眠/会话快照 |
@@ -164,9 +174,15 @@ mod tests;
 
 | 批次 | 项 | 状态 |
 | --- | --- | --- |
-| P0-1 | `translate/engine.rs` 三分 | ☐ 待做（Step 0 编过之后立刻做） |
+| — | **Step 0 功能 patch（H3/H1/B4）** | ✅ **已完成**（`19364ee`）· 门禁全绿：cargo check 0/0、cargo test 261、`cargo build --release` 0、tsc 0、vitest 204 |
+| P0-1 | `translate/engine.rs` 三分 | ☐ 待做（**前置条件已满足**，可立刻做） |
 | P0-2 | `markdown/html.rs` 测试外迁 | ☐ 待做 |
 | P1-1..6 | 见上 | ☐ 待排期 |
 | P2-1..8 | 见上 | ☐ 待排期 |
 
-> **顺序原因**：绝不在红灯树上重构。先在 Step 0 把 H3/H1/B4 改完并让门禁全绿，再动 P0 的拆分——否则拆分和功能改动会绞在一起，出问题时分不清是谁的锅。
+> **顺序原因**：绝不在红灯树上重构。Step 0 已把 H3/H1/B4 改完、两侧门禁全绿 → **P0 的两个前置条件现在都满足了**。
+>
+> **P0 与 Step 1 的先后，建议这样定**：
+> - **P0-2（html.rs 测试外迁）建议排在 Step 1 之前**——它是纯搬家、零风险，且 `html.rs` 的测试块已经 642 行（超线 2 倍），Step 1~3 每加一个守卫测试都会往上堆。
+> - **P0-1（engine.rs 三分）排在 Step 1 之前收益最大**——Step 1 要改的「方向模板 / 缓存 variant / prompt 措辞」**全部落在将要迁出的 `policy.rs` 里**，先拆完再改，Step 1 的 diff 就只落在一个 100 多行的新文件上，而不是在 1107 行的文件里翻找。
+> - 若想先要用户可感知的功能，也可**反过来**：先做 Step 1 的 UI 面（语言选择），但那时 `engine.rs`/`html.rs` 会各再胖一圈，**拆分的成本只增不减**。
