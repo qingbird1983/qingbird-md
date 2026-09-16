@@ -5,6 +5,7 @@ pub mod engine;
 pub mod http;
 pub mod lookup;
 pub mod openai;
+pub mod policy;
 pub mod providers;
 pub mod providers_meta;
 pub mod sign;
