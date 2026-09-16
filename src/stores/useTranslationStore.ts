@@ -25,6 +25,7 @@ import {
 import { useUiStore, errText } from "./useUiStore";
 import { useDocStore } from "./useDocStore";
 import { useSettingsStore } from "./useSettingsStore";
+import { earlyPush, earlyStart, earlyTake, type EarlyBuffer } from "../lib/earlyPartial";
 
 export type TranslationStatus = "idle" | "running" | "error";
 
@@ -100,6 +101,16 @@ let blockRunCounts = new Map<number, number>();
 /** 块 → 已放行待组装的 run（bucket：runIndex → Released） */
 let blockAssembly = new Map<number, Map<number, import("../lib/typewriter").Released>>();
 let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
+/** Started 响应未到前到达的早期事件缓冲（cache 命中 partial 等）。worker 起跑
+ * 瞬间先发 cache 命中，先于 invoke 响应到前端；gen/status 护栏会丢 → 打字机
+ * 等位卡死 → done 一次性回填。缓冲到 Started 落定后按 gen 回放（根因修复）。 */
+let earlyBuf: EarlyBuffer = earlyStart();
+/** 本轮已收到事件的 run 索引（done 时对比 seq 找缺失，运行时诊断） */
+let receivedRuns = new Set<number>();
+/** translate_document invoke 在飞闩：handleDone 自动续跑与 setViewport 都可能
+ * 在 status=idle 时触发新 run，双发 invoke 会让第二发被后端拒绝 → 前端 catch
+ * 误置 error 态 → 在途 run 的后续 partial 全部被 status 护栏丢弃 → 整轮卡死。 */
+let invokeInFlight = false;
 // 视口窗口下界超出视口底的预取块数（qingniao round2 定值）
 const WINDOW_PREFETCH = 4;
 
@@ -282,13 +293,24 @@ function scheduleCanonicalRebuild() {
 /** translation-partial → 打字机缓冲（文档序重排）→ reveal 队列（tick 驱动上屏）。 */
 function handlePartial(p: TranslationPartialPayload) {
   const st = useTranslationStore.getState();
-  if (p.gen !== st.gen || st.status !== "running") return;
+  if (p.gen !== st.gen) {
+    // gen 失配：running 中属陈旧轮次（前一轮迟到/作废事件），丢弃；空闲时
+    // 可能是 Started 响应未到的新一轮早期事件（cache 命中 partial 在 worker
+    // 起跑瞬间先于 invoke 响应到达）→ 入缓冲，Started 落定后按 gen 回放。
+    // 异代（不匹配任何在途 run）同样丢弃。
+    if (st.status === "running") return;
+    const nb = earlyPush(earlyBuf, p);
+    if (nb !== earlyBuf) earlyBuf = nb;
+    return;
+  }
+  if (st.status !== "running") return;
   // 内容护栏：批次期间文档被编辑/切换 ⇒ 段索引与当前内容错位，宁缺勿错
   // （与 handleDone 的 runContent 护栏同一口径）。
   if (useDocStore.getState().doc?.content !== st.runContent) return;
   // 模式护栏：批次期间切换阅读模式 ⇒ partial 的 index 空间（runs/块）与当前
   // 预览锚点错位，宁缺勿错（与上方 runContent 护栏同口径；换挡补跑由 done 处理）。
   if (useDocStore.getState().mode !== st.lastRunMode) return;
+  receivedRuns.add(p.index); // 诊断计数：事件已到（含 failed/streaming）
   // 单元失败（原文回退）：照常推进打字机放行——否则该 run 缺失会让其后
   // 所有块永久等位（done 前全部 pending、done 一次性回填）。
   // 失败 run 不打字，块内其余 run 照常打；done/instant 落地时回打原文 = no-op。
@@ -347,6 +369,7 @@ function handlePartial(p: TranslationPartialPayload) {
  * （indices_blocks：前端把同一块的 run 组装成"整段"打字单元）。 */
 function resetStream(indices: number[], indicesBlocks: number[]) {
   twState = typewriterStart(indices);
+  receivedRuns.clear();
   failedRuns.clear();
   streamed.clear();
   streamedBlock.clear();
@@ -364,6 +387,8 @@ function resetStream(indices: number[], indicesBlocks: number[]) {
 /** 彻底清显示（全文 done 落整树 / 切原文 / 内容过期）。 */
 function clearAll() {
   twState = typewriterStart();
+  earlyBuf = earlyStart();
+  receivedRuns.clear();
   failedRuns.clear();
   streamed.clear();
   streamedBlock.clear();
@@ -403,6 +428,14 @@ function handleDone(d: DonePayload) {
     return;
   }
   const windowed = st.lastWindow !== null;
+  // 运行时诊断：本轮 seq 中未收到 partial 的 run（事件被丢弃/丢失——打字机
+  // 等位卡死的直接证据；修复后正常应为空）。
+  const missingRuns = twState.seq.filter((i) => !receivedRuns.has(i));
+  if (missingRuns.length > 0) {
+    console.warn(
+      `[translation] gen ${d.gen} done：缺 ${missingRuns.length}/${twState.seq.length} 个 run 事件 [${missingRuns.join(",")}] → 兜底定格`,
+    );
+  }
   if (windowed) {
     // 内容/模式护栏（与全文分支 contentFresh 同口径）：批次期间编辑或换档 ⇒
     // done 的块索引与当前内容/索引空间错位，宁缺勿错不落库；窗口视为过期——
@@ -419,7 +452,9 @@ function handleDone(d: DonePayload) {
       }
       return;
     }
-    // 窗口化：merge 累积（不整表 replace）；显示层继续走 committed/打字
+    // 窗口化：缺事件 run 先由 done 载荷兜底定格上屏（否则整树重建时
+    // 一次性回填）；merge 累积（不整表 replace）；显示层继续走 committed/打字
+    drainPendingToDom(d);
     useDocStore.getState().mergeTranslations(d.translations ?? []);
     useTranslationStore.setState({ status: "idle", progress: null });
     // RunDone 边界评估：当前视口窗口 ≠ 上轮 → 接着译新窗口；相同 → 收口
@@ -448,13 +483,10 @@ function handleDone(d: DonePayload) {
   }
 }
 
-/** 全文 done 收口：未放行块从 done 载荷瞬时上屏，已入队块继续打字；等 reveal
- * 排空后整树替换落库（防整树一次性回填）。超时兜底：异常卡住时不能无限等。 */
-function finalizeAfterReveal(
-  d: DonePayload,
-  ui: ReturnType<typeof useUiStore.getState>,
-  docName: string,
-) {
+/** done 兜底排空：把仍未放行/未组装的 run 从 done 载荷定格上屏
+ * （窗口化与全文分支共用）。缺事件 run 的块在此补上，避免"整树重建时
+ * 一次性回填"或"整块空白直到 rebuild"。 */
+function drainPendingToDom(d: DonePayload) {
   const doneMap = new Map(d.translations ?? []);
   const todo: RevealCommit[] = [];
   // typewriter 等位清空：未放行 run 从 done 载荷定格上屏（partial 可能缺失）
@@ -482,6 +514,14 @@ function finalizeAfterReveal(
   streamed.clear();
   streamedBlock.clear();
   dispatchReveal(todo);
+}
+
+function finalizeAfterReveal(
+  d: DonePayload,
+  ui: ReturnType<typeof useUiStore.getState>,
+  docName: string,
+) {
+  drainPendingToDom(d);
   waitRevealIdle(() => {
     const st2 = useTranslationStore.getState();
     if (st2.gen !== d.gen) return; // 新一轮已起跑，旧 done 不落库
@@ -533,10 +573,13 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     const dd = useDocStore.getState();
     const sp = useSettingsStore.getState().settings;
     if (!dd.doc || !sp || dd.mode === "original") return; // mode 守卫：原文模式无需跑引擎
-    if (get().status === "running") return;
+    if (get().status === "running" || invokeInFlight) return;
     // scope 化：显式传入优先；否则沿用当前 scope，off 则默认视口按需
     const sc: TranslateScope = scope ?? (get().scope === "off" ? "viewport" : get().scope);
     const win = sc === "viewport" ? currentWindow(get()) : null;
+    const genBefore = get().gen;
+    invokeInFlight = true;
+    earlyBuf = earlyStart(); // 上一轮残留缓冲作废（gen 不同取不回；防御清理）
     try {
       const r = await api.translateDocument(
         dd.doc.content,
@@ -610,12 +653,26 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         // cached 路径无独立 gen（不入 running、无打字流），维持原值。
         partialGen: r.gen,
       }); // 进度等首个事件
+      // 回放 Started 落定前到达的早期事件（cache 命中 partial 等）——根因修复：
+      // 此前这些事件被 gen/status 护栏丢弃 → 对应 run 永不满桶 → 打字机等位
+      // 卡死 → done 一次性回填。
+      const taken = earlyTake(earlyBuf, r.gen);
+      earlyBuf = taken.buf;
+      for (const p of taken.items) handlePartial(p);
       pumpReveal();
     } catch (e) {
-      // （终审 M2）scope 一并收口：失败后 scope 若仍停在 viewport，滚动
-      // 事件会经 setViewport 的会话门反复重试 + 反复 toast，形成循环。
-      set({ status: "error", scope: "off" });
-      useUiStore.getState().addToast("error", `发起翻译失败：${errText(e)}`);
+      earlyBuf = earlyStart();
+      // 防御：仅当本轮 invoke 尚未被其他 run 取代（gen 未前跳）时收口 error。
+      // 双发/竞态下第二发被后端拒绝时，若强置 error 会把在途 run 的后续
+      // partial 全挡在 status 护栏外 → 整轮卡死。
+      if (get().gen === genBefore) {
+        // （终审 M2）scope 一并收口：失败后 scope 若仍停在 viewport，滚动
+        // 事件会经 setViewport 的会话门反复重试 + 反复 toast，形成循环。
+        set({ status: "error", scope: "off" });
+        useUiStore.getState().addToast("error", `发起翻译失败：${errText(e)}`);
+      }
+    } finally {
+      invokeInFlight = false;
     }
   },
 
@@ -708,6 +765,8 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null, scope: "off", lastWindow: null }));
     // 打字流等位丢弃（缺口永不再来），已定格/打字中保留自然收尾
     twState = typewriterStart();
+    earlyBuf = earlyStart();
+    receivedRuns.clear();
     // 块组装残留（取消中断，块未凑齐）→ 已放行 run 即时落地
     const tail: RevealCommit[] = [];
     for (const bucket of blockAssembly.values()) {
