@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-16
+
 新增**分栏左右联动**（滚动同步 + 预览选区映射回源码）与欢迎页**示例文档**入口；
 工具栏「划词」开关改为文字、并入阅读模式那一排。新增**冷启动仪式感动画**：
 窗口出现时两栏已展开到比终态更宽，随后同步收缩（工作区落到最小宽、
@@ -13,6 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 到位后三处都有"微弱回弹"——侧栏/标签条用 `cubic-bezier(0.34, 1.32, 0.64, 1)`
 过冲曲线实现宽度回弹；大纲栏因终值 0、负宽会被钳，改用专属 keyframes
 末段弹回一小条再收尽；欢迎内容同样用专属 keyframes 放大过头再回 1。
+并修掉**翻译打字机「前几行有打字效果、其余等进度条跑完一次性回填」**的顽疾——
+根因是 `Started` 响应竞态（详见 Fixed 首条）。
 
 ### Added
 
@@ -47,6 +51,21 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **翻译打字机「只有前几行有打字效果，其余等进度条跑完一次性回填」**——连续四轮
+  验收未达标的顽疾，本轮为根因修复：`translate_document` 是**同步**命令，spawn
+  完 worker 立即返回 `Started`，而 worker 起跑瞬间的 cache 命中扫描在微秒级就发出
+  了 `partial`，**几乎必然抢在 `Started` 的 invoke 响应之前**到达前端；此时前端
+  看到的还是上一轮的 `gen` 与 idle 状态，`handlePartial` 的 `gen/status` 护栏把这批
+  事件**整批丢弃**。被丢的 run 在打字机放行序列里永久缺位，其后所有块卡在 pending，
+  直到 done 触发整树重建才一起上屏——表现就是「前面几行打完就停住，进度条走完
+  一次性回填」，且反复实测同一文档时停住点恰好落在第一个缓存块的位置（前几轮
+  翻译已落盘的块）。现在：早期事件按 gen 缓冲、`Started` 落定后回放（缓存块照旧
+  整块瞬时上屏、不打字）；`invoke` 在飞闩防住「自动续跑 × setViewport」双发竞态
+  导致的整轮卡死；done 时新增 `drainPendingToDom` 兜底排空，即使事件真丢也不再等
+  整树重建回声。另加运行时诊断：done 时比对已收事件与应到 run，缺失即
+  `console.warn` 列出清单
+- 引擎 `Failed` 事件此前被 bridge 静默丢弃，失败的翻译单元在前端无声缺位、同样会
+  拖停打字机；现在带原文以 `failed:true` 转发，前端原文回退、跳过打字、照常放行
 - **`npm run dev` 下示例文档里的 mermaid 图表与公式不渲染**：dev 下 Vite 把 mermaid
   预打包成「入口 + 60 余 chunk」的异步依赖图，加载偶发**挂起**（不是报错），而旧实现
   把失败的 promise 缓存进单例、调用方又用 `void …then()` 把 rejection 吞掉 —— 结果
