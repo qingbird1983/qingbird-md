@@ -24,18 +24,22 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 # 前端：测试是独立 *.test.ts(x) 文件，按文件名区分即可
 ```
 
-**总量基线（2026-09-16 实测；**已于 Step 0 `19364ee` 之后复测**）**
+**总量基线（2026-09-16 实测；P0 拆分完成后最终复测）**
 
 | 树 | 文件数 | 生产行 | 测试行 | 合计 |
 | --- | --- | --- | --- | --- |
-| `src-tauri/src`（Rust） | 37 | 8,135 | 4,052 | 12,187 |
+| `src-tauri/src`（Rust） | 40 | 8,165 | 4,065 | 12,230 |
 | `src`（TS/TSX/CSS） | 83 | 15,664 | 2,311 | 17,975 |
-| **合计** | **120** | **23,799** | **6,363** | **30,162** |
+| **合计** | **123** | **23,829** | **6,376** | **30,205** |
 
-> **Step 0 带来的增量**：Rust 生产 +39 / 测试 **+138** / 合计 +177。其中 `html.rs` 测试块
-> **548 → 642（+94）**——加的是 `render_html` 的测试本地薄包装（`render_html_dir`）与
-> 「zh→en 锁步」守卫测试。**功能扩展推高测试体量是必然的**，这也是 P0-2「测试先外迁」
-> 排在最前面的原因：先腾出空间，后面几步（Step 1/2/3）往里加测试就不会把文件顶爆。
+> **⚠️ 口径细化（P0 之后必须这么数）**：`*_tests.rs` 这种**整文件即测试**的兄弟文件
+> 没有 `#[cfg(test)]` 行，会被上面的规则误算成生产。**文件名以 `_tests.rs` 结尾的，
+> 整体计入测试行。** 上一版就是按旧口径把 `html_tests.rs` 的 639 行算进了生产，
+> 导致生产虚高 639 —— 下次复测记得先排除它。
+
+> **P0 拆分带来的变化**：文件数 37 → **40**（新增 `html_tests.rs` / `policy.rs` / `packing.rs`）。
+> 生产 8,135 → 8,165（+30：模块声明、`pub use` 转发、新文件头注释），测试 4,052 → 4,065（+13）。
+> 净增 43 行，全部是拆分本身的开销——**没有一行是逻辑改动**。
 
 ---
 
@@ -61,21 +65,28 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 | --- | --- | --- | --- | --- |
 | **812** | 999 | 187 | `src-tauri/src/lib.rs` | 生产 ✗ 总量 ✗ |
 | **751** | 781 | 30 | `capture/window.rs` | 生产 ✗ 总量 ✗ |
-| **634** | **1107** | **473** | `translate/engine.rs` | 生产 ✗ 总量 ✗ 测试 ✗ |
 | **599** | 807 | 208 | `markdown/model.rs` | 生产 ✗ 总量 ✗ |
-| **559** | **1201** | **642** | `markdown/html.rs` | 生产 ✗ 总量 ✗ 测试 ✗✗ |
 | **559** | 886 | 327 | `bridge.rs` | 生产 ✗ 总量 ✗ |
 | **429** | 652 | 223 | `hibernate.rs` | 生产 ✗ |
 | 397 | 525 | 128 | `translate/providers.rs` | — |
 | 366 | 605 | 239 | `translate/lookup.rs` | — |
+| 366 | 678 | 312 | `translate/engine.rs` | ✅ **P0-1 已达标**（原 634 / 1107） |
 | 288 | 451 | 163 | `markdown/units.rs` | — |
+| 151 | 244 | 93 | `translate/policy.rs` | ✅ P0-1 新建 |
+| 145 | 226 | 81 | `translate/packing.rs` | ✅ P0-1 新建 |
+| 559 | 562 | 3 | `markdown/html.rs` | ✅ **P0-2 已达标**（原 559 / 1201，测试已外迁） |
+| — | 639 | 639 | `markdown/html_tests.rs` | 纯测试文件（生产 0） |
 
-其余 27 个文件生产均 < 300 行，健康。
+其余 28 个文件生产均 < 300 行，健康。
 
-> **Step 0 后的变化（相对上一版）**：`engine.rs` 生产 620→634、`bridge.rs` 546→559、
-> `lib.rs` 806→812（都是逐点透传方向参数的净增）；**`html.rs` 生产未变（559），但内联测试
-> 548→642**。三条 + 一条说明同一件事：**不先做 P0-2，Step 1/2/3 每往 `html.rs` 加一个守卫
-> 测试就多 50~100 行测试代码压在同一个文件里**。
+> **P0 之后还剩什么**：生产超线（> 400）的 Rust 文件**从 7 个降到 5 个**——
+> `lib.rs` 812 / `capture/window.rs` 751 / `model.rs` 599 / `bridge.rs` 559 / `hibernate.rs` 429。
+> 其中 `bridge.rs` 是 P1-5（Step 1 的方向入参、Step 2 的导出命令都要碰它），
+> `lib.rs` 是 P2-1（计划里就写明「Step 2 加导出命令**之前**先拆」）——都已在排期里，现在不必动。
+>
+> **`translate/` 目录现在是三个各司其职的文件**：`engine.rs` 只管「怎么跑」、
+> `policy.rs` 管「怎么判定 / 怎么措辞 / 缓存怎么版本化」、`packing.rs` 管「怎么切批 / 怎么排批 /
+> 怎么分片」。Step 1 要改的东西**全在 `policy.rs` 里**，改动面从"上千行文件里翻找"变成"改一个 151 行的文件"。
 
 ### 3.2 前端
 
@@ -175,14 +186,26 @@ mod tests;
 | 批次 | 项 | 状态 |
 | --- | --- | --- |
 | — | **Step 0 功能 patch（H3/H1/B4）** | ✅ **已完成**（`19364ee`）· 门禁全绿：cargo check 0/0、cargo test 261、`cargo build --release` 0、tsc 0、vitest 204 |
-| P0-1 | `translate/engine.rs` 三分 | ☐ 待做（**前置条件已满足**，可立刻做） |
-| P0-2 | `markdown/html.rs` 测试外迁 | ☐ 待做 |
-| P1-1..6 | 见上 | ☐ 待排期 |
+| P0-2 | `markdown/html.rs` 测试外迁 | ✅ **已完成**（`55e0900`）· 1201 → **562**（生产 559 一行未动） |
+| P0-1 | `translate/engine.rs` 三分 | ✅ **已完成**（`a3dea26` + `eed0304`）· 1107 → **engine 678 / policy 244 / packing 226** |
+| P1-1..6 | 见上 | ☐ 待排期（P1-5 `bridge.rs` 会随 Step 1 一起动） |
 | P2-1..8 | 见上 | ☐ 待排期 |
 
-> **顺序原因**：绝不在红灯树上重构。Step 0 已把 H3/H1/B4 改完、两侧门禁全绿 → **P0 的两个前置条件现在都满足了**。
->
-> **P0 与 Step 1 的先后，建议这样定**：
-> - **P0-2（html.rs 测试外迁）建议排在 Step 1 之前**——它是纯搬家、零风险，且 `html.rs` 的测试块已经 642 行（超线 2 倍），Step 1~3 每加一个守卫测试都会往上堆。
-> - **P0-1（engine.rs 三分）排在 Step 1 之前收益最大**——Step 1 要改的「方向模板 / 缓存 variant / prompt 措辞」**全部落在将要迁出的 `policy.rs` 里**，先拆完再改，Step 1 的 diff 就只落在一个 100 多行的新文件上，而不是在 1107 行的文件里翻找。
-> - 若想先要用户可感知的功能，也可**反过来**：先做 Step 1 的 UI 面（语言选择），但那时 `engine.rs`/`html.rs` 会各再胖一圈，**拆分的成本只增不减**。
+> **P0 收尾事实（2026-09-16 晚）**
+> - 三步拆分全部是**纯提取**：`cargo test` 261 passed、三次逐位一致、零 warning。
+> - `html.rs` 的外迁用 `#[cfg(test)] #[path = "html_tests.rs"] mod tests;` —— **模块路径不变**
+>   （仍是 `markdown::html::tests`）→ `use super::*` 与私有项照旧可用，测试能力一点没丢。
+> - `engine.rs` 的拆分用 `pub use` 保留旧路径 → `units.rs` / `html.rs` / `bridge.rs` /
+>   `dto.rs` / `lib.rs` 里的 `translate::engine::XXX` **一行都没改**。
+>   唯一例外：`PROMPT_VERSION` 不转发（crate 内无人经 `engine::` 路径用它，转发会触发
+>   `unused_imports`），替代路径 `translate::policy::PROMPT_VERSION` 已写在注释里。
+> - **⚠️ 一处边界教训**：`oversized_unit_is_split_before_sending` 名字里带 split，实际是拿
+>   `MockClient` / `EngineRequest` / `run` 做**端到端**验证 → 归属 `engine.rs`。
+>   第一遍我按名字把它切进了 `packing.rs`，编译立刻报 `MockClient` / `EngineRequest` /
+>   `run` / `ZH` / `Cache` 全部找不到。**测试归属要看它引用了谁，不能看名字。**
+> - 行尾：新文件与编辑产生的行是 LF，已统一回 CRLF（脚本规范化 + 逐行复核 LF-only 为 0）。
+>   顺带确认了仓库的 `core.autocrlf=true`、无 `.gitattributes` → blob 存 LF、工作区 CRLF。
+
+> **下一步**：P0 已清完，可以开 Step 1 了。它要改的「方向模板 / 缓存 variant / prompt 措辞」
+> 现在**全在 `policy.rs`（151 行）** 里，加上 `bridge.rs` 的入参透传与前端语言选择——
+> 不再有千行文件挡在中间。
