@@ -1,6 +1,6 @@
 # 翻译打字机"前几行有效果、后面一次性回填"问题排查记录
 
-> 状态：**根因已定位并修复（第 5 轮，2026-09-16）——待用户实测确认**
+> 状态：**已解决（第 5 轮根因修复，2026-09-16 用户实测通过——从上到下逐行打字正常）**
 > 优先级：高（用户连续四轮验收同一效果未达标；本轮为根因修复，非症状缓解）
 
 ## 1. 用户现象（四轮反馈口径稳定）
@@ -18,7 +18,7 @@
 | 1 | 真流式（EngineEvent::Streaming、前端灰字直写、done 不整树回填） | 全绿 | 用户：只有前 3-5 行有效果 |
 | 2 | 打字单元 run → 整段（collect_text_runs_windowed_blocks、块级 reveal、块间零停顿连锁） | tsc 0 / vitest 194 / cargo 252 | 用户：仍前几行打字后停、done 一次性回填 |
 | 3（2026-09-15） | **Failed 事件转发**（bridge.rs 不再丢弃 EngineEvent::Failed，带原文 `failed:true` 转发；前端 failed run 原文回退、跳过打字、照常放行） | tsc 0 / vitest 198 / cargo 全过 | 用户：**仍复现**，但"观感上顺滑了点" |
-| 4（本次 2026-09-16） | **根因修复：Started 响应竞态丢事件**（见 §8）——早期事件缓冲（Started 落定后按 gen 回放）+ invoke 在飞闩 + windowed done 兜底排空（drainPendingToDom）+ 缺失诊断 | tsc 0 / vitest 204 / cargo 252 | 待用户实测 |
+| 4（本次 2026-09-16） | **根因修复：Started 响应竞态丢事件**（见 §8）——早期事件缓冲（Started 落定后按 gen 回放）+ invoke 在飞闩 + windowed done 兜底排空（drainPendingToDom）+ 缺失诊断 | tsc 0 / vitest 204 / cargo 252 | 用户：**通过**——从上到下逐行打字，无停住、无一次性回填 |
 
 ## 3. 已确认机制（模拟测试精确复现）
 
