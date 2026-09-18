@@ -34,10 +34,8 @@ import {
   Undo2,
   Workflow,
   Sigma,
-  PanelRightClose,
 } from "lucide-react";
 import { useDocStore } from "../stores/useDocStore";
-import { useUiStore } from "../stores/useUiStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { insertFormula, insertMermaid } from "../lib/inserts";
 import Menu, { MenuItem } from "./menus/Menu";
@@ -54,9 +52,9 @@ export default function EditorToolbar() {
   const switchView = useDocStore((s) => s.switchView);
   const mode = useDocStore((s) => s.mode);
   const switchMode = useDocStore((s) => s.switchMode);
-  // 工作区切换已搬到 TitleBar（PanelLeft），明暗主题搬进窗控组，这里只剩大纲切换 + 宽度档。
-  const showOutline = useUiStore((s) => s.showOutline);
-  const toggleOutline = useUiStore((s) => s.toggleOutline);
+  // 工作区切换已搬到 TitleBar（PanelLeft），明暗主题搬进窗控组。
+  // 大纲开关也已搬到槽边缘的 .panel-handle（§9.2），AppMenu 仍保留入口。
+  // 工具栏不再有任何面板开关——右端留给阅读模式与视图切换。
 
   // 划词翻译开关：与设置弹窗同一持久化通道（settings.selection_translate）。
   // 关闭时 SelectionPopup 的 on 订阅失效会自动清浮窗 + 防抖定时器。
@@ -200,12 +198,10 @@ export default function EditorToolbar() {
            入口保留在汉堡菜单「视图」与命令面板；规划中的设置弹窗面板会
            再收一处入口（见 docs/theme-plan.md 的相邻规划）。 */}
 
-      {/* ── ⑥ 面板开关（仅切换显示/隐藏，无持续高亮态）──
-           工作区切换已搬到 TitleBar（PanelLeft 图标），这里只留大纲开关。 */}
-      <button type="button" className="menu-btn tool-btn" title={showOutline ? "隐藏大纲" : "显示大纲"}
-        onClick={() => toggleOutline()}>
-        <PanelRightClose size={15} />
-      </button>
+      {/* ── ⑥ 面板开关已移除（2026-09-19，§9.2）——
+           大纲开关搬到槽边缘的 .panel-handle（垂直中点"舌"），
+           入口保留在 AppMenu 的「显示/隐藏大纲」。工具栏右端
+           不再放面板图标——用户反馈"工具栏最右的按钮一下子反应不过来在哪"。 */}
     </div>
   );
 }

@@ -44,14 +44,14 @@
 | **第 1 步** 方向贯通 | 4 项（4 个命令 / reset / 状态栏 UI / 参数化模板） | ✅ | v5.3 落地记录 |
 | **第 2 步** 译文另存为 | 7 Rust `export_translation` | ⚠️ **部分** | `cmark.rs:77` **只实现了单语**；计划原文的签名 `(content, translations, mode, policy)` 里 **`mode` / `policy` 两个参数不存在** |
 | | 8 前端入口 + `pickSavePath` + 导出前确认 | ✅ | `lib/exportTranslation.ts`（98 行）、`AppMenu.tsx:197`、快捷键 `Ctrl+Shift+E` |
-| | 9 **双语对照导出** | ❌ **未做** | `exportTranslation.ts:47` 明写"中英对照导出尚未实现"，`ipc.ts:114` 注释要求调用方先断言 `mode === "translation"` |
-| **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ❌ 未做 | 全仓库无 `panel-slot` / `panel-handle` / `showReview` / `reviewWidth` |
-| | 10b 把手与入口改造（状态栏 `AI` 钮） | ❌ 未做 | — |
+| | 9 **双语对照导出** | ✅ | commit `49167c7`：`translate/export.rs`（576 行，8 测试）、`bridge::export_translation` 双路分发（bilingual/single-language）、前端 `exportTranslation.ts` 双语模式放开 + `.bilingual.md` 后缀 |
+| **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ✅ | 2026-09-19 落地：`.panel-slot` 双宿主（grid-column 上移槽）、`.panel-handle` 透明舌形（48×20、只圆内侧两角、hover 填底、无阴影）、`outlineDockedLeft`→`leftSlotOccupied`、冲突自动翻边（toggleReview/setReviewSide 共享不变量）、`SESSION_VERSION` 不 bump + 向后兼容测试 |
+| | 10b 把手与入口改造（状态栏 `AI` 钮） | ✅ | 同上：EditorToolbar 大纲开关已移除、状态栏右端 `AI` 文字钮（active 跟面板、title 带 llmReady）、`Ctrl+J` 热键（view 组，不进 Rust 系统级注册） |
 | | 11 `ReviewTimeline` | ❌ 未做 | — |
 | | 12 `ReviewComposer` | ❌ 未做 | — |
 | | 13 滚动跟随（四要点） | ❌ 未做 | — |
 | | 14 `ensureReviewPanelOpen()` + `Ctrl+J` | ❌ 未做 | `hotkeyRegistry.ts` 里无 `Ctrl+J` |
-| | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ❌ **未做** | `translate/` 下无任何 check/verify 模块 |
+| | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ✅ | commit `49167c7`：`translate/check.rs`（357 行，5 检查 + 5 测试）、`bridge::check_translation`、前端 `lib/checkTranslation.ts` + 守卫测试 |
 | | 16 `ReviewIssueCard` | ❌ 未做 | — |
 | **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | ❌ 未做 | 无 `review_model` 字段 |
 | **第 5 步** 重排版规则集 | 22–23 | ❌ 未做 | — |

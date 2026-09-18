@@ -303,7 +303,12 @@ pub fn spawn_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::Webview
 
 // ---- session 快照（仅休眠时落草稿，恢复成功后即删）----
 
-/// 快照格式版本。结构变更时递增，旧文件直接丢弃走冷启动路径。
+/// 快照格式版本。结构变更**且不可向后兼容**时递增，旧文件直接丢弃走冷启动路径。
+/// 新增 `#[serde(default)]` 字段属于向后兼容变更（旧快照缺失字段时取默认值），
+/// 不必 bump——bump 的后果是用户那一次未保存的草稿被丢弃。
+/// 历史：v1 含 show_nav / show_outline / sidebar_width / outline_width / split_ratio；
+/// v1 后续补 show_review / review_width（AI 核查面板，2026-09-19）仍为 v1——
+/// 每字段都带 `#[serde(default)]`，旧文件能正常反序列化。
 pub const SESSION_VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -344,6 +349,12 @@ pub struct SessionUi {
     pub outline_width: f64,
     #[serde(default)]
     pub split_ratio: f64,
+    // AI 核查面板（§八）：与大纲栏共用两个侧栏槽，各自独立 show/width。
+    // side 走前端 localStorage（不进快照，同 outlineSide 先例）。
+    #[serde(default)]
+    pub show_review: bool,
+    #[serde(default)]
+    pub review_width: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -470,6 +481,8 @@ mod tests {
                 sidebar_width: 240.0,
                 outline_width: 200.0,
                 split_ratio: 0.5,
+                show_review: false,
+                review_width: 320.0,
             }),
         }
     }
@@ -575,7 +588,23 @@ mod tests {
         assert!(v["tabs"][0].get("cursor_sel").is_some());
         assert!(v["tabs"][0].get("scroll_top").is_some());
         assert!(v["ui"].get("sidebar_width").is_some());
+        assert!(v["ui"].get("show_review").is_some());
+        assert!(v["ui"].get("review_width").is_some());
         assert!(v.get("workspace_root").is_some());
+    }
+
+    #[test]
+    fn old_snapshot_without_review_fields_still_deserializes() {
+        // v1 旧快照的 ui 缺 show_review / review_width——
+        // 不 bump SESSION_VERSION 的前提是 serde(default) 兜住兼容性。
+        let v: SessionSnapshot = serde_json::from_str(
+            r#"{"version":1,"ui":{"show_nav":true,"show_outline":false,"sidebar_width":240.0,"outline_width":200.0,"split_ratio":0.5}}"#,
+        )
+        .unwrap();
+        assert!(v.ui.is_some());
+        let ui = v.ui.unwrap();
+        assert!(ui.show_review == false); // default: false
+        assert_eq!(ui.review_width, 0.0); // default: 0.0
     }
 
     #[test]

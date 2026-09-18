@@ -30,6 +30,8 @@ export type IntroPhase = "idle" | "playing" | "skipped" | "done";
 
 /** 大纲栏停靠侧：right = 窗口右缘（默认）；left = 吸附在工作区左缘（侧栏与主区之间） */
 export type OutlineSide = "left" | "right";
+/** 侧栏槽位停靠侧（大纲与 AI 核查共用槽位抽象，各自独立记忆 side） */
+export type PanelSide = "left" | "right";
 
 export const CONTENT_WIDTHS: ContentWidth[] = ["compact", "normal", "wide", "full"];
 
@@ -46,6 +48,13 @@ interface UiState {
   outlineSide: OutlineSide;
   sidebarWidth: number;
   outlineWidth: number;
+  // AI 核查面板（§八）：与大纲栏共用两个侧栏槽（col3/col4 左、col6/col7 右）。
+  // 不新增网格列——只是把「大纲专属列」泛化为「槽位双宿主」。
+  // 每面板各自记忆 side/width，互不耦合（§9.7）；show 跨启动由 Rust 休眠快照带，
+  // side 走 localStorage（同 outlineSide 先例，不进快照避免动契约）。
+  showReview: boolean;
+  reviewSide: PanelSide;
+  reviewWidth: number;
   // 侧栏最小宽度：由 TitleBar 实测写入（baseX - RESIZER_W，见 TitleBar.tsx）——
   // 拉到最小时侧栏那条分割线正好与标题栏的竖线共线。初值 160 兜底（测量完成前一帧）。
   minSidebarWidth: number;
@@ -71,6 +80,7 @@ interface UiState {
 
   toggleNav(): void;
   toggleOutline(): void;
+  toggleReview(): void;
   setContentWidth(w: ContentWidth): void;
   setCustomWidth(px: number): void;
   cycleContentWidth(): void;
@@ -83,6 +93,8 @@ interface UiState {
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
   setOutlineSide(s: OutlineSide): void;
+  setReviewWidth(w: number): void;
+  setReviewSide(s: PanelSide): void;
   setSplitRatio(r: number): void;
   setMinSidebarWidth(px: number): void;
   /** 首次启动回填侧栏宽度（只在「无宽度记忆」时生效一次，见实现）。 */
@@ -104,9 +116,16 @@ const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
 // 大纲栏停靠侧：纯 UI 偏好，走 localStorage（不进 Rust 会话快照，避免动契约）
 const OUTLINE_SIDE_KEY = "qb.outline-side";
+// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立记忆 side，
+// 冲突（两面板同侧）由 toggleReview 自动把大纲翻到对侧化解（§8.2 v1：先落独占空槽）。
+const REVIEW_SIDE_KEY = "qb.review-side";
 
 function loadOutlineSide(): OutlineSide {
   return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
+}
+
+function loadReviewSide(): PanelSide {
+  return localStorage.getItem(REVIEW_SIDE_KEY) === "left" ? "left" : "right";
 }
 
 function loadContentWidth(): ContentWidth {
@@ -133,6 +152,12 @@ export const useUiStore = create<UiState>()((set) => ({
   outlineSide: loadOutlineSide(),
   sidebarWidth: 240,
   outlineWidth: 200,
+  // AI 核查面板默认收起（与大纲同口径：首屏空白页不需要它）；默认右停靠
+  // （§9.5 状态栏 AI 钮入口 + §8.2 参考图右栏）。宽度默认 320（§10：面板
+  // 首次打开时槽宽 <320 提到 320，这里直接给 320 兜底）。
+  showReview: false,
+  reviewSide: loadReviewSide(),
+  reviewWidth: 320,
   minSidebarWidth: 160,
   bootWidthPending: true,
   splitRatio: 0.5,
@@ -151,6 +176,21 @@ export const useUiStore = create<UiState>()((set) => ({
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
+  // AI 核查面板开关。开起时若与大纲同侧，自动把大纲翻到对侧——
+  // v1 不做「同侧槽内 Tab 合并」（§8.2 表格的中间行，留作后续子步），
+  // 而是直接给出参考图那种四栏并存（文件树 | 正文 | 大纲 | AI 核查）。
+  // 只在「开起」这一刻翻；关起不动大纲（用户可能在两个面板都开时
+  // 主动把大纲挪到同侧，那是他的选择，别拽回来）。
+  toggleReview: () =>
+    set((s) => {
+      const turningOn = !s.showReview;
+      if (turningOn && s.showOutline && s.outlineSide === s.reviewSide) {
+        const newOutlineSide: OutlineSide = s.outlineSide === "left" ? "right" : "left";
+        localStorage.setItem(OUTLINE_SIDE_KEY, newOutlineSide);
+        return { showReview: true, outlineSide: newOutlineSide };
+      }
+      return { showReview: turningOn };
+    }),
   setContentWidth: (w) => {
     localStorage.setItem(WIDTH_KEY, w);
     // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清
@@ -194,6 +234,22 @@ export const useUiStore = create<UiState>()((set) => ({
     localStorage.setItem(OUTLINE_SIDE_KEY, s);
     return set({ outlineSide: s });
   },
+  // AI 核查 side 变更同 outline：写 localStorage + 改 state。
+  // 与 toggleReview 共享同一不变量：showReview && showOutline → outlineSide !== reviewSide。
+  // 冲突（两面板同侧）时自动把大纲翻到对侧，而不是让两个面板挤一个槽——
+  // v1 不做「同侧槽内 Tab 合并」（§8.2 表格的中间行，留作后续子步）。
+  setReviewSide: (s) => {
+    localStorage.setItem(REVIEW_SIDE_KEY, s);
+    return set((prev) => {
+      if (prev.showReview && prev.showOutline && prev.outlineSide === s) {
+        const newOutlineSide: OutlineSide = prev.outlineSide === "left" ? "right" : "left";
+        localStorage.setItem(OUTLINE_SIDE_KEY, newOutlineSide);
+        return { reviewSide: s, outlineSide: newOutlineSide };
+      }
+      return { reviewSide: s };
+    });
+  },
+  setReviewWidth: (w) => set({ reviewWidth: w }),
   setSplitRatio: (r) => set({ splitRatio: r }),
   setMinSidebarWidth: (px) => set({ minSidebarWidth: px }),
 

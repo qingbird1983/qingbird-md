@@ -12,6 +12,7 @@ import EditorToolbar from "./components/EditorToolbar";
 import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
+import ReviewPanel from "./components/ReviewPanel";
 import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
 import CommandPalette from "./components/CommandPalette";
@@ -65,6 +66,8 @@ const APP_ACTIONS: Record<AppHotkeyId, () => void> = {
   },
   split_view: () => useDocStore.getState().switchView("split"),
   palette: () => useUiStore.getState().openPalette(),
+  // AI 核查面板开关（§八）：Ctrl+J 与 Guanmo 同键。
+  toggle_review: () => useUiStore.getState().toggleReview(),
   bold: () => void useDocStore.getState().applyFormat("bold"),
   italic: () => void useDocStore.getState().applyFormat("italic"),
 };
@@ -118,23 +121,36 @@ function listenHibernateOnce() {
 // - sidebar：贴文件栏右缘，右拖增宽（+dx）
 // - outline-right：贴大纲栏（右停靠）左缘，左拖增宽（-dx）
 // - outline-left：贴大纲栏（左停靠）右缘，右拖增宽（+dx）
+// - review-right：贴 AI 核查栏（右停靠）左缘，左拖增宽（-dx）
+// - review-left：贴 AI 核查栏（左停靠）右缘，右拖增宽（+dx）
 // 宽度存 uiStore，跨视图切换保持。
-type ResizerPlace = "sidebar" | "outline-right" | "outline-left";
+type ResizerPlace = "sidebar" | "outline-right" | "outline-left" | "review-right" | "review-left";
 
 function PanelResizer({ place, hidden }: { place: ResizerPlace; hidden: boolean }) {
+  // CSS 类映射：sidebar→res-left, outline-left/review-left→res-olutl,
+  // outline-right/review-right→res-right。右停靠面板共享 col6 拖宽条，
+  // 左停靠共享 col4——两个面板分侧时各占一条，同侧时 store 保证不会同时渲染。
   const cls =
-    place === "sidebar" ? "res-left" : place === "outline-left" ? "res-olutl" : "res-right";
+    place === "sidebar"
+      ? "res-left"
+      : place === "outline-left" || place === "review-left"
+        ? "res-olutl"
+        : "res-right";
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     const st = useUiStore.getState();
     const toSidebar = place === "sidebar";
-    const startW = toSidebar ? st.sidebarWidth : st.outlineWidth;
+    const toReview = place.startsWith("review");
+    const startW = toSidebar ? st.sidebarWidth : toReview ? st.reviewWidth : st.outlineWidth;
     // 左侧下限动态（标签条归位临界，TitleBar 实测写入 store，兜底 PANEL_MIN）；
-    // 大纲面板无对齐诉求，保持静态下限。
+    // 大纲/核查面板无对齐诉求，保持静态下限。
     const min = toSidebar ? Math.max(PANEL_MIN, st.minSidebarWidth) : PANEL_MIN;
     startColDrag(e, (dx) => {
-      const w = place === "outline-right" ? startW - dx : startW + dx;
+      // 右停靠：左拖增宽（-dx）；左停靠：右拖增宽（+dx）
+      const isRightDock = place.endsWith("-right");
+      const w = isRightDock ? startW - dx : startW + dx;
       const clamped = Math.min(PANEL_MAX, Math.max(min, w));
       if (toSidebar) useUiStore.getState().setSidebarWidth(clamped);
+      else if (toReview) useUiStore.getState().setReviewWidth(clamped);
       else useUiStore.getState().setOutlineWidth(clamped);
     });
   };
@@ -144,10 +160,63 @@ function PanelResizer({ place, hidden }: { place: ResizerPlace; hidden: boolean 
       style={hidden ? { width: 0, opacity: 0 } : undefined}
       role="separator"
       aria-orientation="vertical"
-      aria-label={place === "sidebar" ? "调整文件栏宽度" : "调整大纲栏宽度"}
+      aria-label={
+        place === "sidebar"
+          ? "调整文件栏宽度"
+          : place.startsWith("review")
+            ? "调整 AI 核查栏宽度"
+            : "调整大纲栏宽度"
+      }
       aria-hidden={hidden || undefined}
       onPointerDown={hidden ? undefined : startDrag}
     />
+  );
+}
+
+// 侧栏把手（"舌"）：钉在槽边缘垂直中点，48×20 高而窄，只圆内侧两角，
+// 底色透明（滚动条从下方穿过），无阴影（DESIGN.md 贴面零阴影）。
+// 箭头方向 = side × collapsed 两个布尔共同决定（§9.2 物理规则）：
+//   箭头 = 面板那条边「将要移动」的方向。
+//   右停靠 未展开 ‹ ／ 已展开 ›
+//   左停靠 未展开 › ／ 已展开 ‹
+// 只做「展开/收起」，不兼停靠切换（§9.2：两件事两个控件）。
+function PanelHandle({
+  side,
+  showPanel,
+  onToggle,
+  label,
+}: {
+  side: "left" | "right";
+  showPanel: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  // 箭头朝向：已展开时朝外（远离主区），未展开时朝内（指向主区）
+  const arrowRight = (side === "right" && showPanel) || (side === "left" && !showPanel);
+  const d = arrowRight ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6";
+  return (
+    <button
+      type="button"
+      className="panel-handle"
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={showPanel}
+      title={label}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="12"
+        height="12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d={d} />
+      </svg>
+    </button>
   );
 }
 
@@ -248,9 +317,14 @@ function App() {
   const outlineSide = useUiStore((s) => s.outlineSide);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const outlineWidth = useUiStore((s) => s.outlineWidth);
+  const showReview = useUiStore((s) => s.showReview);
+  const reviewSide = useUiStore((s) => s.reviewSide);
+  const reviewWidth = useUiStore((s) => s.reviewWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const introPhase = useUiStore((s) => s.introPhase);
+  const toggleOutline = useUiStore((s) => s.toggleOutline);
+  const toggleReview = useUiStore((s) => s.toggleReview);
   // armed = 窗口 reveal 前的起始态（两栏展开到比终态更宽）；playing = 收缩进行中。
   const introArmed = introPhase === "idle";
   const introPlaying = introPhase === "playing";
@@ -268,16 +342,17 @@ function App() {
   const navPanelW = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
   const outlinePanelW = outlineWidth;
 
-  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 大纲栏·左停靠 /
-  // col4 该停靠的拖宽条 / col5 主区(1fr) / col6 大纲栏·右停靠的拖宽条 /
-  // col7 大纲栏·右停靠。未使用的空列（auto 且无在流项）恒为 0 宽。
+  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 左停靠槽 /
+  // col4 左槽拖宽条 / col5 主区(1fr) / col6 右停靠槽拖宽条 / col7 右停靠槽。
+  // 左/右槽各可挂 大纲 或 AI 核查（各面板独立选边），或两者分侧并存（真四栏）。
+  // 未使用的空列（auto 且无在流项）恒为 0 宽。
   // 工作区隐藏时主内容区左缘直接顶到 col1；这样 TabBar/EditorToolbar/MainArea
   // 一起左移，不会出现「左侧 4 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
   // 与 --main-span：--main-span=1 时 main-area 占 col5 一列（1fr）；
   // --main-span=5 时 main-area 占 col1-5（吸收掉隐藏的侧栏、拖宽条与空列）。
   // 面板改为常挂载 + 宽度过渡后，跨列切换必须等收起动画播完（navGone），
   // 否则主区提前跨列会盖住正在收缩的侧栏——动画就看不见了。
-  // 大纲栏左停靠时 col3 有实体面板，不能再跨列吸收（会被主区盖住），
+  // 左槽有实体面板时（大纲或核查左停靠），不能再跨列吸收（会被主区盖住），
   // 此时主区固定占 col5，靠空列自然收窄。
   // 收缩延迟随动画时长走：intro 播放时面板过渡被拉到 INTRO_ANIM_MS，
   // 主区跨列吸收空列也必须等这么久，否则会在收缩中途盖住侧栏。
@@ -285,8 +360,12 @@ function App() {
     !navVisible,
     introPlaying ? INTRO_ANIM_MS : PANEL_ANIM_MS,
   );
+  // 左槽被占用（大纲或核查任一左停靠）时不能吸收。
+  // review 不参与 intro armed（首屏不显示核查面板），所以不加 introArmed 门。
   const outlineDockedLeft = !introArmed && showOutline && outlineSide === "left";
-  const absorb = navGone && !outlineDockedLeft;
+  const reviewDockedLeft = showReview && reviewSide === "left";
+  const leftSlotOccupied = outlineDockedLeft || reviewDockedLeft;
+  const absorb = navGone && !leftSlotOccupied;
   const mainStyle = {
     ["--col-main" as string]: String(absorb ? 1 : 5),
     ["--main-span" as string]: String(absorb ? 5 : 1),
@@ -336,6 +415,9 @@ function App() {
         <MainArea />
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡）。
+          §8.2 槽位泛化：grid-column 已从 .outline-panel 上移到 .panel-slot；
+          .panel-handle 钉在槽边缘垂直中点（§9.2），不参与面板的 overflow:hidden
+          裁切/opacity 淡出——收起态把手仍可见，落在窗口边缘垂直中点。
           ui.outlineSide 切换停靠侧：左停靠吸附在工作区左缘（侧栏与主区之间），
           拖宽条随之换到 col4，主区仍在 col5。 */}
       <PanelResizer
@@ -347,21 +429,65 @@ function App() {
         place="outline-right"
         hidden={!introArmed && (!showOutline || outlineSide !== "right")}
       />
-      <aside
-        className={`outline-panel${outlineDockedLeft ? " dock-left" : ""}`}
-        style={{
-          // intro-playing 期 width 不内联：让 CSS keyframes 接管收缩 + 回弹。
-          // inline style 与 keyframe animation 同改 width 时，内联胜出 → 看不到
-          // 回弹。armed 期仍要钉起始宽，所以这条三元只在 playing 为 false 时设值。
-          width: introPlaying ? undefined : outlineVisible ? outlinePanelW : 0,
-          opacity: outlineVisible ? 1 : 0,
-          ["--panel-w" as string]: `${outlinePanelW}px`,
-        }}
-      >
-        <div className="panel-clip">
-          <OutlinePanel />
-        </div>
-      </aside>
+      <div className="panel-slot" data-side={outlineSide}>
+        <PanelHandle
+          side={outlineSide}
+          showPanel={outlineVisible}
+          onToggle={toggleOutline}
+          label={outlineVisible ? "收起大纲" : "展开大纲"}
+        />
+        <aside
+          className="outline-panel"
+          style={{
+            // intro-playing 期 width 不内联：让 CSS keyframes 接管收缩 + 回弹。
+            // inline style 与 keyframe animation 同改 width 时，内联胜出 → 看不到
+            // 回弹。armed 期仍要钉起始宽，所以这条三元只在 playing 为 false 时设值。
+            width: introPlaying ? undefined : outlineVisible ? outlinePanelW : 0,
+            opacity: outlineVisible ? 1 : 0,
+            ["--panel-w" as string]: `${outlinePanelW}px`,
+          }}
+        >
+          <div className="panel-clip">
+            <OutlinePanel />
+          </div>
+        </aside>
+      </div>
+      {/* AI 核查面板（§八）：与大纲共用两个侧栏槽，各自独立选边。
+          冲突（两面板同侧）由 store 的 toggleReview/setReviewSide 自动翻边化解，
+          渲染层直接读 showReview——store 保证 showReview && showOutline 时
+          outlineSide !== reviewSide，两面板不会挤一个槽。 */}
+      {showReview && (
+        <>
+          <PanelResizer
+            place="review-left"
+            hidden={reviewSide !== "left"}
+          />
+          <PanelResizer
+            place="review-right"
+            hidden={reviewSide !== "right"}
+          />
+          <div className="panel-slot" data-side={reviewSide}>
+            <PanelHandle
+              side={reviewSide}
+              showPanel={true}
+              onToggle={toggleReview}
+              label="收起 AI 核查"
+            />
+            <aside
+              className="review-panel"
+              style={{
+                width: reviewWidth,
+                opacity: 1,
+                ["--panel-w" as string]: `${reviewWidth}px`,
+              }}
+            >
+              <div className="panel-clip">
+                <ReviewPanel />
+              </div>
+            </aside>
+          </div>
+        </>
+      )}
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
       <SelectionPopup />

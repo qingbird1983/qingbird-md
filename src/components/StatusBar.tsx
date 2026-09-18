@@ -5,6 +5,7 @@
 import { useDocStore } from "../stores/useDocStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
+import { useUiStore } from "../stores/useUiStore";
 
 const MODE_LABEL: Record<string, string> = {
   original: "原文",
@@ -22,8 +23,11 @@ export default function StatusBar() {
   const setTranslateTarget = useDocStore((s) => s.setTranslateTarget);
   const provider = useSettingsStore((s) => s.settings?.provider ?? null);
   const target = useSettingsStore((s) => s.target);
+  const creds = useSettingsStore((s) => s.credsFor("llm"));
   const trStatus = useTranslationStore((s) => s.status);
   const progress = useTranslationStore((s) => s.progress);
+  const showReview = useUiStore((s) => s.showReview);
+  const toggleReview = useUiStore((s) => s.toggleReview);
 
   // 翻译状态段：running 时带上进度 done/total，失败显式标出
   const transLabel =
@@ -41,6 +45,10 @@ export default function StatusBar() {
   const stats = doc
     ? `${[...doc.content].length} 字 · ${doc.content.split("\n").length} 行`
     : null;
+
+  // LLM 凭据齐全（baseUrl + model 均非空）——§七.1 R1，与 useTranslationStore 同口径。
+  // credsFor 返回 {} 时 baseUrl/model 为 undefined，?. 是真实守卫。
+  const llmReady = Boolean(creds.baseUrl?.trim() && creds.model?.trim());
 
   return (
     <footer className="status-bar">
@@ -72,6 +80,18 @@ export default function StatusBar() {
         </button>
         <span>{provider ?? "—"}</span>
         <span>{transLabel}</span>
+        {/* AI 核查入口（§9.5）：面板开关始终可点（无 LLM 也能开面板看历史清单），
+            禁用的是面板内的「开始核查」钮。title 带 LLM 就绪态——顺带补上
+            状态栏此前只显示 provider、不显示 LLM 是否配好的缺口。 */}
+        <button
+          type="button"
+          className={`status-ai${showReview ? " active" : ""}`}
+          title={llmReady ? "AI 核查 · 就绪" : "AI 核查 · 未配置 LLM"}
+          aria-label={showReview ? "收起 AI 核查" : `打开 AI 核查${llmReady ? "" : "（未配置 LLM）"}`}
+          onClick={toggleReview}
+        >
+          AI
+        </button>
       </div>
     </footer>
   );

@@ -484,11 +484,16 @@ export const useDocStore = create<DocState>()((set, get) => {
         const ui = useUiStore.getState();
         if (snap.ui.sidebar_width > 0) ui.setSidebarWidth(snap.ui.sidebar_width);
         if (snap.ui.outline_width > 0) ui.setOutlineWidth(snap.ui.outline_width);
+        if (snap.ui.review_width > 0) ui.setReviewWidth(snap.ui.review_width);
         if (snap.ui.split_ratio > 0 && snap.ui.split_ratio < 1) {
           ui.setSplitRatio(snap.ui.split_ratio);
         }
         if (useUiStore.getState().showNav !== snap.ui.show_nav) ui.toggleNav();
         if (useUiStore.getState().showOutline !== snap.ui.show_outline) ui.toggleOutline();
+        // AI 核查面板：restore 走 toggleReview——快照由 toggleReview 自身维护一致性
+        // （开起时冲突自动翻大纲），所以这里不会有「先翻边后被 outline 恢复覆盖」的
+        // 乱序问题。
+        if (useUiStore.getState().showReview !== snap.ui.show_review) ui.toggleReview();
       }
       if (snap.workspace_root) {
         // 动态 import 避免循环依赖（useWorkspaceStore 反过来读 useDocStore）

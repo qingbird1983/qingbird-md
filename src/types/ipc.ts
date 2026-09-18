@@ -252,6 +252,10 @@ export interface SessionUi {
   sidebar_width: number;
   outline_width: number;
   split_ratio: number;
+  // AI 核查面板（§八）：与大纲栏共用槽位，各自独立 show/width。
+  // side 走前端 localStorage（不进快照，同 outlineSide 先例）。
+  show_review: boolean;
+  review_width: number;
 }
 
 /** hibernate.rs SessionSnapshot：仅休眠时落草稿，恢复成功后即删（一次性） */

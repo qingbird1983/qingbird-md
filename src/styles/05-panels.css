@@ -6,11 +6,99 @@
  * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
  * ============================================================ */
 
-/* ============ 大纲 ============ */
-.outline-panel {
+/* ============ 侧栏槽位（双宿主：大纲 / AI 核查）============ */
+/* §8.2 槽位泛化：把「大纲专属列」变成「侧栏槽位」，大纲与 AI 核查
+   各自独立选边（reviewSide / outlineSide），各占一个网格列。
+   列编号 / resizer 数量 / panel-clip / --panel-anim / intro 两态一律不动。 */
+.panel-slot {
   grid-row: 3;
-  /* 右停靠 = col7（窗口右缘）；左停靠 = col3（吸附在工作区左缘，见 .dock-left） */
+  display: flex;
+  position: relative;
+  /* KEY: 把手（.panel-handle）必须能被画出——槽不能被 overflow:hidden 裁掉。
+     面板本身的 overflow:hidden 在内层 aside 上，不在这层。 */
+  overflow: visible;
+}
+
+/* 右停靠 = col7（窗口右缘，默认）；左停靠 = col3（吸附工作区左缘） */
+.panel-slot[data-side="right"] {
   grid-column: 7;
+}
+.panel-slot[data-side="left"] {
+  grid-column: 3;
+}
+
+/* ============ 侧栏把手（"舌"，钉在槽边缘垂直中点）============ */
+/* §9.2 规格：48×20 高而窄，只圆内侧两角，底色透明（滚动条从下方穿过），
+   无阴影（DESIGN.md 贴面零阴影），hover 才填底色。
+   箭头方向 = side × collapsed 两个布尔共同决定（别只按 collapsed 写死）：
+     右停靠 未展开 ‹ ／ 已展开 ›
+     左停靠 未展开 › ／ 已展开 ‹
+   物理规则：箭头 = 面板那条边「将要移动」的方向。 */
+.panel-handle {
+  position: absolute;
+  top: 50%;
+  width: 20px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: transparent; /* 底色透明：滚动条从把手下方穿过，互不干扰 */
+  color: var(--fg3);
+  cursor: pointer;
+  z-index: 10; /* 高于滚动条（用户已拍板：把手压在滚动条上） */
+  /* NO box-shadow — DESIGN.md「贴面零阴影，层级一律用发丝线」 */
+  transition:
+    background 0.14s var(--ease),
+    color 0.14s var(--ease),
+    border-color 0.14s var(--ease);
+}
+
+/* 右停靠：把手在面板左缘，推出面板外（left:0 + translateX(-100%） */
+.panel-slot[data-side="right"] .panel-handle {
+  left: 0;
+  border-right: none; /* 右边不描边——从面板左缘"长出来" */
+  border-radius: 10px 0 0 10px; /* 只圆左边两角 */
+  transform: translate(-100%, -50%);
+}
+
+/* 左停靠：把手在面板右缘，推出面板外（right:0 + translateX(100%)） */
+.panel-slot[data-side="left"] .panel-handle {
+  right: 0;
+  border-left: none; /* 左边不描边——从面板右缘"长出来" */
+  border-radius: 0 10px 10px 0; /* 只圆右边两角 */
+  transform: translate(100%, -50%);
+}
+
+/* hover：填底色——透明态下唯一的"我在这儿"反馈 */
+.panel-handle:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+  border-color: var(--resizer-hover);
+}
+
+/* 键盘可达性：焦点环齐备 */
+.panel-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 把手箭头（stroked chevron，线不是实心三角） */
+.panel-handle svg {
+  display: block;
+}
+
+/* intro 期间隐藏把手（与 PanelResizer 的 hidden 同一时刻），
+   避免冷启动动画里出现游离把手。 */
+#app-shell.intro-armed .panel-handle,
+#app-shell.intro-playing .panel-handle {
+  display: none;
+}
+
+/* ============ 大纲 ============ */
+/* grid-row / grid-column 已上移到 .panel-slot；这里只管内容布局。 */
+.outline-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -27,10 +115,7 @@
   /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
 }
 
-/* 左停靠：吸附在工作区左缘（侧栏拖宽条之后），拖宽条换到 col4 */
-.outline-panel.dock-left {
-  grid-column: 3;
-}
+/* 左停靠的 grid-column 已由 .panel-slot[data-side="left"] 处理，不再需要 .dock-left */
 
 /* T19：大纲面板 —— 标题微标签 + 缩进列表 */
 /* panel-clip 左右栏共用（flex:none 保收展动画不挤压），但大纲列表依赖
@@ -195,6 +280,178 @@
   font-size: 12.5px;
 }
 
+/* ============ AI 核查面板（§八） ============ */
+/* 占位壳：v1 只有槽头 + 空态卡，ReviewTimeline / Composer / IssueCard
+   随后续项（§8.4）逐条落地。形态与大纲栏平行——各自独立槽头 + 内容区。 */
+.review-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  transition:
+    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+}
+
+/* panel-clip 左右栏共用（flex:none 保收展动画不挤压），review 内容区
+   同样需要纵向 flex 布局。 */
+.review-panel .panel-clip {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 槽头（§8.3 ①）：标题「AI 核查」+ 关闭。模型选择器（review_model）随
+   Step 4 的语义核查落地。 */
+.review-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 12px 10px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+.review-title-text {
+  letter-spacing: 0.18em;
+}
+
+.review-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.review-close:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+/* 空态引导卡（§8.3 ③）：检查项说明 + 确定性检查计数 + 开始核查钮 */
+.review-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 18px;
+}
+
+.review-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+}
+
+.review-empty-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-empty-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg2);
+  line-height: 1.5;
+}
+
+.review-empty-checks .tag {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg3);
+  color: var(--fg3);
+}
+
+.review-empty-checks .tag.det {
+  color: var(--muted-fg);
+}
+
+/* 确定性检查结果条（已落地的 check_translation IPC 计数） */
+.review-checks-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.review-checks-bar .count {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.review-checks-bar.ok .count {
+  color: var(--accent);
+}
+
+.review-checks-bar.warn .count {
+  color: var(--zhu);
+}
+
+/* 开始核查钮：LLM 未就绪时禁用 + 明示原因（§七.1 R2） */
+.review-start-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s var(--ease),
+    border-color 0.14s var(--ease),
+    color 0.14s var(--ease);
+}
+
+.review-start-btn:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.review-start-btn:disabled {
+  background: var(--bg3);
+  border-color: var(--border);
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+.review-start-hint {
+  font-size: 11px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+
 /* ============ 状态栏 ============ */
 /* 整宽（col 1 / -1）：顶部横线从窗口左缘一路到右缘，与左侧栏/右大纲
    两竖分隔线上下错开，不再出现「页脚横线超出工作区分割线」的 7px 刺出
@@ -266,6 +523,37 @@
 .status-bar .status-dir:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* AI 核查入口（§9.5）：状态栏右端文字按钮，active 跟面板开合。
+   与 .status-dir 同风格——文字钮，hover 才着色，focus-visible 焦点环齐备。
+   面板开关始终可点（无 LLM 也能开面板看历史清单），禁用的是面板内的钮。 */
+.status-bar .status-ai {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.14s var(--ease), background 0.14s var(--ease);
+}
+
+.status-bar .status-ai:hover {
+  color: var(--accent-strong);
+  background: var(--accent-weak);
+}
+
+.status-bar .status-ai:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.status-bar .status-ai.active {
+  color: var(--accent);
 }
 
 /* ============ 分隔线 / 拖宽条 ============ */

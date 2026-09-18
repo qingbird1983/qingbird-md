@@ -60,6 +60,7 @@ export const APP_HOTKEY_IDS = [
   "toggle_view",
   "split_view",
   "palette",
+  "toggle_review",
   "bold",
   "italic",
 ] as const;
@@ -86,6 +87,10 @@ export const HOTKEYS: HotkeyDef[] = [
   { id: "toggle_view", label: "源码 ↔ 预览", def: "Ctrl+E", group: "view" },
   { id: "split_view", label: "分栏视图", def: "Ctrl+\\", group: "view" },
   { id: "palette", label: "命令面板", def: "Ctrl+Shift+P", group: "view" },
+  // AI 核查面板开关（§八）：与 Guanmo 同键。Ctrl+J 在多数软件里是
+  // 「跳转到行」，本应用是 Markdown 编辑器，行跳转由编辑器内部处理，
+  // 应用层这个键空闲。Ctrl+\ 是分栏视图，别顺手接上。
+  { id: "toggle_review", label: "AI 核查面板", def: "Ctrl+J", group: "view" },
 
   // ── 编辑（编辑器聚焦时由 CodeMirror 先处理，这里兜底其余焦点）──
   { id: "bold", label: "加粗", def: "Ctrl+B", group: "edit" },
