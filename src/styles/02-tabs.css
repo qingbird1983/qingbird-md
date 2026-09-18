@@ -1,0 +1,146 @@
+/* ============================================================
+ * 域：标签条（已并入标题栏的 tab bar）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 标签条（已并入标题栏）============ */
+/* 标题栏为 flex：左侧控制组 + 中部标签条(flex:1) + 右侧窗控。标签条占据
+   中部剩余宽度、横向滚动；+ 按钮紧跟最后一个标签（无 margin-left:auto），
+   每新建一个标签就随之后移一个、始终贴在最右标签之后（issue 4）。
+   标签条空白处归入标题栏 data-tauri-drag-region="deep" 的拖拽区（可拖动窗口），
+   而 tab/关闭/新建按钮为 clickable 元素自动豁免走自身点击。 */
+.tabbar {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 6px 0 2px;
+  /* 标签条起点跟随工作区分割线（TitleBar.tsx 算 marginLeft）：收展面板时
+     margin 与面板 width 同步过渡（同时长），视觉上一起滑动。
+     启动动画期（--panel-anim 被 JS 拉到 INTRO_ANIM_MS 时）走 --ease-overshoot，
+     标签条与侧栏一起"先过冲再回弹"——普通收展仍是 ease，不影响手感。 */
+  transition: margin-left var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 200px;
+  min-width: 80px;
+  align-self: flex-end;
+  position: relative;
+  height: calc(100% - 6.5px);
+  padding: 0 6px 6.5px 10px; /* 底部让位：内容仍居中于原 24px 视觉带 */
+  border: none;
+  border-radius: 0;
+  font-size: 12.5px;
+  color: var(--fg3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.13s;
+}
+
+/* 激活指示线占位：默认透明，激活/悬停不跳动 */
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.tab:hover {
+  background: none;
+  color: var(--fg2);
+}
+
+.tab.active {
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.tab.active::after {
+  background: var(--fg); /* 墨色底线：下划线式标签（DESIGN.md §4） */
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--zhu); /* 未保存脏标：朱砂点 */
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.tab-close:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.tab-close:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 新建标签按钮：上下到边、直角（同标题栏其余图标钮），但宽度单独收窄——
+   「+」是次要动作，40px 与标签同宽显得笨重 */
+.tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+}
+
+.tab-add:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}

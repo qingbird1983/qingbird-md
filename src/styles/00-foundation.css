@@ -1,0 +1,48 @@
+/* ============================================================
+ * 域：基础层（tokens / 重置 / 滚动条 / 焦点 / AppShell 网格 / 共用 keyframes）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* 全局视觉层。视觉语言借鉴 SuperMarkdown：三层灰阶铺面、单一蓝紫主色、
+   三档圆角（6/8/12）、大范围柔光投影、宽松留白。布局骨架（#app-shell 网格）
+   与全部类名保持原样——本次只换皮，不动交互契约。 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* AppShell 网格骨架：行 = TitleBar(auto，内嵌标签条) / EditorToolbar auto /
+   中部 1fr / StatusBar auto，
+   列 = 文件栏 auto / 其拖宽条 auto / 大纲栏(左停靠) auto / 其拖宽条 auto /
+        主区 1fr / 大纲栏(右停靠)拖宽条 auto / 大纲栏(右停靠) auto
+   未使用的空列（auto 且无在流项）恒为 0 宽：左停靠时 col6/col7 归零，
+   右停靠时 col3/col4 归零。 */
+#app-shell {
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: auto auto auto auto 1fr auto auto;
+  /* 启动仪式感动画时长（useUiStore INTRO_ANIM_MS 同值，改动两处同步）：
+     playing 时 JS 再把 --panel-anim 内联覆盖成同值，两栏收缩 / 标签条滑动 /
+     欢迎内容放大三者共用一个时长，同时落定。 */
+  --intro-anim: 1280ms;
+  /* 启动动画用的"微弱过冲"曲线——overshoot ≈ 1.32（终点 1，最大幅度 +32%）：
+     侧栏/拖宽条 width 与 tabbar margin 共用，回弹幅度可见但不夸张。
+     欢迎内容另用专属 keyframes（不能用 width 数值曲线）。 */
+  --ease-overshoot: cubic-bezier(0.34, 1.32, 0.64, 1);
+}

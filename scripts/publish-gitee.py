@@ -25,13 +25,16 @@ Pipeline:
     8. upload the installer as a release attachment
 """
 import argparse
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -224,7 +227,7 @@ def extract_notes(version: str, output: Path) -> None:
 # --------------------------------------------------------------------------
 def build_installer() -> None:
     log("[5/7] Building installer: npx tauri build  (this takes several minutes)")
-    proc = subprocess.run("npx tauri build", cwd=REPO_ROOT, shell=True)
+    proc = subprocess.run(["npx", "tauri", "build"], cwd=REPO_ROOT)
     if proc.returncode != 0:
         fail(f"npx tauri build failed with exit code {proc.returncode}")
     log("[5/7] Build finished")
@@ -251,6 +254,65 @@ def stage_installer(version: str) -> Path:
 # --------------------------------------------------------------------------
 # Gitee API
 # --------------------------------------------------------------------------
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Block all HTTP redirects — SSRF defense.
+
+    A redirect could send the request to an internal host even though the
+    original URL pointed at gitee.com. Failing hard on any redirect makes
+    the allowlist check on the *original* URL sufficient.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl, *args):
+        fail(f"refusing HTTP {code} redirect to {newurl} (SSRF defense)")
+
+
+# Install the no-redirect opener once at import time so every urlopen in
+# this module inherits it — callers cannot forget to opt in.
+urllib.request.install_opener(
+    urllib.request.build_opener(_NoRedirectHandler)
+)
+
+
+def _assert_gitee_url(url: str) -> None:
+    """SSRF guard: validate scheme, hostname, and resolved IPs.
+
+    Three layers:
+    1. **Protocol + hostname** via urlparse — rejects non-HTTPS and
+       non-gitee.com hosts, including ``https://gitee.com@evil.com/``.
+    2. **IP resolution** — resolves the hostname and rejects
+       private, loopback, link-local, or reserved addresses (partial
+       DNS-rebinding defense: if the resolved IP is non-public we bail).
+    3. **Redirect blocking** — the module-level ``_NoRedirectHandler``
+      ensures the request never follows a redirect to another host.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "gitee.com":
+        fail(
+            f"refusing non-allowlisted URL "
+            f"(expected https://gitee.com/...): {url}"
+        )
+    # Resolve and reject non-public IPs (DNS rebinding defense).
+    try:
+        infos = socket.getaddrinfo(
+            parsed.hostname, 443, proto=socket.IPPROTO_TCP
+        )
+    except socket.gaierror:
+        fail(f"could not resolve hostname: {parsed.hostname}")
+    for _family, _type, _proto, _canon, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+        ):
+            fail(
+                f"refusing non-public IP {ip} resolved for "
+                f"{parsed.hostname} (SSRF defense)"
+            )
+
+
 def api_request(url: str, method: str, token: str,
                 payload: dict | None = None) -> dict | list | None:
     data = None
@@ -258,6 +320,7 @@ def api_request(url: str, method: str, token: str,
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json; charset=utf-8"
+    _assert_gitee_url(url)
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -272,6 +335,7 @@ def api_request(url: str, method: str, token: str,
 
 def api_upload(release_id: int, token: str, path: Path) -> dict:
     url = f"{API_BASE}/repos/{REPO_OWNER}/{REPO_NAME}/releases/{release_id}/attach_files"
+    _assert_gitee_url(url)
     boundary = "----qingbird" + uuid.uuid4().hex
     payload = path.read_bytes()
     body = b""
@@ -308,6 +372,7 @@ def api_upload(release_id: int, token: str, path: Path) -> dict:
 
 def find_existing_release(tag: str, token: str) -> dict | None:
     url = f"{API_BASE}/repos/{REPO_OWNER}/{REPO_NAME}/releases/tags/{tag}"
+    _assert_gitee_url(url)
     req = urllib.request.Request(url, method="GET",
                                  headers={"User-Agent": "qingbird-md-publisher"})
     try:

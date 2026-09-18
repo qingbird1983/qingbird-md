@@ -32,6 +32,37 @@
 
 ---
 
+## 〇、执行状态盘点（2026-09-18 补，已逐行核对源码）
+
+> 这份文档原先只给第 0 步 / 第 1 步打了 ✅，**第 2 步起没有状态标记**，容易被误读成"全部完成"。以下是用 grep 核对源码后的真实进度。
+
+| 步骤 | 项 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| **第 0 步** 修地基 | H3 方向进缓存键 + bump `PROMPT_VERSION` | ✅ | commit `19364ee` |
+| | H1 `needs_translation()` 方向参数化（三处同步） | ✅ | commit `19364ee` |
+| | B4 注入防御 | ✅ | commit `19364ee` |
+| **第 1 步** 方向贯通 | 4 项（4 个命令 / reset / 状态栏 UI / 参数化模板） | ✅ | v5.3 落地记录 |
+| **第 2 步** 译文另存为 | 7 Rust `export_translation` | ⚠️ **部分** | `cmark.rs:77` **只实现了单语**；计划原文的签名 `(content, translations, mode, policy)` 里 **`mode` / `policy` 两个参数不存在** |
+| | 8 前端入口 + `pickSavePath` + 导出前确认 | ✅ | `lib/exportTranslation.ts`（98 行）、`AppMenu.tsx:197`、快捷键 `Ctrl+Shift+E` |
+| | 9 **双语对照导出** | ❌ **未做** | `exportTranslation.ts:47` 明写"中英对照导出尚未实现"，`ipc.ts:114` 注释要求调用方先断言 `mode === "translation"` |
+| **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ❌ 未做 | 全仓库无 `panel-slot` / `panel-handle` / `showReview` / `reviewWidth` |
+| | 10b 把手与入口改造（状态栏 `AI` 钮） | ❌ 未做 | — |
+| | 11 `ReviewTimeline` | ❌ 未做 | — |
+| | 12 `ReviewComposer` | ❌ 未做 | — |
+| | 13 滚动跟随（四要点） | ❌ 未做 | — |
+| | 14 `ensureReviewPanelOpen()` + `Ctrl+J` | ❌ 未做 | `hotkeyRegistry.ts` 里无 `Ctrl+J` |
+| | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ❌ **未做** | `translate/` 下无任何 check/verify 模块 |
+| | 16 `ReviewIssueCard` | ❌ 未做 | — |
+| **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | ❌ 未做 | 无 `review_model` 字段 |
+| **第 5 步** 重排版规则集 | 22–23 | ❌ 未做 | — |
+
+**结论：真正剩余的是「第 2 步的第 9 项（双语导出）」+「第 3、4、5 步全部」。** 第 3 步的 7 项里，**第 15 项（确定性检查）是纯 Rust、可单测、且直接复用 `data-ri` 索引空间**——它是整个剩余工作的地基（面板建好了没检查可跑也是空的），建议**先做 15，再做 10/10b 的面板外壳**。
+
+**另外一项计划外的技术债值得先评估**（第 3 步会直接压在它上面）：
+`2026-09-16-module-splits.md` 的 P1-2 指出 `src/styles/global.css` 已达 **3590 行**，而 §九 要往里面加 `.panel-slot` / `.panel-handle` / 状态栏 AI 钮。**建议在动 §九 之前先做那次 CSS 拆分**，否则新样式会加进一个已经过大的文件。
+
+---
+
 ## 一、为什么"允许有点不准"在存盘场景失效
 
 用户原话：*"我们现在的翻译是针对阅读设计的。翻译时里面允许有点翻译不准的特例。但是要做互译翻译机，就要加入 AI 助理核查与可能的重排版的功能。"*

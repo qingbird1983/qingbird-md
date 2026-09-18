@@ -1,0 +1,694 @@
+/* ============================================================
+ * 域：主区 + 侧栏外壳 + 文件树 + 右键菜单（2026-09-12 改版后主体）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 主区 ============ */
+.main-area {
+  grid-row: 3;
+  grid-column-start: var(--col-main, 5);
+  /* --main-span: 侧栏显示时=1（占 col5 一列，1fr），侧栏隐藏时=5（占 col1-5
+     吸掉空列）；大纲栏左停靠时恒为 1（col3 有实体面板，不能跨列盖住） */
+  grid-column-end: span var(--main-span, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  position: relative; /* 悬浮进度条（.translation-bar）的定位基准 */
+}
+
+/* T22：工具栏下方的主区视图路由容器（source/preview/split 共用） */
+.main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* 单视图形态：唯一子视图撑满；split 形态左半宽度由内联 flex-basis 驱动 */
+.main-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-body > .resizer {
+  flex: 0 0 7px;
+}
+
+.split-half {
+  overflow: hidden;
+}
+
+/* ============ 侧边栏 ============ */
+/* 左列灰底从菜单栏（row 2 = 工具栏）之下铺到状态栏之上（row 4 / 4，即
+   rows 2-3）。分隔线由 .resizer::before 绘制并与本列同起同止：不再超入
+   标题栏，也不延伸到状态栏底部——页脚横线整宽，与左分隔线无重叠（issue 2）。 */
+.sidebar {
+  grid-row: 2 / 4;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  /* 收展过渡（App.tsx 常挂载 + inline width/opacity 切换）；
+     拖拽调宽时由 body:has(.app-resizer.dragging) 关闭过渡保证跟手
+     启动动画期（--panel-anim 被 JS 拉到 INTRO_ANIM_MS）走 --ease-overshoot：
+     width 终值为正宽（≥ 最小宽），过冲表现为「比最小还窄再弹回最小」——回弹可见。 */
+  transition:
+    width var(--panel-anim, 300ms) var(--ease-overshoot, ease),
+    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+  /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-right——会双线 */
+}
+
+/* 面板内容固定宽容器：收缩时内容只被 overflow 裁切、不被挤压变形。
+   --panel-w 由 App.tsx 写在面板节点上（store 里的栏宽，与显隐无关） */
+.panel-clip {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--panel-w, 240px);
+  height: 100%;
+  min-width: 0;
+}
+
+/* ============ 侧栏（2026-09-12 改版）============
+   自上而下：品牌头 / 细分割线 / 过滤胶囊 / 细分割线 / 最近打开 / 细分割线 / 文件夹区。
+   分区标题沿用 DESIGN.md §3 Micro 微标签（9.5px / .18em 字距）。 */
+
+.ws-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  /* gap/右内边距比 2026-09-12 首版略收：首启默认宽度 = 侧栏最小宽度（≈197px，
+     即上下分割线共线处），这一排预算很紧。实测「Markdown」13px/600 = 65px，
+     四个 26px 图标 + 8px 间距的旧版会把品牌列挤到溢出（文字吃掉间隙贴到图标）。
+     收紧后 197px 下品牌列可用 ≈70px，留 ~4px 余量。左内边距 14px 不动——
+     与下方分区标题左对齐。 */
+  gap: 6px;
+  flex: none;
+  padding: 12px 8px 9px 14px;
+}
+
+.ws-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* nowrap + 省略号：品牌名是单个词，正常换行模式下不会被折断、只会溢出压到图标上。
+   窄栏时宁可截断也不许压图标（够宽时完全不触发）。 */
+.ws-brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 版本号：朱砂小圆点 + vX.Y.Z（与分区微标签同一层级） */
+.ws-brand-ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--fg3);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-brand-dot {
+  width: 4px;
+  height: 4px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--zhu);
+}
+
+.ws-head-acts {
+  display: flex;
+  align-items: center;
+  /* 2 → 1px：同上，窄栏预算压出来的一点缝；静止态无边框、看不出来，
+     hover 底色间只隔 1px，读作一组的紧凑工具条。 */
+  gap: 1px;
+  flex: none;
+}
+
+.ws-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 26 → 24（2026-09-12）：为「首启默认 = 最小宽度 ≈197px」腾出 4×2px。
+     24px 命中区仍在舒适范围，只用于头部四枚按钮（分区标题的钮走各自样式）。 */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ws-icon:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.ws-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 「筛选」开着时给青花底，明确它是开关而不是一次性动作 */
+.ws-icon.on {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* 刷新反馈：图标转一圈（纯视觉，不阻塞） */
+.ws-icon.spin svg {
+  animation: ws-spin 0.5s var(--ease) 1;
+}
+
+@keyframes ws-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 分区细分割线（DESIGN.md：贴面零阴影，层级一律用发丝线） */
+.ws-sep {
+  flex: none;
+  height: 1px;
+  margin: 0 10px;
+  background: var(--sep-bg);
+}
+
+/* ── 过滤胶囊行：胶囊 + 右端图标槽 ── */
+.ws-searchwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 8px 10px;
+}
+
+.ws-filter {
+  flex: 1;
+  min-width: 0;
+  /* 右内边距给图标槽让位，避免长文本压到放大镜上 */
+  padding: 5.5px 30px 5.5px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill); /* 胶囊搜索框（DESIGN.md §4 Inputs） */
+  background: var(--surface);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ws-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+
+/* 图标槽：贴在胶囊右端内侧。无词时是放大镜（纯指示），有词时换成清空钮 */
+.ws-filter-ico {
+  position: absolute;
+  right: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--fg3);
+  pointer-events: none;
+}
+
+.ws-filter-ico.clear {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.ws-filter-ico.clear:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+/* ── 分区：标题行 + 一键清除 ── */
+.ws-sec {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+.ws-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 10px 10px 4px 14px;
+}
+
+.ws-sec-title {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+/* 一键清除：hover 上朱砂淡底提示「这是移除类动作」 */
+.ws-sec-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ws-sec-clear:hover:not(:disabled) {
+  background: var(--zhu-wash);
+  color: var(--danger);
+}
+
+.ws-sec-clear:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ws-sec-empty {
+  flex: none;
+  padding: 4px 14px 8px;
+  font-size: 11.5px;
+  color: var(--fg3);
+}
+
+/* ── 最近打开列表（上限 10 条，恒全量铺开、不滚动）──
+   条数由 useRecentStore.RECENT_MAX=10 封顶，10 行 ≈ 236px；下方文件夹区
+   （.ws-folders flex:1）吸收剩余高度。窗口最小高 600，扣除上下骨架约 110px
+   后仍留 ~150px 给文件夹区，故不需要滚动兜底——原 max-height:172px 只够
+   显示 7 行、多出的部分靠滚动条看，已按要求去掉（2026-09-14）。 */
+.ws-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 6px;
+  flex: none;
+}
+
+.ws-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--fg2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ws-item:hover,
+.ws-item.on {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.ws-item-ico {
+  flex: none;
+  color: var(--fg3);
+}
+
+.ws-item.on .ws-item-ico {
+  color: var(--accent);
+}
+
+.ws-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 父目录末级名：同名文件消歧用，右对齐弱化 */
+.ws-item-dim {
+  flex: none;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--fg3);
+}
+
+/* ── 文件夹区：占满剩余高度，树区自滚 ── */
+.ws-folders {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ws-folder {
+  flex: none;
+}
+
+/* 文件夹行：比树行重一档（名称 500 字重 + 墨色），是「根」的视觉锚点 */
+.ws-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 1px 8px 2px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ws-folder-head:hover {
+  background: var(--item-hover-bg);
+}
+
+.ws-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 路径不可用（目录被移动/删除）：条目保留但置灰 + 红色小标签 */
+.ws-folder.bad .ws-folder-head {
+  color: var(--fg3);
+  cursor: default;
+}
+
+.ws-folder-bad {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--zhu-wash);
+  color: var(--danger);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+/* 文件夹行之下再退一级缩进，区分「根」与其内容 */
+.ws-folder .tree-root {
+  padding-left: 12px;
+}
+
+button.menu-btn:disabled,
+.ws-filter:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 树列表：占据剩余高度自成滚动容器 */
+.tree-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
+.tree-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.tree-row:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.tree-row[aria-selected="true"] {
+  position: relative;
+  background: var(--tree-selected-bg);
+  color: var(--accent-strong);
+  font-weight: 500;
+  /* cloud 浮起 + 内描边发丝线（DESIGN.md §4 Navigation） */
+  box-shadow: 0 1px 3px var(--shadow-xs), inset 0 0 0 1px var(--border);
+}
+
+/* 选中行左缘青花标：工作区里「当前文稿」的唯一色彩指示 */
+.tree-row[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tree-row[aria-selected="true"] .tree-icon {
+  color: var(--accent);
+}
+
+.tree-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--caret-fg);
+}
+
+/* 展开时箭头顺时针转 90°（lucide ChevronRight 的 className 直接落在 svg 上） */
+.tree-caret .caret-open {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.tree-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--fg3);
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 空态 */
+.ws-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 16px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.ws-empty .modal-btn {
+  padding: 5px 14px;
+}
+
+/* ---- 文件树改版（2026-09-12）---- */
+/* 树区自身做滚动容器：panel-clip 是 flex 列，树区吃掉剩余高度。
+   （与大纲同款：flex:1 + min-height:0 需要有 flex 父级才生效） */
+.ws-tree-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ws-tree-area .tree-root {
+  flex: none;
+  overflow: visible;
+}
+
+/* 空态：图标 + 文案 + 主按钮 + 快捷键提示 */
+.ws-empty .ws-empty-btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ws-empty .ws-empty-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
+}
+
+.ws-empty-tip {
+  font-size: 11px;
+  color: var(--fg3);
+  letter-spacing: 0.02em;
+}
+
+/* 树行 hover 操作条：默认隐藏，行 hover / 键盘聚焦时浮现 */
+.tree-acts {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  flex: none;
+}
+
+.tree-row:hover .tree-acts,
+.tree-row:focus-within .tree-acts {
+  display: inline-flex;
+}
+
+.tree-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.tree-act:hover {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.tree-act.danger:hover {
+  color: var(--danger);
+}
+
+/* 行内重命名输入 */
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+/* ---- 右键菜单（树 / 预览共用）---- */
+/* 外层只做锚定与关闭，pointer-events:none 让下层元素仍可点（点外部即关） */
+.ctx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.menu-pop.ctx-pop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  padding: 4px;
+  min-width: 168px;
+}
+
+.menu-pop.ctx-pop .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.menu-pop.ctx-pop .menu-item:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.menu-pop.ctx-pop .menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-pop.ctx-pop .menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-pop.ctx-pop .menu-item-arrow {
+  margin-left: auto;
+  color: var(--fg3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* 快捷键提示（右键菜单右侧对齐的浅色小字）。用文本而非 kbd 立体键帽：
+   桌面应用里键帽样式噪音大，浅色等宽感小字更贴「纸上」体系 */
+.menu-pop.ctx-pop .menu-item-kbd {
+  margin-left: auto;
+  padding-left: 18px;
+  color: var(--fg3);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* kbd 已吃掉 margin-left:auto；紧跟其后的子菜单箭头只需一个小间距 */
+.menu-pop.ctx-pop .menu-item-kbd + .menu-item-arrow {
+  margin-left: 8px;
+}

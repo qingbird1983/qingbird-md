@@ -1,0 +1,160 @@
+/* ============================================================
+ * 域：视图层：编辑器 + 预览 + 回到顶部
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 编辑器 ============ */
+.editor-cm {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor {
+  height: 100%;
+  font-size: 13px; /* DESIGN.md §3 Code 层：等宽 13px（原 15px） */
+  background: var(--bg);
+}
+
+.editor-cm .cm-editor.cm-focused {
+  outline: none; /* 焦点态由 caret 与选区表达，去掉默认蓝框 */
+}
+
+.editor-cm .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.8;
+  padding: 10px 0 30vh;
+}
+
+.editor-cm .cm-content {
+  padding: 0 24px 0 8px;
+  caret-color: var(--accent);
+}
+
+/* 明暗由 oneDark compartment 接管暗色；亮色下把行号槽融进纸面 */
+.editor-cm .cm-gutters {
+  border-right: none;
+  background: transparent;
+  color: var(--fg3);
+}
+
+.editor-cm .cm-activeLineGutter {
+  background: transparent;
+  color: var(--fg2);
+}
+
+/* ============ 预览 ============ */
+.preview-scroll {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+/* 正文宽度拖宽把手（DSH 式）：preview-wrap 定位基准，热区贴正文栏左右边缘。
+   • 热区 20px 全高全透明（原 8px 用户反馈太窄），cursor col-resize；
+     药丸 ::after 4x140 梭形（border-radius 50% 椭圆 = 中间粗两头尖）跟随指针 Y
+     （--pill-y 由 onPointerMove 直写，钳在热区内），hover 淡入；灰色系，
+     拖拽中深一档灰（用户反馈：不要蓝色）。
+   • .dragging 由 lib/colDrag 开关——capture 下 :hover 随指针漂移失效，不能只靠它。
+   • 位置与正文栏吃同一个 --qb-content-w：左缘 50%-w/2、右缘 50%+w/2，
+     热区自身 20px 宽（-10px 回拉半宽），与栏边缘对齐。 */
+.preview-wrap {
+  position: relative;
+  height: 100%;
+}
+
+.content-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.content-resizer.left {
+  left: calc((100% - var(--sb-w, 0px)) / 2 - var(--qb-content-w, 794px) / 2 - 10px);
+}
+
+.content-resizer.right {
+  left: calc((100% - var(--sb-w, 0px)) / 2 + var(--qb-content-w, 794px) / 2 - 10px);
+}
+
+.content-resizer::after {
+  content: "";
+  position: absolute;
+  top: var(--pill-y, 50%);
+  left: 50%;
+  width: 4px;
+  height: 140px;
+  border-radius: 50%; /* 椭圆：中间最粗、两头渐收成尖 */
+  background: var(--bg3);
+  box-shadow: 0 0 0 1px var(--border);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  pointer-events: none;
+}
+
+.content-resizer:hover::after,
+.content-resizer.dragging::after {
+  opacity: 1;
+}
+
+/* 回到顶部（2026-09-14）：滚过一屏后右下角淡入的圆形按钮。
+   定位基准 .preview-wrap；右缘让开经典滚动条——--sb-w 由 PreviewView 实测写入
+   （滚动条宽 = offsetWidth − clientWidth），所以是 16px + 滚动条宽，否则按钮被
+   滚动条压住。隐藏态用 visibility:hidden 而不是只给 opacity:0——看不见的东西
+   不该留在命中测试里；transition 带上 visibility 让淡出也能走完（不会突然消失）。 */
+.preview-top {
+  position: absolute;
+  right: calc(16px + var(--sb-w, 0px));
+  bottom: 18px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--fg2);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  box-shadow: var(--shadow-sm);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0.18s,
+    color 0.14s, border-color 0.14s;
+}
+
+.preview-top.on {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.preview-top:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
+}
+
+.content-resizer.dragging::after {
+  background: var(--border-strong); /* 拖拽中深灰，不再用 accent 蓝 */
+  box-shadow: none;
+}

@@ -1,17 +1,31 @@
+# ---- 构建产物 ----
 /target
+/dist
 /release
-/tools
+/src-tauri/gen
+
+# ---- 依赖 ----
+node_modules/
+# 本项目用 pnpm，npm 产物不该出现
+package-lock.json
+# pnpm 内容寻址存储（本地缓存，可重建）
+.pnpm-store/
+
+# ---- 本地产物 / 备份 ----
 Cargo.lock.orig
 *.log
 
+# ---- 工具与工作区（非源码，本地保留） ----
+/tools
 /.worktrees
 /.superpowers
-/src-tauri/gen
-node_modules/
-dist/
 /.workbuddy/
-/package-lock.json
-/%SystemDrive%/
-/.pnpm-store/
-/.pnpm-store
-.zcode/
+/.zcode/
+# mimosa 安全扫描器产物（历史 / hook-state / finding-ledger）
+.mimosa/
+# 本地草稿与对照基线（CSS 拆分等价核对快照、issue 拆解笔记）
+.scratch/
+
+# ---- 脚本意外建出的目录（防护，防止再次进版本库） ----
+%SystemDrive%/
+NVIDIA Corporation/

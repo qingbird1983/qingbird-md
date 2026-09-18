@@ -19,7 +19,11 @@ import type {
   LookupDeltaPayload,
   TranslateStart,
   SessionSnapshot,
+  Issue,
 } from "../types/ipc";
+
+/** Step 2 导出模式：单语译文 vs 双语对照。键空间完全不同（见 ExportMode 说明）。 */
+export type ExportMode = "translation" | "bilingual";
 
 export const api = {
   // ---- 文件 ----
@@ -108,13 +112,39 @@ export const api = {
     }),
   stopTranslation: () => invoke<void>("stop_translation"),
   /**
-   * 译文另存为（Step 2，单语）：translations 的 key 是 `data-ri` run 空间，
-   * 与 translateDocument 的收集共用同一索引空间。**只有单语（translation）
-   * 模式的表才是 run 空间**——双语模式的 key 是块号，传进来会整体错位，
-   * 所以调用方必须先断言 mode === "translation"。
+   * 译文另存为（Step 2）：`mode` 决定 `translations` 的 key 索引空间——
+   * - `"translation"`（默认、单语）：key = `data-ri` run 空间，方向无关，
+   *   与 translateDocument 的收集共用同一索引空间。
+   * - `"bilingual"`（对照，§五 第 2 步 #9）：key = `data-bi` 块空间，方向相关
+   *   ——哪些块"可译"取决于翻译方向，所以 `targetLang` 必须传入。后端用它
+   *   判定"这一块是不是该出译文、出译文时用哪个块号"。
+   *
+   * 调用方必须在调用前断言 `mode === useTranslationStore.lastRunMode`
+   * （见 `exportGate` 的 lastRunMode 检查）——否则会拿到「每段都对不上」
+   * 的错位文件。这是单语/双语共用同一 IPC 命令、却各自有独立键空间
+   * 的代价：判据必须在调用方做掉，不能让后端猜。
    */
-  exportTranslation: (c: string, translations: Array<[number, string]>) =>
-    invoke<string>("export_translation", { content: c, translations }),
+  exportTranslation: (
+    c: string,
+    translations: Array<[number, string]>,
+    mode: ExportMode,
+    targetLang: TargetLang,
+  ) =>
+    invoke<string>("export_translation", {
+      content: c,
+      translations,
+      mode,
+      targetLang,
+    }),
+
+  /**
+   * 确定性检查（Step 3 #15）：漏译 / 标记丢失 / 结构不对等 / 代码被侵入
+   * 四类同时返回。零 AI 成本；面板拿这份数据决定要展示哪些 issue、要
+   * 追问 AI 哪几条。**translations 的 key 是 `data-ri` run 空间**——与
+   * translateDocument 的收集共用同一索引空间（同 exportTranslation 的约束）。
+   */
+  checkTranslation: (c: string, translations: Array<[number, string]>) =>
+    invoke<Issue[]>("check_translation", { content: c, translations }),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
   lookupWord: (t: string, c: Record<string, string>) =>

@@ -1,0 +1,178 @@
+/* ============================================================
+ * 域：浮窗：划词翻译浮窗（spec 2026-08-29 §8.2）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 划词翻译浮窗 ============ */
+/* 旧版 egui CENTER_TOP [0,44] 锚点的 web 等价：fixed 顶部居中；
+   max-width/height 即视口钳制，结果超高滚动。 */
+.sel-pop {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  /* 居中用独立 translate 属性而非 transform：pop-in/modal-in 关键帧声明的
+     transform 播放期间会覆盖 translateX(-50%)，导致浮窗先右偏半宽再跳回居中。 */
+  translate: -50% 0;
+  z-index: 1100;
+  max-width: min(480px, calc(100vw - 24px));
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: pop-in 0.14s ease;
+}
+
+.sel-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.sel-pop-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg3);
+  letter-spacing: 0.04em;
+}
+
+.sel-pop-clear {
+  background: none;
+  border: none;
+  color: var(--fg3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sel-pop-clear:hover {
+  color: var(--accent);
+}
+
+.sel-pop-src {
+  max-height: 8em;
+  overflow-y: auto;
+  color: var(--note-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-sep {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--sep-bg);
+}
+
+.sel-pop-res {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-pop-spin {
+  width: 16px;
+  height: 16px;
+  margin: 4px 0;
+  border: 2px solid var(--tr-track-bg);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sel-pop-rot 0.8s linear infinite;
+}
+
+@keyframes sel-pop-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- 选区查词富卡片（spec 2026-08-29 §8.2，卡片 A 纵向层级）----
+   纸片词典卡观感（DESIGN.md §4 / mockup-v2 .sel-pop）：词头衬线、
+   释义青花、词性弱 chip。 */
+.sel-pop-err {
+  color: #e06c75; /* 亮暗主题均可读的错误红，不依赖主题变量 */
+}
+
+.sel-pop-wordhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sel-pop-term {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.sel-pop-phon {
+  color: var(--fg3);
+  font-variant-numeric: tabular-nums;
+}
+
+.sel-pop-pos {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg2);
+  color: var(--fg3);
+  letter-spacing: 0.04em;
+}
+
+.sel-pop-main {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--accent-strong); /* 释义青花文字态 */
+}
+
+.sel-pop-usage {
+  margin-top: 8px;
+  color: var(--note-fg);
+}
+
+.sel-pop-block {
+  margin-top: 10px;
+}
+
+.sel-pop-terms {
+  border-top: 1px dashed var(--sep-bg);
+  padding-top: 8px;
+}
+
+.sel-pop-label {
+  font-size: 11px;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+
+.sel-pop-example {
+  margin-top: 5px;
+}
+
+.sel-pop-en em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.sel-pop-zh {
+  color: var(--fg3);
+}
+
+.sel-pop-termrow {
+  margin-top: 4px;
+}
+
+.sel-pop-termexp {
+  color: var(--fg3);
+}

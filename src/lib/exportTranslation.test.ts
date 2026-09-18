@@ -23,17 +23,17 @@ describe("exportGate", () => {
     expect(exportGate({ ...base, hasDoc: false }).ok).toBe(false);
   });
 
-  // 这条是**正确性**而不是体验问题：只有单语模式的译文表才是 run 空间
-  // （data-ri），双语模式的 key 是块号。当 run 号传进导出命令不会报错，
-  // 只会产出「每段都对不上」的文件——所以必须在入口挡住。
-  it("双语模式不放行（表是块空间，当 run 空间用会整体错位）", () => {
-    const g = exportGate({ ...base, mode: "bilingual" });
-    expect(g.ok).toBe(false);
-    expect(g.reason).toContain("中英对照");
+  // §五 第 2 步 #9：双语对照导出后端已实现（translate::export::export_bilingual），
+  // 入口必须放行——「未实现」的红字提示要在这里消失。
+  it("双语模式放行（对照导出后端已实现）", () => {
+    const g = exportGate({ ...base, mode: "bilingual", lastRunMode: "bilingual" });
+    expect(g.ok).toBe(true);
+    expect(g.reason).toBe("");
   });
 
   it("原文模式不放行", () => {
     expect(exportGate({ ...base, mode: "original" }).ok).toBe(false);
+    expect(exportGate({ ...base, mode: "original" }).reason).toContain("原文");
   });
 
   it("翻译进行中不放行（表还在长，导出去是半成品）", () => {
@@ -49,9 +49,17 @@ describe("exportGate", () => {
   });
 
   // mode 是立刻变的，换挡后的重译是异步的。只查 mode 会在这一瞬间放行，
-  // 而那时表还是上一档的键空间 → 导出错位文件。两条必须同时成立。
+  // 而那时表还是上一档的键空间 → 导出错位文件（单语/双语两套键空间）。
+  // lastRunMode 是「表与当前模式同源」的最后一道卡口——必须守住。
   it("刚切过模式、表还没重译完时不放行", () => {
     const g = exportGate({ ...base, lastRunMode: "bilingual" });
+    expect(g.ok).toBe(false);
+    expect(g.reason).toContain("刚切换");
+  });
+
+  // 双语模式自己也要验 lastRunMode 卡口——单语切到双语、表还在原空间。
+  it("双语模式 + 单语表（lastRunMode=translation）不放行", () => {
+    const g = exportGate({ ...base, mode: "bilingual", lastRunMode: "translation" });
     expect(g.ok).toBe(false);
     expect(g.reason).toContain("刚切换");
   });

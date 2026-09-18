@@ -61,13 +61,29 @@ use super::model::{Block, Inline};
 /// `parse_blocks` 刻意丢弃 MetadataBlock（元数据不进正文模型，阅读器与翻译器
 /// 都不消费它），但「译文另存为」产出的是**交付物**——把 title/author 丢掉
 /// 属于内容损失，不是格式规范化。这里用同一套解析开关把那一块切出来原样拼回。
-fn front_matter(content: &str) -> Option<&str> {
+pub fn front_matter(content: &str) -> Option<&str> {
     use pulldown_cmark::{Event, Parser, Tag};
     let mut it = Parser::new_ext(content, super::model::options()).into_offset_iter();
     match it.next() {
         Some((Event::Start(Tag::MetadataBlock(_)), r)) => Some(&content[r]),
         _ => None,
     }
+}
+
+/// 渲染**单个** Block 为 Markdown（不带任何译文替换）。
+///
+/// 给「双语对照导出」用：调用方自己控制"每块出完原文再出译文"的节奏，
+/// 而不需要把整篇都过一次 `Md::blocks`、再回头找位置插译文（那会破坏
+/// 列表/引用块的"整段拿到再逐行加前缀"逻辑）。这里 `sub` 是空表 + 单独的
+/// `Md` 实例，所以不会污染任何外部状态——每次调用都是独立的。
+pub fn render_block_for_export(b: &Block) -> String {
+    let empty: HashMap<usize, String> = HashMap::new();
+    let mut md = Md {
+        sub: &empty,
+        sub_counter: 0,
+        out: String::new(),
+    };
+    md.block(b)
 }
 
 /// 译文另存为（单语）。`translations` 的 key 是 run 索引（`data-ri` 空间）。

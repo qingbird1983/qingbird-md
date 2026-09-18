@@ -264,3 +264,27 @@ export interface SessionSnapshot {
   workspace_root: string | null;
   ui: SessionUi | null;
 }
+
+// ---- 确定性检查（translate/check.rs 端到端） ----
+//
+// 字段顺序 / 命名必须与 Rust 端 `Issue` 严格一致；守卫测试见
+// src/lib/checkTranslation.test.ts。任何一边的字段改名 / 加删都会立刻变红。
+
+export type IssueKind =
+  | "OmittedUntranslated"
+  | "EchoOfSource"
+  | "MarksLost"
+  | "StructureMismatch"
+  | "CodeInvaded";
+
+export type Severity = "Warning";
+
+export interface Issue {
+  run: number;
+  kind: IssueKind;
+  severity: Severity;
+  src_excerpt: string;
+  dst_excerpt: string;
+  src_line: number;
+  dst_line: number;
+}

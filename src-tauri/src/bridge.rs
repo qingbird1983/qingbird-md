@@ -462,23 +462,52 @@ pub fn render_translated(
     ))
 }
 
-/// 译文另存为（Step 2，单语）：把当前译文表落成 Markdown 文本。
+/// 译文另存为（Step 2）：把当前译文表落成 Markdown 文本。
 ///
 /// **不写盘**——落盘走前端 `pick_save_path` + `save_file`，与「导出 HTML」
 /// 同一套路，本命令只负责「translations → md 字符串」这一件事。
 ///
-/// `translations` 的 key 是 `data-ri` run 空间，与 `translate_document` 的
-/// 收集、`render_translated` 的收口**共用同一索引空间**；序列化侧的遍历顺序
-/// 与计数规则由 `markdown::cmark` 保证与 `units::collect_text_runs` 逐位一致
-/// （见该文件模块注释与 `export_run_space_*` 守卫测试）。
+/// `mode ∈ {"translation", "bilingual"}`：
+/// - **translation**（默认、单语）：`translations` 的 key 是 `data-ri` run
+///   空间，与 `translate_document` 的收集、`render_translated` 的收口**共用
+///   同一索引空间**；序列化侧的遍历顺序与计数规则由 `markdown::cmark` 保证
+///   与 `units::collect_text_runs` 逐位一致（见该文件模块注释与
+///   `export_run_space_*` 守卫测试）。**不需要 target_lang**——
+///   `data-ri` 是方向无关的（`Inline::Text` 恒占号）。
+/// - **bilingual**（对照）：`translations` 的 key 是 `data-bi` 块空间，
+///   **方向相关**——哪些块"可译"取决于翻译方向。所以 `target_lang` 必须传，
+///   导出侧用它来判定"这一块是不是该出译文、出译文时用哪个块号"。
 ///
-/// 刻意**不收 `target_lang`**：导出不做"该不该译"的判定，只做替换——
-/// 表里有译文就换、没有就保留原文。方向已经隐含在这张表里了（它由某个
-/// 方向的收集产生），多收一个方向参数反而是第三个可能不一致的判据。
+/// `target_lang` 在 `mode == "translation"` 时忽略（避免冗余参数成为第三个
+/// 可能漂的判据）；`mode == "bilingual"` 时**强制要求**——前端调用前已断言
+/// `mode === lastRunMode`，这里再校验一次避免前端漏传。
 #[tauri::command(async)]
-pub fn export_translation(content: String, translations: Vec<(usize, String)>) -> String {
+pub fn export_translation(
+    content: String,
+    translations: Vec<(usize, String)>,
+    mode: String,
+    target_lang: String,
+) -> String {
     let map: HashMap<usize, String> = translations.into_iter().collect();
-    markdown::cmark::export_translation(&content, &map)
+    match mode.as_str() {
+        "bilingual" => {
+            let target = translate::engine::TargetLang::from_tag(&target_lang);
+            translate::export::export_bilingual(&content, &map, target)
+        }
+        // 默认（含 `"translation"` 与未知值）走单语路径——前端调用前已用
+        // `exportGate` 卡住，这里兜底"单语"避免误传让用户拿到空文件
+        // （参 §五 第 2 步 #8 的判据：导出必走收集侧的索引空间）。
+        _ => markdown::cmark::export_translation(&content, &map),
+    }
+}
+
+#[tauri::command]
+pub fn check_translation(
+    content: String,
+    translations: Vec<(usize, String)>,
+) -> Vec<translate::check::Issue> {
+    let map: HashMap<usize, String> = translations.into_iter().collect();
+    translate::check::check_translation(&content, &map)
 }
 
 fn spawn_translation(

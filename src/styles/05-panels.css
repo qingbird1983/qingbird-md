@@ -1,0 +1,362 @@
+/* ============================================================
+ * 域：面板与外延：左侧大纲 + 状态栏 + 分隔/拖宽条
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 大纲 ============ */
+.outline-panel {
+  grid-row: 3;
+  /* 右停靠 = col7（窗口右缘）；左停靠 = col3（吸附在工作区左缘，见 .dock-left） */
+  grid-column: 7;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  /* 收展过渡（同 .sidebar 的 opacity 部分）。
+     **width 不走过渡曲线**——大纲栏默认要「收到 0」时，过渡曲线过冲会把
+     width 推到负值被钳为 0，看不到回弹。改用专属 keyframes intro-out-collapse：
+     前 80% 收到 0，末段 86%→100% 间先弹一小条再收尽，配合 opacity 末段淡出，
+     收缩到位后能"闪"一下微弱回弹。armed 期靠 inline style 把 width 钉在
+     INTRO_FROM_WIDTH 上保持起始态。 */
+  transition:
+    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+  animation: none;
+  /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
+}
+
+/* 左停靠：吸附在工作区左缘（侧栏拖宽条之后），拖宽条换到 col4 */
+.outline-panel.dock-left {
+  grid-column: 3;
+}
+
+/* T19：大纲面板 —— 标题微标签 + 缩进列表 */
+/* panel-clip 左右栏共用（flex:none 保收展动画不挤压），但大纲列表依赖
+   flex 布局做滚动（flex:1 + min-height:0），故仅在大纲侧开启纵向 flex，
+   不影响左侧栏。 */
+.outline-panel .panel-clip {
+  display: flex;
+  flex-direction: column;
+}
+
+.outline-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 12px 10px 6px 14px;
+  /* 标题下的细分割线（DESIGN.md：贴面零阴影，层级一律用发丝线） */
+  border-bottom: 1px solid var(--border);
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+.outline-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  /* 微标签带字距，按钮内图标不需要——归零防图标被推开 */
+  letter-spacing: 0;
+}
+
+.outline-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.outline-tool:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.outline-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 6px 14px;
+  list-style: none;
+}
+
+.outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  /* 大纲用内置思源宋体，与预览正文同源（仅 400/700 两个实字重） */
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 级别区分：H1 加重加大、H2 标准墨色、H3+ 退后一档 */
+.outline-item.outline-lv1 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.outline-item.outline-lv2 {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--fg);
+}
+.outline-item.outline-lv3,
+.outline-item.outline-lv4,
+.outline-item.outline-lv5,
+.outline-item.outline-lv6 {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg3);
+}
+
+.outline-item:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+/* 展开/收缩小箭头：有子级才渲染，收缩时左转 90°；flex 对齐占位 */
+.outline-toggle {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--fg3);
+  cursor: pointer;
+}
+.outline-toggle:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+.outline-toggle svg {
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.outline-item.is-collapsed .outline-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* H1-H6 级别徽章 —— 已按要求从大纲移除，display:none 防回退 */
+.outline-badge {
+  display: none;
+  flex: none;
+  min-width: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--muted-fg);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.outline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+}
+
+/* ============ 状态栏 ============ */
+/* 整宽（col 1 / -1）：顶部横线从窗口左缘一路到右缘，与左侧栏/右大纲
+   两竖分隔线上下错开，不再出现「页脚横线超出工作区分割线」的 7px 刺出
+   （issue 2/3 的页脚部分）。 */
+.status-bar {
+  grid-row: 4;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: var(--h-statusbar);
+  padding: 0 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  /* 页脚底色与工作区(侧栏灰底)一致，避免底部一条突兀的白条 */
+  background: var(--bg2);
+  color: var(--status-fg);
+  user-select: none;
+}
+
+.status-bar > .status-left,
+.status-bar > .status-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* 路径段可收缩出省略号，其余段保持完整不缩 */
+.status-bar .status-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-bar .status-right > span {
+  flex: none;
+}
+
+.status-dot {
+  color: var(--zhu); /* 未保存：朱砂（DESIGN.md §2 语义铁律） */
+}
+
+/* 翻译方向切换（中 ⇄ 英）。状态条里**唯一的可点段**，其余都是纯展示。
+   做成文字钮而不是胶囊：它表达的是一个偏好值（当前译成哪种语言），不是
+   开/关状态——用胶囊会读成"这个开关是开的"。hover 才着色，避免在满行
+   小字里显得抢眼；focus-visible 给足键盘可达性。 */
+.status-bar .status-dir {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.14s var(--ease), background 0.14s var(--ease);
+}
+
+.status-bar .status-dir:hover {
+  color: var(--accent-strong);
+  background: var(--accent-weak);
+}
+
+.status-bar .status-dir:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ============ 分隔线 / 拖宽条 ============ */
+/* 1px 发丝线居中于 7px 热区，既是分隔也是拖柄；悬停/拖拽中加深提示
+   （.dragging 由 lib/colDrag 开关——capture 下指针会漂出热区，:hover 不可靠）。 */
+.resizer {
+  position: relative;
+  cursor: col-resize;
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.resizer:hover::before,
+.resizer.dragging::before {
+  background: var(--resizer-hover); /* 拖柄提示用墨灰，不掺青花（DESIGN.md 色彩铁律） */
+}
+
+/* 面板拖宽条（App 壳层左右栏与主区之间）
+   • 左侧 .res-left：行向 2 / 4（从工具栏顶到状态栏顶，与左侧栏灰底同起同止）
+     ——不再超入标题栏，也不下探到页脚（issue 2）。
+   • 右侧 .res-right：仅占 row 3（主区行）——上不越工具栏、下不越页脚，
+     与大纲面板同高（issue 3）。
+   • 隐藏工作区/大纲时整个 .app-resizer 跟着不被渲染。
+   • 中间编辑器/预览那条 resizer（.main-body > .resizer）不走这条规则。
+   • 分线由各自 ::before 沿内缘绘制：左条线贴右缘（col 2 / col 3 边 —— 正好
+     是工具栏底部分割线与主区左缘的交汇位，使工具栏分割线「顶到」工作区分割线）；
+     右条线贴左缘（col 3 / col 4 边）。
+   • res-left 拖拽条涂 --bg2，与侧栏灰底(col1)连成一体 —— 既让「底色与分割线
+     对齐」（线贴在灰底右缘、无 7px 留白），又不影响拖拽热区。 */
+.app-resizer {
+  width: 7px;
+  background: transparent;
+  /* 跟随面板收展：隐藏态 width/opacity 归零（App.tsx inline style 切换），
+     让 1fr 主区逐帧吸收空列而不是跳变。拖宽条终值是 0，过冲宽度被钳 0
+     看不出回弹，沿用 ease 即可；灵动性交给侧栏/大纲栏/标签条去体现。 */
+  transition:
+    width var(--panel-anim, 300ms) ease,
+    opacity var(--panel-anim, 300ms) ease;
+}
+
+/* 拖宽条拖拽中：面板宽度过渡必须关闭，否则 store 宽度逐帧更新会被 300ms
+   缓动吞掉，拖拽严重迟滞。:has 从 resizer 的 .dragging 反向通知两个面板；
+   标签条的 margin 跟随同理（拖宽时要实时贴分割线，不走过渡） */
+body:has(.app-resizer.dragging) .sidebar,
+body:has(.app-resizer.dragging) .outline-panel,
+body:has(.app-resizer.dragging) .app-resizer,
+body:has(.app-resizer.dragging) .tabbar {
+  transition: none;
+}
+
+.app-resizer.res-left {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  /* 把 7px 拖拽条涂成与左侧栏相同灰底 —— 侧栏灰底(col1)+此条(col2)连成一体，
+     右缘即工作区分割线，既「底色与分割线对齐」又让线贴在灰底右缘（消除留白）。 */
+  background: var(--bg2);
+}
+
+.app-resizer.res-right {
+  grid-column: 6;
+  grid-row: 3;
+}
+
+/* 大纲栏左停靠时的拖宽条（col4，贴面板右缘 = 工作区左缘） */
+.app-resizer.res-olutl {
+  grid-column: 4;
+  grid-row: 3;
+}
+
+/* 左条线贴右缘（col 2 / col 3 边）——正好是工具栏底部分割线与主区左缘的
+   交汇位，让工具栏分割线「顶到」工作区分割线；右条线贴左缘（col 5 / col 6 边）。 */
+.app-resizer.res-left::before {
+  left: auto;
+  right: 0;
+}
+
+.app-resizer.res-right::before {
+  left: 0;
+}
+
+/* 左停靠大纲栏的条：面板在条左侧，线贴条右缘（朝向主区） */
+.app-resizer.res-olutl::before {
+  left: auto;
+  right: 0;
+}

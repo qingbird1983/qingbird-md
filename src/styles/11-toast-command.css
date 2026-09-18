@@ -1,0 +1,211 @@
+/* ============================================================
+ * 域：命令面板（⌘K）+ 底部 Toast 堆叠
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 命令面板 ============ */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  background: var(--backdrop-weak);
+}
+
+.palette {
+  position: absolute;
+  top: 14vh;
+  left: 50%;
+  /* 居中用独立 translate 属性而非 transform：modal-in 关键帧的 transform
+     播放期间覆盖 translateX(-50%)，面板会先右偏半宽、0.14s 后跳回居中。 */
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 160px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: modal-in 0.14s ease;
+}
+
+.palette-input {
+  flex: none;
+  margin: 0;
+  padding: 14px 18px;
+  font: inherit;
+  font-size: 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+
+.palette-input::placeholder {
+  color: var(--placeholder-fg);
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-item[aria-selected="true"] {
+  background: var(--palette-selected-bg);
+  color: var(--accent);
+}
+
+.palette-empty {
+  padding: 20px;
+  color: var(--muted-fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* ============ Toast ============ */
+/* 底部居中堆叠（对齐 SuperMarkdown 的 .toast），kind 以左侧色条区分 */
+.toast-stack {
+  position: fixed;
+  left: 50%;
+  bottom: 48px; /* StatusBar 之上 */
+  transform: translateX(-50%);
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  word-break: break-word;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast-info {
+  border-left-color: var(--accent);
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- 滚动条淡显淡出：静止时完全隐形，滚动中渐显，停止渐隐 ----
+   --sb-thumb 注册为可过渡的 <color>（@property，WebView2/Chromium 85+），
+   滚动条伪元素继承宿主的该变量；.scrolling 由 main.tsx 的全局 scroll 委托
+   在滚动开始时加上、停止约 900ms 后摘除，过渡随宿主 transition 渐变。 */
+@property --sb-thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+.tree-root,
+.outline-list,
+.preview-scroll,
+.editor-cm .cm-scroller,
+.modal-body,
+.set-nav,
+.set-pane,
+.palette-list {
+  --sb-thumb: transparent;
+  transition: --sb-thumb 0.5s;
+}
+
+.tree-root.scrolling,
+.outline-list.scrolling,
+.preview-scroll.scrolling,
+.editor-cm .cm-scroller.scrolling,
+.modal-body.scrolling,
+.set-nav.scrolling,
+.set-pane.scrolling,
+.palette-list.scrolling {
+  --sb-thumb: var(--scrollbar-thumb);
+}
+
+.ws-tree-area::-webkit-scrollbar,
+.outline-list::-webkit-scrollbar,
+.preview-scroll::-webkit-scrollbar,
+.editor-cm .cm-scroller::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar,
+.set-nav::-webkit-scrollbar,
+.set-pane::-webkit-scrollbar,
+.palette-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.ws-tree-area::-webkit-scrollbar-thumb,
+.outline-list::-webkit-scrollbar-thumb,
+.preview-scroll::-webkit-scrollbar-thumb,
+.editor-cm .cm-scroller::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb,
+.set-nav::-webkit-scrollbar-thumb,
+.set-pane::-webkit-scrollbar-thumb,
+.palette-list::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+.ws-tree-area::-webkit-scrollbar-track,
+.outline-list::-webkit-scrollbar-track,
+.preview-scroll::-webkit-scrollbar-track,
+.editor-cm .cm-scroller::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track,
+.set-nav::-webkit-scrollbar-track,
+.set-pane::-webkit-scrollbar-track,
+.palette-list::-webkit-scrollbar-track {
+  background: transparent;
+}

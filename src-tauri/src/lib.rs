@@ -728,6 +728,8 @@ pub fn run() {
             // Step 2: 译文另存为（translations → Markdown 文本；落盘走
             // pick_save_path + save_file，与「导出 HTML」同一套路，零新 IO 命令）
             bridge::export_translation,
+            // Step 3 #15: 确定性检查（漏译 / 标记丢失 / 结构不对等 / 代码被侵入）。
+            bridge::check_translation,
             // Task 9: 对话框
             pick_file,
             pick_folder,

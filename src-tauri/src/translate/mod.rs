@@ -1,7 +1,9 @@
 pub mod batch;
 pub mod cache;
+pub mod check;
 pub mod cancel;
 pub mod engine;
+pub mod export;
 pub mod http;
 pub mod lookup;
 pub mod openai;

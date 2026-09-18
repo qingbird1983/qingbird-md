@@ -1,0 +1,218 @@
+/* ============================================================
+ * 域：编辑器工具栏（按钮 / 分组竖线 / 下拉弹层 / 视图&模式分段）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 工具栏 ============ */
+/* 标签条已并入标题栏，工具栏紧随其后占 row 2。仍对齐主区右缘：从
+   var(--col-main) 起（默认 3 = 工作区右侧）；showNav=false 时同样左移。 */
+.editor-toolbar {
+  grid-row: 2;
+  /* 左缘跟「工作区带」左端（侧栏拖宽条之后，含左停靠大纲栏的列），
+     右端 -1 = 窗口右缘（第 2 行只有侧栏与工具条，不与面板列冲突） */
+  grid-column: var(--col-ws, 3) / -1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--h-toolbar);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  /* 必须 visible：工具栏下拉（标题/列表/插入）的 .menu-pop 从按钮下方展开，
+     滚动容器（overflow-x:auto）会整层裁掉弹层。
+     ponytail: 按钮下拉化后总量已收敛，极窄窗口下按钮溢出而非横向滚动——
+     若以后需要窄窗滚动，弹层需改 fixed 定位再恢复 overflow-x:auto。 */
+  overflow: visible;
+}
+
+.editor-toolbar .tb-gap {
+  flex: 1;
+}
+
+/* 分组竖线（对齐 SuperMarkdown 的 .tb-sep） */
+.editor-toolbar .tb-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: var(--border);
+  flex: none;
+}
+
+/* 下拉触发钮：主图标 + 弱化小箭头（标题/列表/插入） */
+.editor-toolbar .tb-dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.editor-toolbar .tb-dd svg:last-child {
+  opacity: 0.55;
+}
+
+.editor-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.editor-toolbar button:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+.editor-toolbar button:active:not(:disabled) {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.editor-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 工具栏按钮持续激活态（面板开关等，active class 由组件加） */
+.editor-toolbar button.active {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ---- 视图分段（胶囊：源码/分栏/预览）——DESIGN.md §4 viewseg ----
+   放工具条右端；.editor-toolbar button 的通配钮样式必须逐项覆盖回来。 */
+.editor-toolbar .viewseg {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--bg3);
+}
+
+.editor-toolbar .viewseg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: auto;
+  padding: 3px 12px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--fg3);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: color 0.16s var(--ease), background 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
+}
+
+.editor-toolbar .viewseg button:hover:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .viewseg button:active:not(:disabled) {
+  background: none;
+  color: var(--fg);
+}
+
+.editor-toolbar .viewseg button.on {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.editor-toolbar .viewseg button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- 阅读模式分段（下划线文字：原文/译文/双语）——DESIGN.md §4 modeseg ----
+   青花只在此处出现：模式切换属于翻译语义（色彩铁律的正面清单）。 */
+.editor-toolbar .modeseg {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.editor-toolbar .modeseg button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: auto;
+  padding: 4px 11px 6px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--fg3);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  transition: color 0.14s;
+}
+
+.editor-toolbar .modeseg button::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.editor-toolbar .modeseg button:hover:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .modeseg button:active:not(:disabled) {
+  background: none;
+  color: var(--fg2);
+}
+
+.editor-toolbar .modeseg button.on {
+  background: none;
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.editor-toolbar .modeseg button.on::after {
+  background: var(--accent);
+}
+
+.editor-toolbar .modeseg button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 「划词」与前面三个阅读档之间的发丝线（2026-09-14）：划词是独立开关、不是
+   互斥档位，共用 modeseg 的下划线字形但不属于那一组，没有这条线会被读成
+   「第四个档位」。分隔线只在视觉上分组，故 aria 上不参与（组件里 aria-hidden）。 */
+.editor-toolbar .modeseg .modeseg-sep {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 13px;
+  margin: 0 7px;
+  background: var(--border);
+}

@@ -188,7 +188,8 @@ mod tests;
 | — | **Step 0 功能 patch（H3/H1/B4）** | ✅ **已完成**（`19364ee`）· 门禁全绿：cargo check 0/0、cargo test 261、`cargo build --release` 0、tsc 0、vitest 204 |
 | P0-2 | `markdown/html.rs` 测试外迁 | ✅ **已完成**（`55e0900`）· 1201 → **562**（生产 559 一行未动） |
 | P0-1 | `translate/engine.rs` 三分 | ✅ **已完成**（`a3dea26` + `eed0304`）· 1107 → **engine 678 / policy 244 / packing 226** |
-| P1-1..6 | 见上 | ☐ 待排期（P1-5 `bridge.rs` 会随 Step 1 一起动） |
+| P1-2 | `src/styles/global.css` 按域拆分 | ✅ **已完成**· 3636 → 13 个 ≤ 800 行文件 + 52 行 manifest。`tools/css-probe.py` 固化源码+构建两层等价核对 |
+| P1-1, P1-3..6 | 见上 | ☐ 待排期 |
 | P2-1..8 | 见上 | ☐ 待排期 |
 
 > **P0 收尾事实（2026-09-16 晚）**
@@ -209,3 +210,30 @@ mod tests;
 > **下一步**：P0 已清完，可以开 Step 1 了。它要改的「方向模板 / 缓存 variant / prompt 措辞」
 > 现在**全在 `policy.rs`（151 行）** 里，加上 `bridge.rs` 的入参透传与前端语言选择——
 > 不再有千行文件挡在中间。
+
+> **P1-2 收尾事实（2026-09-19 上午）**
+> - `global.css` 3636 → **52 行 manifest**（仅 13 条 `@import`）+ **13 个 ≤ 800 行的域文件**
+>   （最大 `04-sidebar.css` 694 行 / `10-settings.css` 691 行，均低于 800 红线）。
+> - 拆分依据是 global.css 内已有的 13 段注释分隔（`/* ============ ... ============ */`），
+>   加每段开头的职责说明注释。**没有一行逻辑改动**：把所有规则在 body 内顺序原样搬走，
+>   只在每个文件顶部补了一段说明域的 `/* === */` 头。
+> - 入口 manifest 用 **显式 `@import` 顺序列表**而非打包器碰运气：顺序决定同特异度规则
+>   的胜负，把顺序写死是这一拆的关键。后续 T04「面板外壳」的 `.panel-slot` /
+>   `.panel-handle` 应落在 `05-panels.css`（已经在 manifest 注释里点了名）。
+> - **等价性两道门**都过：
+>   1. **源码层**——13 域文件按 manifest 顺序拼接（去头） vs 拆分前快照
+>      `.scratch/delivery-translation/baseline-global.css`（即原 `global.css`），
+>      `normalize()`（去注释 + 折叠空白 + 已知 esbuild 保语义变换）后 sha256 一致
+>      （`4a37edafe0d42606` / 48451 字符 / 463 规则 / 454 selector 块）。
+>   2. **构建层**——`vite build` 产物 `dist/assets/index-*.css` 里 13 段头签名按
+>      manifest 顺序出现在递增偏移，且每段内 `{` 数与源端逐位对齐（4/55/14/25/84/
+>      40/19/15/26/25/109/22/25 = 463）。
+> - **`tools/css-probe.py`** 把这两道门固化成 `python tools/css-probe.py [--build]`
+>   ——任何后续对 `src/styles/*.css` 的改动都可以在提交前跑一遍自检。
+> - 行尾：split 后用 `git add --renormalize .` 一并规范化（脚本 `tools/normalize-eol.sh`
+>   等价步骤），blob 仍存 LF、工作区 CRLF。
+>
+> **下一步（CSS 视角）**：P1-1（useTranslationStore.ts 836 行）现在没挡路的样式问题，
+> `06-views.css` / `08-popovers.css` 已经预留好「双栏预览 / 划词浮窗」的位置，T03
+> 「确定性检查」（`.panel-slot` / `.panel-handle`）可以直接落到 `05-panels.css` 而不用
+> 先建文件。

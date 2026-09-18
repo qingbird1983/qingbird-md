@@ -1,0 +1,137 @@
+/* ============================================================
+ * 域：译中任务卡（DESIGN.md §4 Cards / mockup-v2 .trans-card）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 译中任务卡（DESIGN.md §4 Cards / mockup-v2 .trans-card）============ */
+/* 悬浮层：absolute 钉在主区右下角（原顶缘横条改任务卡，出/入场不推挤正文）。
+   DOM 不变（label/track/pct/count/stop），纯 CSS 换布局。 */
+.translation-bar {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  left: auto;
+  z-index: 10; /* 高于 .content-resizer(5) */
+  display: grid;
+  grid-template:
+    "label pct" auto
+    "track track" auto
+    "count stop" auto
+    / 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  width: 316px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
+  font-size: 12px;
+  color: var(--fg2);
+  animation: card-rise 0.4s var(--ease);
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.translation-bar .tb-label {
+  grid-area: label;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 「译」朱砂印：译中状态的品牌记忆点（DESIGN.md §2 朱砂语义） */
+.translation-bar .tb-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--zhu);
+  color: var(--surface);
+  font-family: var(--font-serif);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transform: rotate(-3deg);
+  animation: seal-pulse 2s ease-in-out infinite;
+}
+
+@keyframes seal-pulse {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(-1deg) scale(1.06);
+  }
+}
+
+.translation-bar .tb-track {
+  grid-area: track;
+  height: 3px;
+  min-width: 0;
+  border-radius: 2px;
+  background: var(--tr-track-bg);
+  overflow: hidden;
+}
+
+.translation-bar .tb-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.translation-bar .tb-pct {
+  grid-area: pct;
+  color: var(--fg3);
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-count {
+  grid-area: count;
+  color: var(--fg3);
+  font-variant-numeric: tabular-nums;
+}
+
+.translation-bar .tb-stop {
+  grid-area: stop;
+  padding: 3.5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--fg3);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+}
+
+.translation-bar .tb-stop:hover {
+  border-color: rgba(179, 72, 58, 0.35);
+  background: var(--zhu-wash);
+  color: var(--zhu);
+}

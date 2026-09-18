@@ -1,0 +1,472 @@
+/* ============================================================
+ * 域：窗口顶栏（TitleBar + 窗控 + AppMenu 弹层 + 旧 topbar 选择器兜底）
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ── 自定义标题栏（替代 Tauri 原生标题栏）── */
+.titlebar {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: relative; /* TabBar 分割线对齐测量：让 divider 的 offsetParent 稳定为 titlebar */
+  height: var(--h-topbar, 38px);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  user-select: none;
+  -webkit-user-select: none;
+  /* 让标题栏右侧（标题栏中部原本给拖拽用，现在不放文档名了）也响应拖拽；
+     BUTTON 类（工作区切换/汉堡/窗控）依旧自动豁免走自身点击。 */
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  align-self: stretch; /* 撑满标题栏高度，让内部按钮 hover 高亮上下到边（同 win-btn） */
+  flex-shrink: 0;
+}
+
+/* 标题栏内「菜单/窗控区」与「标签条」之间的竖向分割线（在三杠按钮之后）
+   纯装饰：一条 1px 短竖线，垂直居中、左右留边距；非 BUTTON、不阻断拖拽。 */
+.titlebar-divider {
+  align-self: center;
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 8px 0 4px;
+  background: var(--border);
+}
+
+/* 应用名（标题栏左侧）；品牌名衬线化（DESIGN.md §3 Brand 层）。
+   pointer-events:none 让拖拽穿透 */
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  /* 左侧 8px：印章钮自身右外边距 2px，合计 10px 呼吸位。原为 2px（合计 4px），
+     衬线字紧贴朱砂印显得局促，故向后让开（2026-09-12 调整）。 */
+  padding: 0 8px;
+  white-space: nowrap;
+  color: var(--fg);
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 朱砂印章品牌钮：logo 与侧栏开关二合一（DESIGN.md §4 Navigation）。
+   默认态 = 斜盖 3° 的朱砂「青」印；hover 印章缩淡、原位浮现工作区开关
+   图标；点击 toggleNav。印章是品牌记忆点，恒占位不随主题换图。 */
+.seal-btn {
+  position: relative;
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  margin: 0 2px 0 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4.5px;
+  cursor: pointer;
+}
+
+.seal-btn .seal-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 4.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--zhu);
+  /* 印字色：--on-zhu 由配色/明暗解析（浅档暖白、暗档暖墨）。
+     原先用 --surface，在部分配色的暗档下与朱砂太近。 */
+  color: var(--on-zhu);
+  font-family: var(--font-serif);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 1px 3px rgba(179, 72, 58, 0.3);
+  transform: rotate(-3deg);
+  transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
+}
+
+.seal-btn .seal-ico {
+  position: absolute;
+  inset: -3px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg2);
+  opacity: 0;
+  transition: opacity 0.16s var(--ease);
+}
+
+.seal-btn:hover .seal-face,
+.seal-btn:focus-visible .seal-face {
+  opacity: 0;
+  transform: rotate(0deg) scale(0.85);
+}
+
+.seal-btn:hover .seal-ico,
+.seal-btn:focus-visible .seal-ico {
+  opacity: 1;
+}
+
+.seal-btn:hover .seal-ico svg,
+.seal-btn:focus-visible .seal-ico svg {
+  transform: scale(1.08);
+}
+
+.seal-btn .seal-ico svg {
+  transition: transform 0.16s var(--ease);
+}
+
+/* 汉堡按钮：与 win-btn 同规格（宽 40、撑满标题栏高、直角），高亮风格统一 */
+.hamburger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hamburger-btn:hover,
+.ws-toggle-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+/* 工作区切换按钮：与汉堡按钮同尺寸同 hover，仅换图标；位置固定在汉堡左侧 */
+.ws-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.titlebar-title {
+  /* 旧居中显示当前文档名已移除；保留空选择器以防遗漏，置 0 占地 */
+  display: none;
+}
+
+/* ── 窗口控制按钮（右侧）── */
+/* 标签条 flex:1 占满中部，窗控组被推到右缘；再以 margin-left:auto 双保险
+   保证空标签/异常态下端控件也绝对右对齐（issue 1）。 */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  margin-left: auto; /* 右对齐：占满剩余水平空间后紧贴右缘 */
+  align-self: stretch; /* 撑满标题栏高度，让 win-btn 的 hover 高亮上下铺满 */
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.win-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+.win-close:hover {
+  background: #e81123 !important;
+  color: #fff !important;
+}
+
+/* ── 汉堡菜单弹出面板（二级分类结构：左一级分类 + 右二级菜单）── */
+.app-menu {
+  position: fixed;
+  top: var(--h-topbar, 38px); /* 标题栏高度 */
+  left: 8px;
+  z-index: 1100;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
+  overflow: visible;
+}
+
+/* 一级分类列 */
+.app-menu-root {
+  flex-shrink: 0;
+  width: 136px;
+  padding: 6px 0;
+}
+
+/* 分类条目：横向布局（文字居左 + 箭头居右） */
+.app-menu .app-menu-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 0;
+}
+
+.app-menu .app-menu-cat.active {
+  background: var(--item-hover-bg);
+  color: var(--accent);
+}
+
+.app-menu-chev {
+  flex-shrink: 0;
+  color: var(--muted-fg);
+}
+
+/* 一级菜单内：带二级的分类与直接动作（设置/关于/退出）之间的分隔线 */
+/* 一级与二级菜单共用同一条分割线：分组之间拉一条，把大分类分开 */
+.app-menu-root-sep,
+.app-menu-sub-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--sep-bg);
+}
+
+/* 二级菜单卡片：独立弹层，fixed 定位在激活分类右侧（AppMenu.tsx 计算 left/top） */
+.app-menu-sub {
+  position: fixed;
+  z-index: 1101;
+  /* 比原来的 208 宽出一截：菜单项现在右侧挂键位提示（最长的是 Ctrl+Shift+O），
+     208 会把「打开工作区…」这类长条目挤到换行 */
+  width: 244px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-strong);
+}
+
+/* 菜单项右侧的键位提示。用 float 而不是把按钮改成 flex：
+   `.active::before` 那个 ✓ 是 float:left + 负 margin 定位的，
+   按钮一旦变 flex 容器 float 就失效，勾号会变成普通 flex item 挤坏布局。 */
+.app-menu-sub button .app-menu-hk {
+  float: right;
+  margin-left: 24px;
+  color: var(--muted-fg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.app-menu-sub button:disabled .app-menu-hk {
+  opacity: 0.5;
+}
+
+.app-menu-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-fg);
+  padding: 2px 8px;
+  margin-bottom: 2px;
+}
+
+.app-menu button,
+.app-menu-sub button {
+  display: block;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-menu button:hover:not(:disabled),
+.app-menu-sub button:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+}
+
+.app-menu button.active::before,
+.app-menu-sub button.active::before {
+  content: "✓";
+  float: left;
+  margin-left: -14px;
+  color: var(--accent);
+}
+
+.app-menu button.active,
+.app-menu-sub button.active {
+  padding-left: 20px;
+  position: relative;
+}
+
+/* 一级分类激活态只做高亮：不带 ✓ 前缀、不缩进（✓ 仅用于二级选项类条目） */
+.app-menu .app-menu-cat.active {
+  padding-left: 12px;
+}
+.app-menu .app-menu-cat.active::before {
+  content: none;
+}
+
+.app-menu button:disabled,
+.app-menu-sub button:disabled {
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+/* 旧 topbar 已被 TitleBar + AppMenu 替代，保留选择器防遗漏 */
+.topbar {
+  display: none;
+}
+
+/* TopBar 下拉菜单组（button + absolute ul 轻实现） */
+.menu-btn,
+.menu-item {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu {
+  position: relative;
+}
+
+.topbar .menu-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
+}
+
+.topbar .menu-btn:hover,
+.topbar .menu-btn[aria-expanded="true"] {
+  background: var(--btn-hover-bg);
+  color: var(--fg);
+}
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 1000;
+  min-width: 128px;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: pop-in 0.12s ease;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px 6px 26px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--fg2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* ✓ 前缀（::before absolute left 9px）依赖 26px 缩进；带图标的动作项
+   没有 ✓，图标顶格 + 文字紧随，视觉左对齐 */
+.menu-item.has-icon {
+  padding-left: 10px;
+}
+
+/* 工具栏下拉弹层在 .editor-toolbar 内，.editor-toolbar button 的工具钮样式
+   （居中/24px 高/内边距）会漏进菜单项——这里按菜单语义恢复 */
+.editor-toolbar .menu-pop .menu-item {
+  display: flex;
+  justify-content: flex-start;
+  height: auto;
+  min-width: 0;
+  padding: 6px 10px 6px 26px;
+}
+
+.editor-toolbar .menu-pop .menu-item.has-icon {
+  padding-left: 10px;
+}
+
+.menu-item-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-fg);
+}
+
+.menu-item:hover:not(:disabled) .menu-item-icon {
+  color: var(--accent);
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.menu-item:disabled {
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+.menu-item[aria-checked="true"]::before {
+  content: "✓";
+  position: absolute;
+  left: 9px;
+  color: var(--accent);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--sep-bg);
+}

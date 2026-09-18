@@ -1,0 +1,220 @@
+/* ============================================================
+ * 域：欢迎页（空白/无文档态）+ 启动仪式感动画
+ * ------------------------------------------------------------
+ * 全局视觉层的单一关注面切片；通过 src/styles/global.css 的
+ * 显式 @import 顺序列表串联。新样式请按域加进对应文件（如 T04
+ * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
+ * ============================================================ */
+
+/* ============ 欢迎页（新开空白 / 无文档）============ */
+/* 层级全部用墨色深浅 + 发丝线，不引入新色；朱砂只出现在品牌印上。 */
+.welcome {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.welcome-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 24px 64px;
+  text-align: center;
+  /* 620px 是量出来的。**注意 .welcome-inner 是内容自适应宽度**（.welcome 里
+     justify-content:center，不是拉伸），所以 max-width 平时根本不生效，
+     它只在「内容比它宽」时起**夹取**作用——一旦夹住，四个按钮就换行。
+     四个按钮并排一行（2026-09-14 用户要求）实测需要 489px（105+105+118+131
+     + 3×10 间距，无头 Edge 量得），旧值 520 扣掉左右 32px 内边距只剩 456px
+     → 必夹取 → 必换行。620 给足余量，条数再涨也不会被夹。
+     左右内边距 32→24 同理：内容盒平时不吃内边距，只有窄窗被夹时才影响可用宽度，
+     少 16px 就是窄窗下多 16px 余量（单行成立的门槛 = 主区宽 ≥ 489 + 2×内边距）。 */
+  max-width: 620px;
+}
+
+/* 朱砂「青」印：与应用内印章同源（圆角方 + 内描边 + 宋体字） */
+.welcome-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--zhu);
+  color: var(--on-zhu);
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.welcome-title {
+  margin: 4px 0 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: 0.01em;
+}
+
+.welcome-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--fg3);
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.welcome-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg3);
+}
+
+.welcome-btn.primary {
+  border-color: transparent;
+  background: var(--zhu);
+  color: var(--on-zhu);
+}
+
+.welcome-btn.primary:hover {
+  background: var(--zhu-deep, var(--zhu));
+  filter: brightness(1.05);
+}
+
+.welcome-tips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg2);
+  color: var(--fg3);
+  font-size: 11.5px;
+}
+
+.welcome-tips kbd {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 2px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg2);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.welcome-dot {
+  opacity: 0.5;
+}
+
+/* ============ 启动仪式感动画（2026-09-15）============
+   窗口 reveal 时两栏已展开到最宽，随后同步收缩；欢迎内容在同一时长里从小
+   放大落定。armed = reveal 前的隐藏起始帧（静态停在 keyframes 的 from 态，
+   与 playing 首帧逐字一致，开演时无跳变）；playing = 动画播放中。
+   时长走 #app-shell 上的 --intro-anim，与两栏收缩（JS 内联的 --panel-anim）
+   同一数值，三处同时落定。
+   二轮调优（2026-09-15 用户反馈）：
+   • 时长 760→1280ms（"一闪而过"）
+   • 欢迎内容起始 scale 0.82→0.55（"从无到有慢慢放大"）
+   • 三处都用"过冲曲线"——到位后微弱回弹：
+     侧栏 / 拖宽条 / 标签条 margin 用 CSS transition + --ease-overshoot
+     （cubic-bezier(0.34, 1.32, 0.64, 1)），靠贝塞尔曲线天然过冲。
+     大纲栏终值是 0，CSS width 过冲到负值会被钳 0 看不见，改用专属 keyframes：
+     86%→100% 间先弹出一小条再收尽 + opacity 同步淡出。
+     欢迎内容也用专属 keyframes：前 80% 主缩放 0.55→1.04，末 20% 回弹到 1。 */
+
+/* 欢迎内容：armed 起始态——必须用 inline style 钉不住的属性（opacity/transform） */
+#app-shell.intro-armed .welcome-inner {
+  opacity: 0;
+  transform: scale(0.55);
+}
+
+#app-shell.intro-playing .welcome-inner {
+  animation: welcome-intro var(--intro-anim) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes welcome-intro {
+  /* 二段式：前 80% 从 0.55 主缩放到 1.04（轻微过头），末 20% 回弹到 1。
+     主段用缓出 cubic-bezier(0.4,0,0.2,1)；回弹段靠 keyframes 转折天然产生。
+     opacity 与缩放同步淡入。 */
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 大纲栏：armed 起始态宽度由 App.tsx 内联 style 钉在 outlineWidth（默认 200），
+   opacity 由 inline style 控制；playing 期不设 width 内联，让 keyframes 接管。
+   keyframes 0% 用 --panel-w 接住 armed 起始宽——armed→playing 之间宽度连贯
+   无跳变。keyframes 把"收到 0 → 弹一小条 → 收尽"显式写出来，末段配 opacity
+   同步淡出。 */
+#app-shell.intro-playing .outline-panel {
+  animation: outline-collapse var(--intro-anim) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes outline-collapse {
+  0% {
+    /* --panel-w 由 App.tsx 内联：armed 期 = outlineWidth（默认 200） */
+    width: var(--panel-w, 200px);
+    opacity: 1;
+  }
+  /* 前 80% 把 width 收到 0——靠 cubic-bezier(0.4,0,0.2,1) 缓出，
+     末段速率衰减让"接近 0"的视觉感更柔和。 */
+  80% {
+    width: 0;
+    opacity: 1;
+  }
+  /* 86% 弹回一小条（约 14px，肉眼能感知"抖了一下"但不夸张），
+     同步把 opacity 拉到 0.85——避免突兀。 */
+  86% {
+    width: 14px;
+    opacity: 0.85;
+  }
+  /* 100% 收尽 + 透明——自然归零。 */
+  100% {
+    width: 0;
+    opacity: 0;
+  }
+}
