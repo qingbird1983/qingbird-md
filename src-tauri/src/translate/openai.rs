@@ -8,12 +8,12 @@
 //!
 //! Pure over `&dyn HttpClient`, so every path is testable offline.
 
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 
 use serde_json::Value;
 
-use super::http::{HttpClient, StreamResp};
-use super::sse::{Frame, SseParser, delta_content, frame_error};
+use super::http::{HttpClient, StreamResp, validate_base_url_scheme};
+use super::sse::{Frame, SseParser, MAX_BUFFER_BYTES, delta_content, frame_error};
 
 /// A single chat completion request.
 pub struct ChatRequest<'a> {
@@ -97,6 +97,7 @@ pub fn chat_stream(
     if req.base_url.trim().is_empty() {
         return Err("请先在「设置」中填写自定义大模型的 API 地址".to_string());
     }
+    validate_base_url_scheme(&req.base_url)?;
     if req.model.trim().is_empty() {
         return Err("请先在「设置」中填写模型名".to_string());
     }
@@ -183,6 +184,17 @@ fn stream_once(
     http.post_json_stream(url, body, headers, timeout_ms)
 }
 
+/// 单行读入上限：与 SSE 帧缓冲（[`MAX_BUFFER_BYTES`]）一致。畸形端点发送
+/// 不含换行的巨量数据时在此中止，防止 `read_until` 把行缓冲吃穿。
+const MAX_LINE_BYTES: usize = MAX_BUFFER_BYTES;
+
+/// 译文内容累积上限：8 MiB，约为最大合法批次译文（4800 字符/批）的 30 倍
+/// 以上，畸形端点无限吐 delta 时在此中止。
+const MAX_CONTENT_BYTES: usize = 8 * 1024 * 1024;
+
+/// 错误响应体读入上限：错误体只有几十字节到几 KiB，1 MiB 已极宽裕。
+const MAX_ERROR_BODY_BYTES: usize = 1024 * 1024;
+
 /// Drain an SSE stream, accumulating content and notifying after each delta.
 fn consume(mut resp: StreamResp, on_delta: &mut dyn FnMut(&str)) -> Result<String, String> {
     let mut parser = SseParser::new();
@@ -198,12 +210,15 @@ fn consume(mut resp: StreamResp, on_delta: &mut dyn FnMut(&str)) -> Result<Strin
         if n == 0 {
             break;
         }
+        if line.len() > MAX_LINE_BYTES {
+            return Err("模型响应流中出现超长单行，已中止读取".to_string());
+        }
         let chunk = String::from_utf8_lossy(&line);
-        let frames = parser.feed(&chunk);
-        apply(&mut parser, frames, &mut content, on_delta)?;
+        let frames = parser.feed(&chunk)?;
+        apply(frames, &mut content, on_delta)?;
     }
-    let tail = parser.finish();
-    apply(&mut parser, tail, &mut content, on_delta)?;
+    let tail = parser.finish()?;
+    apply(tail, &mut content, on_delta)?;
 
     if content.trim().is_empty() {
         return Err("模型返回内容为空".to_string());
@@ -212,7 +227,6 @@ fn consume(mut resp: StreamResp, on_delta: &mut dyn FnMut(&str)) -> Result<Strin
 }
 
 fn apply(
-    _parser: &mut SseParser,
     frames: Vec<Frame>,
     content: &mut String,
     on_delta: &mut dyn FnMut(&str),
@@ -226,6 +240,9 @@ fn apply(
                 }
                 if let Some(d) = delta_content(&v) {
                     content.push_str(d);
+                    if content.len() > MAX_CONTENT_BYTES {
+                        return Err("模型返回内容超过上限（8 MiB），已中止读取".to_string());
+                    }
                     on_delta(content);
                 }
             }
@@ -234,10 +251,11 @@ fn apply(
     Ok(())
 }
 
-/// Render an HTTP error into an actionable message.
-fn read_error(mut resp: StreamResp) -> String {
+/// Render an HTTP error into an actionable message. 错误体按上限截断读入，
+/// 防畸形端点用超大错误体吃穿内存。
+fn read_error(resp: StreamResp) -> String {
     let mut body = String::new();
-    let _ = resp.reader.read_to_string(&mut body);
+    let _ = resp.reader.take(MAX_ERROR_BODY_BYTES as u64).read_to_string(&mut body);
     let detail = serde_json::from_str::<Value>(&body)
         .ok()
         .and_then(|v| {
@@ -384,6 +402,68 @@ mod tests {
         let rec2 = http.take_records().pop().unwrap();
         assert!(!rec2.body.contains("enable_thinking"), "{}", rec2.body);
         assert_eq!(http.take_records().len(), 0, "无隐藏重试");
+    }
+
+    // ---- SEC-4 加固回归 ----
+
+    #[test]
+    fn content_over_cap_is_rejected() {
+        // 畸形端点无限吐 delta 时必须在内容上限处中止，而不是吃穿内存。
+        // 20 帧 × 512 KiB = 10 MiB，超过 8 MiB 上限。
+        let delta = "x".repeat(512 * 1024);
+        let mut raw = String::new();
+        for _ in 0..20 {
+            let payload =
+                serde_json::json!({ "choices": [ { "delta": { "content": delta } } ] }).to_string();
+            raw.push_str(&format!("data: {payload}\n\n"));
+        }
+        raw.push_str("data: [DONE]\n\n");
+        let http = MockClient::new();
+        http.script_stream(raw);
+        let mut noop = |_: &str| {};
+        let e = chat_stream(&req("https://x.io", "m"), &http, &mut noop).unwrap_err();
+        assert!(e.contains("上限"), "{e}");
+    }
+
+    #[test]
+    fn plaintext_http_to_remote_host_is_rejected() {
+        // 非本机 http:// 会让 Bearer key 明文过网：必须拒绝并提示改用 https。
+        let http = MockClient::new();
+        let mut noop = |_: &str| {};
+        let e = chat_stream(&req("http://attacker.test/v1", "m"), &http, &mut noop).unwrap_err();
+        assert!(e.contains("https"), "{e}");
+    }
+
+    #[test]
+    fn error_body_is_read_with_a_cap() {
+        // 超大错误体也必须正常出「模型返回 400」，不能整包读入或读挂。
+        let http = MockClient::new();
+        http.script_stream_raw_status(400, "x".repeat(4 * 1024 * 1024));
+        let mut noop = |_: &str| {};
+        let e = chat_stream(&req("https://x.io", "m"), &http, &mut noop).unwrap_err();
+        assert!(e.contains("模型返回 400"), "{e}");
+    }
+
+    #[test]
+    fn scheme_validation_allows_local_http_only() {
+        // https 一律放行；http 仅本机；无 scheme 一并拒绝。
+        assert!(crate::translate::http::validate_base_url_scheme("https://api.x.io/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://localhost:11434/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://127.0.0.1:8080/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://127.3.4.5/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://[::1]:11434/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://0.0.0.0:11434/v1").is_ok());
+        assert!(crate::translate::http::validate_base_url_scheme("http://sub.localhost/v1").is_ok());
+        for bad in [
+            "http://attacker.test/v1",
+            "http://192.168.1.9:11434/v1", // 局域网也不是本机
+            "http://10.0.0.1/v1",
+            "api.x.io/v1", // 无 scheme：原样发给 ureq 也必然失败，提前给出可读错误
+            "ftp://x.io/v1",
+        ] {
+            let e = crate::translate::http::validate_base_url_scheme(bad).unwrap_err();
+            assert!(e.contains("https"), "{bad} → {e}");
+        }
     }
 
     #[test]

@@ -20,6 +20,11 @@ pub enum Frame {
     Done,
 }
 
+/// 帧缓冲上限：畸形/恶意端点持续发送无终止符的数据时，在此中止而不是把
+/// 内存吃穿。16 MiB 远大于任何合法帧——最大批次译文约数百 KiB，非 SSE
+/// 回落的整包 body 也在此之内。
+pub const MAX_BUFFER_BYTES: usize = 16 * 1024 * 1024;
+
 /// Incremental SSE parser. Chunk boundaries rarely line up with frame
 /// boundaries, so partial frames are buffered until the next feed.
 pub struct SseParser {
@@ -31,9 +36,15 @@ impl SseParser {
         SseParser { buf: String::new() }
     }
 
-    /// Feed a raw chunk, returning every frame that became complete.
-    pub fn feed(&mut self, chunk: &str) -> Vec<Frame> {
+    /// Feed a raw chunk, returning every frame that became complete. Errors
+    /// when the unterminated tail exceeds [`MAX_BUFFER_BYTES`]（此时缓冲已
+    /// 清空，后续可继续 feed 新流）.
+    pub fn feed(&mut self, chunk: &str) -> Result<Vec<Frame>, String> {
         self.buf.push_str(chunk);
+        if self.buf.len() > MAX_BUFFER_BYTES {
+            self.buf.clear();
+            return Err("模型响应流中出现超长的未终止数据，已中止读取".to_string());
+        }
         let mut out = Vec::new();
 
         // SSE frames are separated by a blank line. Keep the tail (an
@@ -57,18 +68,18 @@ impl SseParser {
                 out.push(Frame::Json(v));
             }
         }
-        out
+        Ok(out)
     }
 
     /// Flush a trailing frame that had no blank-line terminator (some servers
     /// close the stream right after the last `data:` line).
-    pub fn finish(&mut self) -> Vec<Frame> {
+    pub fn finish(&mut self) -> Result<Vec<Frame>, String> {
         if self.buf.trim().is_empty() {
             self.buf.clear();
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let raw = std::mem::take(&mut self.buf);
-        parse_frame(&raw).into_iter().collect()
+        Ok(parse_frame(&raw).into_iter().collect())
     }
 }
 
@@ -137,7 +148,7 @@ mod tests {
     #[test]
     fn parses_standard_sse_frames() {
         let mut p = SseParser::new();
-        let f = p.feed("data: {\"a\":1}\n\ndata: {\"a\":2}\n\n");
+        let f = p.feed("data: {\"a\":1}\n\ndata: {\"a\":2}\n\n").unwrap();
         assert_eq!(f.len(), 2);
         assert_eq!(f[0], Frame::Json(json("{\"a\":1}")));
         assert_eq!(f[1], Frame::Json(json("{\"a\":2}")));
@@ -148,9 +159,9 @@ mod tests {
         let mut p = SseParser::new();
         // A delta arrives split across three TCP reads, including inside the
         // `data:` prefix itself.
-        assert!(p.feed("data: {\"choices\":[{\"delta\":{\"content\":\"hel").is_empty());
-        assert!(p.feed("lo\"}}]}").is_empty());
-        let f = p.feed("\n\n");
+        assert!(p.feed("data: {\"choices\":[{\"delta\":{\"content\":\"hel").unwrap().is_empty());
+        assert!(p.feed("lo\"}}]}").unwrap().is_empty());
+        let f = p.feed("\n\n").unwrap();
         assert_eq!(f.len(), 1);
         assert_eq!(delta_content(&json_of(&f[0])).unwrap(), "hello");
     }
@@ -165,7 +176,7 @@ mod tests {
     #[test]
     fn recognizes_done_terminator() {
         let mut p = SseParser::new();
-        let f = p.feed("data: {\"a\":1}\n\ndata: [DONE]\n\n");
+        let f = p.feed("data: {\"a\":1}\n\ndata: [DONE]\n\n").unwrap();
         assert_eq!(f.len(), 2);
         assert_eq!(f[1], Frame::Done);
     }
@@ -173,17 +184,17 @@ mod tests {
     #[test]
     fn finish_flushes_frame_without_blank_line() {
         let mut p = SseParser::new();
-        assert!(p.feed("data: {\"a\":9}").is_empty());
-        let f = p.finish();
+        assert!(p.feed("data: {\"a\":9}").unwrap().is_empty());
+        let f = p.finish().unwrap();
         assert_eq!(f.len(), 1);
         assert_eq!(f[0], Frame::Json(json("{\"a\":9}")));
-        assert!(p.finish().is_empty(), "finish is idempotent");
+        assert!(p.finish().unwrap().is_empty(), "finish is idempotent");
     }
 
     #[test]
     fn non_sse_fallback_parses_bare_json() {
         let mut p = SseParser::new();
-        let f = p.feed("{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}\n");
+        let f = p.feed("{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}\n").unwrap();
         assert_eq!(f.len(), 1, "whole body emitted without a blank line");
         assert_eq!(delta_content(&json_of(&f[0])).unwrap(), "hi");
     }
@@ -191,8 +202,8 @@ mod tests {
     #[test]
     fn bare_json_split_across_reads_waits_for_completeness() {
         let mut p = SseParser::new();
-        assert!(p.feed("{\"choices\":[").is_empty());
-        assert!(p.feed("{\"message\":{\"content\":\"hi\"}}]}\n").len() == 1);
+        assert!(p.feed("{\"choices\":[").unwrap().is_empty());
+        assert!(p.feed("{\"message\":{\"content\":\"hi\"}}]}\n").unwrap().len() == 1);
     }
 
     #[test]
@@ -200,29 +211,38 @@ mod tests {
         let mut p = SseParser::new();
         // A lone `data:` line has a newline but is not valid JSON, so it must
         // be held until the blank line arrives.
-        assert!(p.feed("data: {\"a\":1}\n").is_empty());
-        assert_eq!(p.feed("\n").len(), 1);
+        assert!(p.feed("data: {\"a\":1}\n").unwrap().is_empty());
+        assert_eq!(p.feed("\n").unwrap().len(), 1);
     }
 
     #[test]
     fn ignores_heartbeat_comments_and_blank_lines() {
         let mut p = SseParser::new();
-        let f = p.feed(": ping\n\n\n\ndata: {\"a\":1}\n\n");
+        let f = p.feed(": ping\n\n\n\ndata: {\"a\":1}\n\n").unwrap();
         assert_eq!(f.len(), 1);
     }
 
     #[test]
     fn multi_line_data_is_concatenated() {
         let mut p = SseParser::new();
-        let f = p.feed("data: {\"a\":\ndata: 1}\n\n");
+        let f = p.feed("data: {\"a\":\ndata: 1}\n\n").unwrap();
         assert_eq!(f, vec![Frame::Json(json("{\"a\":1}"))]);
     }
 
     #[test]
     fn malformed_json_frame_is_skipped_not_fatal() {
         let mut p = SseParser::new();
-        let f = p.feed("data: not-json\n\ndata: {\"a\":1}\n\n");
+        let f = p.feed("data: not-json\n\ndata: {\"a\":1}\n\n").unwrap();
         assert_eq!(f.len(), 1, "bad frame dropped, good frame survives");
+    }
+
+    #[test]
+    fn over_limit_unterminated_buffer_is_rejected() {
+        // SEC-4：无终止符的数据超过上限时报错并清空缓冲（后续流不受污染）。
+        let mut p = SseParser::new();
+        let e = p.feed(&"x".repeat(MAX_BUFFER_BYTES + 1)).unwrap_err();
+        assert!(e.contains("超长"), "{e}");
+        assert!(p.feed("data: {\"a\":1}\n\n").unwrap().len() == 1, "缓冲已复位，可继续解析");
     }
 
     #[test]

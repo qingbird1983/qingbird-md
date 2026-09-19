@@ -326,6 +326,7 @@ pub fn fetch_models(base_url: &str, api_key: &str, http: &dyn HttpClient) -> Res
     if base.is_empty() {
         return Err("请先填写 API 地址 (Base URL)".to_string());
     }
+    super::http::validate_base_url_scheme(base)?;
     let url = format!("{base}/models");
     let mut headers: Vec<(&str, &str)> = Vec::new();
     let key = api_key.trim();
@@ -587,6 +588,14 @@ mod tests {
     fn fetch_models_requires_base_url() {
         let http = MockClient::new();
         assert!(fetch_models("", "sk-1", &http).unwrap_err().contains("Base URL"));
+    }
+
+    #[test]
+    fn fetch_models_rejects_remote_http() {
+        // SEC-4：拉模型列表同样带 Bearer key，非本机 http:// 必须拒绝。
+        let http = MockClient::new();
+        let e = fetch_models("http://attacker.test/v1", "sk-1", &http).unwrap_err();
+        assert!(e.contains("https"), "{e}");
     }
 
     #[test]
