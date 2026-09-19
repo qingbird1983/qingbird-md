@@ -16,6 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // 把数据写死进工厂，是为了能断言「流式期根本没调过 IPC」。
 const h = vi.hoisted(() => ({
   calls: 0,
+  /** 最近一次 checkTranslation 的实参列表（P0-2：钉住 mode/target 必须传）。 */
+  lastArgs: null as unknown[] | null,
   issues: [] as Issue[],
 }));
 
@@ -25,8 +27,9 @@ vi.mock("../lib/ipc", async (importOriginal) => {
     ...real,
     api: {
       ...real.api,
-      checkTranslation: async () => {
+      checkTranslation: async (...args: unknown[]) => {
         h.calls += 1;
+        h.lastArgs = args;
         return h.issues;
       },
     },
@@ -104,6 +107,7 @@ beforeEach(() => {
   (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = () => {};
   resetSplitSync();
   h.calls = 0;
+  h.lastArgs = null;
   h.issues = ISSUES;
   host = document.createElement("div");
   document.body.innerHTML = "";
@@ -239,5 +243,9 @@ describe("ReviewPanel 冒烟", () => {
     expect(await until(() => cards().length === 2)).toBe(true);
     expect(h.calls).toBe(1);
     expect(stepSummary()).toBe("确定性检查 · 2 处");
+    // P0-2：检查必须带上模式与方向——键空间由 mode 决定（translation =
+    // data-ri run 空间），方向决定可译判定；缺了就在错误空间里对号。
+    expect(h.lastArgs?.[2]).toBe("translation");
+    expect(h.lastArgs?.[3]).toBe("zh");
   });
 });

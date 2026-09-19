@@ -140,11 +140,23 @@ export const api = {
   /**
    * 确定性检查（Step 3 #15）：漏译 / 标记丢失 / 结构不对等 / 代码被侵入
    * 四类同时返回。零 AI 成本；面板拿这份数据决定要展示哪些 issue、要
-   * 追问 AI 哪几条。**translations 的 key 是 `data-ri` run 空间**——与
-   * translateDocument 的收集共用同一索引空间（同 exportTranslation 的约束）。
+   * 追问 AI 哪几条。**translations 的 key 索引空间由 `mode` 决定**（P0-2）：
+   * `"translation"` = `data-ri` run 空间，`"bilingual"` = `data-bi` 块空间
+   * ——与 translateDocument 的收集共用同一索引空间（同 exportTranslation 的
+   * 约束）；`targetLang` 必须与产出该表的那轮翻译同方向（可译判定随方向变）。
    */
-  checkTranslation: (c: string, translations: Array<[number, string]>) =>
-    invoke<Issue[]>("check_translation", { content: c, translations }),
+  checkTranslation: (
+    c: string,
+    translations: Array<[number, string]>,
+    mode: ExportMode,
+    targetLang: TargetLang,
+  ) =>
+    invoke<Issue[]>("check_translation", {
+      content: c,
+      translations,
+      mode,
+      targetLang,
+    }),
 
   // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
   lookupWord: (t: string, c: Record<string, string>) =>

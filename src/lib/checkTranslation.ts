@@ -7,17 +7,24 @@
 //
 // 字段顺序 / 命名必须与 Rust 端 `translate::check::Issue` 严格一致；
 // 守卫测试见同目录的 checkTranslation.test.ts。
-import { api } from "./ipc";
-import type { Issue, IssueKind } from "../types/ipc";
+import { api, type ExportMode } from "./ipc";
+import type { Issue, IssueKind, TargetLang } from "../types/ipc";
 
-/** 调后端跑一遍确定性检查。`translations` 的 key 是 `data-ri` run 空间。 */
+/**
+ * 调后端跑一遍确定性检查。`translations` 的 key 索引空间由 `mode` 决定
+ * （P0-2）：`"translation"` = `data-ri` run 空间；`"bilingual"` = `data-bi`
+ * 块空间。`target` 必须与产出该表的那轮翻译同方向——哪些单元「可译」
+ * 随方向变，方向不一致收集就会错位。
+ */
 export async function checkTranslation(
   content: string,
   translations: ReadonlyMap<number, string> | ReadonlyArray<[number, string]>,
+  mode: ExportMode,
+  target: TargetLang,
 ): Promise<Issue[]> {
   // 两路统一走 Array.from 让 TS 在目的端推断元素类型，避免联合 narrow 失败。
   const entries: Array<[number, string]> = Array.from(translations);
-  return api.checkTranslation(content, entries);
+  return api.checkTranslation(content, entries, mode, target);
 }
 
 /** 按 issue kind 分组计数；用于面板顶部「3 处漏译 / 1 处结构错」类徽标。 */

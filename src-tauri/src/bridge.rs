@@ -519,9 +519,14 @@ pub fn export_translation(
 pub fn check_translation(
     content: String,
     translations: Vec<(usize, String)>,
+    mode: String,
+    target_lang: String,
 ) -> Vec<translate::check::Issue> {
     let map: HashMap<usize, String> = translations.into_iter().collect();
-    translate::check::check_translation(&content, &map)
+    // mode/target_lang 决定在哪套索引空间（translation = data-ri run 空间，
+    // bilingual = data-bi 块空间）收集单元再对号——必须与产出 translations
+    // 的那轮翻译同模式、同方向（P0-2 / BUG-2）。
+    translate::check::check_translation(&content, &map, &mode, &target_lang)
 }
 
 fn spawn_translation(

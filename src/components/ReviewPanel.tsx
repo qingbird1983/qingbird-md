@@ -26,6 +26,9 @@ export default function ReviewPanel() {
   const doc = useDocStore((s) => s.doc);
   const translations = useDocStore((s) => s.translations);
   const mode = useDocStore((s) => s.mode);
+  // 翻译方向：收集单元的「可译」判定随方向变，检查必须与产出译文表那轮
+  // 同方向（P0-2），否则索引空间错位 → 假漏译/假回声。
+  const target = useSettingsStore((s) => s.target);
   const toggleReview = useUiStore((s) => s.toggleReview);
   const creds = useSettingsStore((s) => s.credsFor("llm"));
   /** 翻译运行的实时状态：用来把「流式期」和「已定稿」分开，见 runCheck。 */
@@ -52,6 +55,9 @@ export default function ReviewPanel() {
   // 最后一查（只留状态会漏掉"状态先停、表后到"的窗口）。
   const runCheck = useCallback(async () => {
     if (translating) return;
+    // `checkable` 是 mode/doc/translations 的别名条件（TS 4.4 起按 const 布尔
+    // 窄化）：往下走时 mode 已被窄成 "translation" | "bilingual"，检查才知道
+    // 在哪个键空间对号（P0-2）。
     if (!checkable) {
       // 「原文模式或无译文时清空」——原先只剩注释、没有代码：切回原文模式
       // 会留着上一次的清单，配上"预览未挂载"的禁用卡片，读起来像是误报。
@@ -60,14 +66,14 @@ export default function ReviewPanel() {
     }
     setChecking(true);
     try {
-      const result = await checkTranslation(doc.content, translations);
+      const result = await checkTranslation(doc.content, translations, mode, target);
       setIssues(result);
     } catch {
       setIssues([]);
     } finally {
       setChecking(false);
     }
-  }, [translating, checkable, doc, translations]);
+  }, [translating, checkable, doc, translations, mode, target]);
 
   useEffect(() => {
     void runCheck();
