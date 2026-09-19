@@ -69,23 +69,28 @@ function DialogBody({ opts, resolve }: { opts: ConfirmOptions; resolve: (ok: boo
 
 let host: HTMLDivElement | null = null;
 let root: Root | null = null;
+/** 应用级「正在显示」闸：持有当前未决弹窗的结算入口；非 null 即有弹窗挂着。 */
+let pending: ((ok: boolean) => void) | null = null;
 
-/** 应用级单例确认框；同一时刻至多一个（重复调用覆盖前者，解析为 false）。 */
+/**
+ * 应用级单例确认框；同一时刻至多一个。重复调用时先把前者解析为 false
+ * （= 取消，调用方据此中止），再让新弹窗覆盖单例 host——否则前一个
+ * Promise 永远无人 resolve，其 awaiter 挂死（审计 REL-4）。
+ */
 export function showConfirm(opts: ConfirmOptions): Promise<boolean> {
   if (!host) {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
   }
+  pending?.(false);
   return new Promise<boolean>((resolve) => {
-    root!.render(
-      <DialogBody
-        opts={opts}
-        resolve={(ok) => {
-          root!.render(null);
-          resolve(ok);
-        }}
-      />,
-    );
+    const settle = (ok: boolean) => {
+      pending = null;
+      root!.render(null);
+      resolve(ok);
+    };
+    pending = settle;
+    root!.render(<DialogBody opts={opts} resolve={settle} />);
   });
 }
