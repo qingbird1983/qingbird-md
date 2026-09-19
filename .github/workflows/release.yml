@@ -18,18 +18,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # dtolnay/rust-toolchain 的 "stable" 是分支而非 tag，pin 分支头快照
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-19
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
 
@@ -73,7 +74,7 @@ jobs:
             --output "${{ runner.temp }}/release-notes.md"
 
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         with:
           tauriScript: npx tauri
 
@@ -91,7 +92,7 @@ jobs:
           ls -la
 
       - name: Create release and upload
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           body_path: ${{ runner.temp }}/release-notes.md
@@ -99,3 +100,16 @@ jobs:
             src-tauri/target/release/bundle/nsis/qingbird-md-setup-*.exe
           fail_on_unmatched_files: true
           generate_release_notes: false
+
+  # SEC-6：依赖漏洞扫描。独立 job、与 release 并行，不阻塞发布；
+  # 有漏洞时本 job 变红以供查看。扫描对象是仓库根的 Cargo.lock。
+  cargo-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
