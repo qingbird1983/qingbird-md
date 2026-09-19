@@ -31,9 +31,9 @@
   grid-row: 3;
 }
 
-/* 面板单元：把手 + aside 的包装层。宽度/透明度的 inline style 都落在
-   这层（而非 aside）——把手要钉在「面板的可见边缘」上，就得有一个
-   收缩到 0 时把手仍贴着窗缘、展开时把手贴着面板缘的定位基准。
+/* 面板单元：aside 的包装层。宽度/透明度的 inline style 都落在
+   这层（而非 aside）；把手不在这层——它挂在 .panel-slot 上（绝对
+   定位），收起时 unit 的 opacity:0 不会把耳朵一起收走。
    align-items:stretch 让单元在核查高栏（row 2/4）里自动撑满槽高。 */
 .panel-unit {
   position: relative;
@@ -67,18 +67,39 @@
   right: 0;
 }
 
-/* ============ 侧栏把手（"舌"）============ */
-/* §9.2 规格：48×20 高而窄，底色透明，无阴影（DESIGN.md 贴面零阴影），
-   hover 才填底色。箭头方向 = side × collapsed 两个布尔共同决定：
-     右停靠 未展开 ‹ ／ 已展开 ›
-     左停靠 未展开 › ／ 已展开 ‹
-   物理规则：箭头 = 面板那条边「将要移动」的方向。
-   几何（2026-09-19 错位修复）：
-   · 收起态——整体贴窗口边缘、全在窗内：只圆外侧两角、内侧不描边，
-     从窗缘「长出来」。
-   · 展开态——**中轴骑在发丝线上**（右槽线在槽左缘 / 左槽线在槽右缘，
-     即面板与主区的那条分割线）：左右各突出 10px，四角全圆。旧版把舌头
-     钉在面板缘、线从舌头 65% 处斜穿，交点看着是歪的（用户实测反馈）。 */
+/* AI 核查槽特例（2026-09-19 三轮，Guanmo AI 面板同款）：热区退出布局流，
+   改为**覆盖在面板体上的绝对定位条**——面板体直接从发丝线铺起，槽头横线、
+   今后时间线等一切通栏元素都自然顶到竖线上，不再有 7px 热区空档（用户
+   实测：槽头线与竖线之间缺一小段）。拖拽热区仍是全高 7px，无死角。 */
+.panel-slot.review-slot > .app-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 10; /* 线与悬停高亮浮在面板底色上 */
+}
+.panel-slot.review-slot[data-side="right"] > .app-resizer {
+  left: 0;
+}
+.panel-slot.review-slot[data-side="left"] > .app-resizer {
+  right: 0;
+}
+
+/* ============ 侧栏把手（"耳朵"）============ */
+/* 2026-09-19 三轮（参照 Guanmo-open MarkdownToc 把手重塑形状与几何）：
+   · 形状 —— 20×48 高而窄的耳朵，锚在面板体边线的**主区那侧**、平边贴线
+     （贴线一侧不描边），外侧两角 16px 大圆弧（rounded-2xl 同款），实底
+     var(--bg) + 三侧描边——耳朵浮在主区内容上，实底才可读。无阴影
+     （DESIGN.md 贴面零阴影）。仅一枚 12px 线性箭头。
+   · 几何不分收展——定位基准是 .panel-slot：右槽线在槽左缘，耳朵
+     translate(-100%) 挂在线的左侧（主区侧）；左槽镜像。展开时线是
+     面板发丝线，收起时槽列缩到 0、同一规则让耳朵贴上窗缘，且**收起后
+     依然可见可点**（不再藏在 unit 的 opacity:0 里）。宽度过渡时槽缘
+     连续滑动，耳朵自动跟着线走。旧版「骑线」几何（中轴压线）已废——
+     用户实测：线被舌头压住不对，要贴不要压。
+   · 箭头方向 = 面板那条边「将要移动」的方向：
+       右停靠 未展开 ‹ ／ 已展开 ›；左停靠 未展开 › ／ 已展开 ‹
+   · 只有大纲栏有耳朵；AI 核查栏开合走状态栏开关，不设把手。 */
 .panel-handle {
   position: absolute;
   top: 50%;
@@ -89,10 +110,10 @@
   justify-content: center;
   padding: 0;
   border: 1px solid var(--border);
-  background: transparent; /* 底色透明：滚动条/发丝线从下方穿过，互不干扰 */
+  background: var(--bg); /* 实底：耳朵压在主区内容上，透明底会与正文串字 */
   color: var(--fg3);
   cursor: pointer;
-  z-index: 10; /* 高于滚动条与发丝线（用户已拍板：把手压在滚动条上） */
+  z-index: 10; /* 高于主区内容、滚动条与发丝线（用户已拍板：把手压在滚动条上） */
   /* NO box-shadow — DESIGN.md「贴面零阴影，层级一律用发丝线」 */
   transition:
     background 0.14s var(--ease),
@@ -100,32 +121,19 @@
     border-color 0.14s var(--ease);
 }
 
-/* ── 收起态：贴窗口边缘 ── */
+/* 右停靠：耳朵贴槽左缘（=发丝线）外侧，向主区伸 20px；贴线侧不描边 */
 .panel-slot[data-side="right"] .panel-handle {
   left: 0;
-  border-right: none; /* 右边不描边——从窗缘"长出来" */
-  border-radius: 10px 0 0 10px; /* 只圆左边两角 */
+  border-right: none;
+  border-radius: 16px 0 0 16px; /* 外侧两角大圆弧，平边贴线 */
   transform: translate(-100%, -50%);
 }
+/* 左停靠：镜像——贴槽右缘（=发丝线）外侧，向主区伸 20px */
 .panel-slot[data-side="left"] .panel-handle {
   right: 0;
   border-left: none;
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 16px 16px 0;
   transform: translate(100%, -50%);
-}
-
-/* ── 展开态：中轴骑在发丝线上 ── */
-/* 把手的定位基准是 .panel-unit（面板缘）；线在槽缘 = 面板缘再往外 7px 热区。
-   -17px = 7px 热区 + 10px 半宽 → 20px 舌头的中轴正好压在线上，右缘轻搭面板 3px。 */
-.panel-slot[data-side="right"][data-open="true"] .panel-handle {
-  left: -17px;
-  border-radius: 10px;
-  transform: translateY(-50%);
-}
-.panel-slot[data-side="left"][data-open="true"] .panel-handle {
-  right: -17px;
-  border-radius: 10px;
-  transform: translateY(-50%);
 }
 
 /* hover：填底色——透明态下唯一的"我在这儿"反馈 */

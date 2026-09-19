@@ -318,7 +318,6 @@ function App() {
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const introPhase = useUiStore((s) => s.introPhase);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
-  const toggleReview = useUiStore((s) => s.toggleReview);
   // armed = 窗口 reveal 前的起始态（两栏展开到比终态更宽）；playing = 收缩进行中。
   const introArmed = introPhase === "idle";
   const introPlaying = introPhase === "playing";
@@ -422,7 +421,8 @@ function App() {
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡）。
           §8.2 同侧共存：核查同侧时本槽内移一列（outlineCol），核查栏占外侧高栏。
           宽度/透明度 inline style 落在 .panel-unit（intro keyframes 同改这一层，
-          见 12-welcome.css）；把手钉在 unit 上——收起贴窗缘、展开骑发丝线。
+          见 12-welcome.css）；把手挂在槽上（不在 unit 内）——贴发丝线主区那侧、
+          收起时贴窗缘，两种状态同一几何，永不被 unit 的 opacity 收走。
           拖宽条内嵌槽内，不再是独立网格列；intro-playing 期 width 不内联，
           让 keyframes 接管收缩 + 回弹（inline 会盖过 animation）。 */}
       <div
@@ -431,6 +431,12 @@ function App() {
         data-open={outlineVisible}
         style={{ gridColumn: outlineCol }}
       >
+        <PanelHandle
+          side={outlineSide}
+          showPanel={outlineVisible}
+          onToggle={toggleOutline}
+          label={outlineVisible ? "收起大纲" : "展开大纲"}
+        />
         <PanelResizer
           place={outlineSide === "right" ? "outline-right" : "outline-left"}
           hidden={!outlineVisible}
@@ -443,12 +449,6 @@ function App() {
             ["--panel-w" as string]: `${outlinePanelW}px`,
           }}
         >
-          <PanelHandle
-            side={outlineSide}
-            showPanel={outlineVisible}
-            onToggle={toggleOutline}
-            label={outlineVisible ? "收起大纲" : "展开大纲"}
-          />
           <aside className="outline-panel">
             <div className="panel-clip">
               <OutlinePanel />
@@ -459,12 +459,12 @@ function App() {
       {/* AI 核查面板（§八）：与大纲各自独立选边；同侧时核查占外侧列 + row 2/4
           （高栏，上抵标签栏下），大纲让位内移——推移而非覆盖。列号/行号内联，
           线的朝向交给 .panel-slot[data-side] CSS。面板开合走 v1 的直接挂载/卸载
-          （无收展过渡），把手 data-open 恒 true（展开态骑线样式）。 */}
+          （无收展过渡）。2026-09-19 三轮：AI 栏不再设把手——开合只走状态栏
+          开关（用户拍板）；拖宽热区保留。 */}
       {showReview && (
         <div
           className="panel-slot review-slot"
           data-side={reviewSide}
-          data-open="true"
           style={{
             gridColumn: reviewSide === "right" ? 7 : 3,
             gridRow: "2 / 4",
@@ -482,12 +482,6 @@ function App() {
               ["--panel-w" as string]: `${reviewWidth}px`,
             }}
           >
-            <PanelHandle
-              side={reviewSide}
-              showPanel={true}
-              onToggle={toggleReview}
-              label="收起 AI 核查"
-            />
             <aside className="review-panel">
               <div className="panel-clip">
                 <ReviewPanel />
