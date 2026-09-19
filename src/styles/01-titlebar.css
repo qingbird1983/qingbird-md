@@ -347,7 +347,7 @@
   display: none;
 }
 
-/* TopBar 下拉菜单组（button + absolute ul 轻实现） */
+/* 下拉菜单通用样式（button + absolute ul 轻实现；Menu/EditorToolbar/TitleBar/ContextMenu 共用） */
 .menu-btn,
 .menu-item {
   background: none;
