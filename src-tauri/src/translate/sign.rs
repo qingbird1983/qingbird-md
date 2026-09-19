@@ -24,7 +24,9 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-fn hex(bytes: &[u8]) -> String {
+/// Bytes → lowercase hex。translate 模块内共享（providers 复用，P2-3 去重）；
+/// 不外扩到 crate 级可见性。
+pub(super) fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         s.push_str(&format!("{b:02x}"));

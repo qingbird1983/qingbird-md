@@ -6,6 +6,7 @@
 // （只能靠动态 import 绕环），所以把「最近列表」抽成一个不依赖任何其他 store 的
 // 小 store，两边都能静态引入。
 import { create } from "zustand";
+import { baseName } from "../lib/wsPath";
 
 export interface RecentDoc {
   path: string;
@@ -16,11 +17,6 @@ export interface RecentDoc {
 
 const KEY = "qb.recent-docs";
 export const RECENT_MAX = 10;
-
-function baseName(p: string): string {
-  const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
 
 /** 读盘；任何异常（无记录 / JSON 坏 / 隐私模式）都退化成空列表。 */
 function read(): RecentDoc[] {

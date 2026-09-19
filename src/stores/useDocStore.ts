@@ -13,6 +13,8 @@ import { undo, redo } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
 import type { DocDTO, Mode, ParseResult, SessionSnapshot, SessionTab, TargetLang, ViewKind } from "../types/ipc";
 import { api, byteToCharOffset, charToByteOffset } from "../lib/ipc";
+import { baseName } from "../lib/wsPath";
+import { SESSION_VERSION } from "../lib/sessionVersion";
 import { useUiStore, errText } from "./useUiStore";
 import { useTranslationStore } from "./useTranslationStore";
 import { useSettingsStore } from "./useSettingsStore";
@@ -127,9 +129,15 @@ interface DocState {
   clearTranslations(): void;
 }
 
-function pathParts(p: string) {
+/**
+ * doc.base_dir：路径的父目录。与 wsPath.dirName 的两处语义差异是有意的——
+ * 无分隔符（裸文件名）返 null 而非原样返回；盘根不做 "C:\foo"→"C:\" 特判
+ * （保持 "C:"）。base_dir 只作后端 resolve 的 join 基准，维持原 pathParts
+ * 行为避免无谓的入参变化；文件名半径已统一走 wsPath.baseName（P2-3）。
+ */
+function baseDirOf(p: string): string | null {
   const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
-  return { name: i >= 0 ? p.slice(i + 1) : p, dir: i >= 0 ? p.slice(0, i) : null };
+  return i >= 0 ? p.slice(0, i) : null;
 }
 
 function activeTab(state: DocState): OpenTab | null {
@@ -141,7 +149,7 @@ function tabToDoc(t: OpenTab): DocDTO {
   return {
     name: t.name,
     path: t.path,
-    base_dir: t.path ? pathParts(t.path).dir : null,
+    base_dir: t.path ? baseDirOf(t.path) : null,
     content: t.content,
     char_count: [...t.content].length,
     line_count: t.content.split("\n").length,
@@ -176,8 +184,7 @@ function commit(tabs: OpenTab[], activeId: string | null) {
 let docChangedRegistered = false;
 let parseTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** 与 hibernate.rs SESSION_VERSION 一致；改动须同步（src/lib/session.ts 同值）。 */
-const SESSION_VERSION = 1;
+// SESSION_VERSION 自 P2-3 起从 ../lib/sessionVersion 引入（原本地常量删除）。
 
 // 快照字段是字符串，回填前收敛到联合类型：脏数据/跨版本残留不得污染 store。
 function normView(v: string): ViewKind {
@@ -550,7 +557,7 @@ export const useDocStore = create<DocState>()((set, get) => {
     retargetPath: (oldPath, newPath) => {
       set((s) => {
         if (!s.tabs.some((t) => t.path === oldPath)) return {};
-        const name = pathParts(newPath).name;
+        const name = baseName(newPath);
         const tabs = s.tabs.map((t) => (t.path === oldPath ? { ...t, path: newPath, name } : t));
         return commit(tabs, s.activeId);
       });
@@ -612,7 +619,7 @@ export const useDocStore = create<DocState>()((set, get) => {
       }
       try {
         const mtime = await api.saveFile(target, t.content);
-        const { name } = pathParts(target);
+        const name = baseName(target);
         // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close），
         // 内容也可能已变（用户在写盘往返期间继续输入）。基线必须取**写盘的那份
         // 快照 t.content**——写 cur.content 会让这段领先于磁盘的编辑被错误地

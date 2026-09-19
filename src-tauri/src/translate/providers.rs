@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use super::http::HttpClient;
 use super::policy::{system_prompt, TargetLang};
-use super::sign::{hmac_sha256, md5, sha256_hex};
+use super::sign::{hmac_sha256, hex, md5, sha256_hex};
 
 /// Credentials for a provider (map of field key -> value). Never serialized
 /// into the front end in the original app; in this app it lives in settings.
@@ -90,14 +90,6 @@ fn now_nanos() -> u128 {
 fn salt() -> String {
     // Numeric string (like JS Math.random().slice(2)).
     format!("{}", now_nanos() % 100_000_000_000)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{b:02x}"));
-    }
-    s
 }
 
 fn truncate(q: &str) -> String {
@@ -409,19 +401,9 @@ fn llm(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> 
         timeout_ms: 120_000,
     };
     let mut noop = |_: &str| {};
-    super::openai::chat_stream(&req, http, &mut noop).map(|c| clean(&c))
-}
-
-fn clean(s: &str) -> String {
-    let t = s.trim();
-    if t.starts_with("```") {
-        let mut inner = t;
-        inner = inner.strip_prefix("```").unwrap_or(inner);
-        inner = inner.split_once('\n').map(|(_, rest)| rest).unwrap_or(inner);
-        inner = inner.strip_suffix("```").unwrap_or(inner);
-        return inner.trim().to_string();
-    }
-    t.to_string()
+    // strip_fence 与本文件原 clean 逐点等价（trim→剥围栏→丢语言行→去尾围栏→
+    // 再 trim），P2-3 合并到 openai 的单份实现（自带单测）。
+    super::openai::chat_stream(&req, http, &mut noop).map(|c| super::openai::strip_fence(&c))
 }
 
 // ---- auto chain ----
@@ -649,12 +631,6 @@ mod tests {
         let http = MockClient::new();
         let r = auto("hello world", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好，世界");
-    }
-
-    #[test]
-    fn clean_strips_fences() {
-        assert_eq!(clean("```\n你好\n```"), "你好");
-        assert_eq!(clean("  你好  "), "你好");
     }
 }
 

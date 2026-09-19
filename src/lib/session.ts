@@ -10,9 +10,7 @@ import { useDocStore } from "../stores/useDocStore";
 import { useUiStore } from "../stores/useUiStore";
 import { useWorkspaceStore } from "../stores/useWorkspaceStore";
 import type { SessionSnapshot, SessionTab } from "../types/ipc";
-
-/** 与 hibernate.rs SESSION_VERSION 一致；改动须同步。 */
-export const SESSION_VERSION = 1;
+import { SESSION_VERSION } from "./sessionVersion";
 
 /** 同步读 store 组装快照。无 await：休眠握手的 3s 超时不等异步。 */
 export function collectSnapshot(): SessionSnapshot {
