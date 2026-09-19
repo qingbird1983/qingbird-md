@@ -635,6 +635,11 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
         useUiStore.getState().addToast("success", `翻译完成（${dd.doc.name}·缓存）`);
         return;
       }
+      // 代际守卫（与下方 catch 分支同口径）：await 期间 stop()/resetDisplay()/
+      // 切方向已令 gen 前跳的，本响应整体作废——后端已收到取消，不会再有同
+      // gen 的 partial/progress/done。强行 set 会把 status 拉回 running 而事件
+      // 永不再来 → 整轮永久卡死，后续 translateDocument/startIfFresh 全被挡。
+      if (get().gen !== genBefore) return;
       // runContent 与 gen 同轮绑定：done 事件据此判 payload 产物是否仍与当前内容一致
       resetStream(r.indices, r.indices_blocks); // 新打字流放行序列 + run→块映射（整段组装）
       if (win) {
