@@ -601,12 +601,15 @@ export const useDocStore = create<DocState>()((set, get) => {
       try {
         const mtime = await api.saveFile(target, t.content);
         const { name } = pathParts(target);
-        // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close）
+        // 按 id 写：await 期间 active tab 可能已切走（如 closeTab 的 save-then-close），
+        // 内容也可能已变（用户在写盘往返期间继续输入）。基线必须取**写盘的那份
+        // 快照 t.content**——写 cur.content 会让这段领先于磁盘的编辑被错误地
+        // 记为已保存（isDirty 变 false → 关标签不弹确认 → 静默丢改动）。
         patchTab(myId, (cur) => ({
           ...cur,
           path: target!,
           name,
-          savedContent: cur.content,
+          savedContent: t.content,
           mtime, // 新基线：下次冲突检测以此为准
         }));
         useUiStore.getState().addToast("success", "保存成功");
