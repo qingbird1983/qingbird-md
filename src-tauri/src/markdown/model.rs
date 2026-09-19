@@ -585,13 +585,22 @@ fn collect_cells<'a>(it: &mut impl Iterator<Item = Event<'a>>, end: TagEnd) -> V
     cells
 }
 
-/// Collect only text (used for image alt text); stops at the next `End`.
+/// Collect only text (used for image alt text).
+///
+/// 嵌套深度计数照 pulldown 自带 `raw_text` 的口径：`Start` 加一，`End` 只在
+/// 深度为 0（即 Image 自己的收尾）时 break。提前 break 会把 `End(Image)`
+/// 留在流里，上层 `collect_inlines` 把它当容器边界，同段后续文本被静默吞掉
+/// （BUG-7）。`Code` 计入 alt。
 fn collect_raw_text<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> String {
     let mut s = String::new();
+    let mut nest = 0usize;
     while let Some(ev) = it.next() {
         match ev {
-            Event::End(_) => break,
+            Event::Start(_) => nest += 1,
+            Event::End(_) if nest == 0 => break,
+            Event::End(_) => nest -= 1,
             Event::Text(t) => s.push_str(&t),
+            Event::Code(c) => s.push_str(&c),
             Event::SoftBreak | Event::HardBreak => s.push(' '),
             _ => {}
         }
@@ -699,6 +708,40 @@ mod tests {
             &blocks[0],
             Block::Image { alt, src } if alt == "alt" && src == "img/logo.png"
         ));
+    }
+
+    /// BUG-7 回归：alt 含嵌套行内标签（`![**b**](x)` 的 Strong）时，
+    /// alt 解析必须消费到 Image 自己的 `End`——提前 break 会把 `End(Image)`
+    /// 留在流里，上层 `collect_inlines` 把它当段落边界，同段后续文本被
+    /// 静默吞掉。
+    #[test]
+    fn image_alt_with_nested_inline_does_not_swallow_trailing_text() {
+        let blocks = parse_blocks("![**b**](x) tail after image");
+        assert_eq!(blocks.len(), 1);
+        assert!(
+            matches!(
+                &blocks[0],
+                Block::Paragraph { text }
+                    if matches!(
+                        text.as_slice(),
+                        [Inline::Image { alt, .. }, Inline::Text(t)]
+                            if alt == "b" && t == " tail after image"
+                    )
+            ),
+            "alt 含嵌套行内时不得吞掉同段后续文本: {blocks:?}"
+        );
+    }
+
+    /// BUG-7 附带：`Event::Code` 计入 alt（照 pulldown raw_text 的口径）。
+    /// 纯图片段落会升级为 `Block::Image`（见
+    /// `image_only_paragraph_becomes_image_block`），alt 从这里断言。
+    #[test]
+    fn image_alt_includes_code_spans() {
+        let blocks = parse_blocks("![a `code` span](x)");
+        assert!(
+            matches!(&blocks[0], Block::Image { alt, .. } if alt == "a code span"),
+            "alt 必须计入 Code: {blocks:?}"
+        );
     }
 
     // ---- 语法全覆盖测试.md 补齐项（2026-09-11）----
