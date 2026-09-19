@@ -256,8 +256,13 @@ fn take_pending_open() -> Vec<String> {
 
 /// Walk a workspace folder into the frontend file tree (`.md`/`.markdown`
 /// `.txt` only; dotfiles and vendored/build dirs skipped by `workspace::walk`).
+///
+/// P1-2(SEC-2)：每次打开同时把该目录登记进本会话的允许根——树右键一族写
+/// 命令与 `resolve_image` 的根校验都以它为边界。前端传来的树路径全部来自
+/// 本命令的 walk 结果，故登记天然覆盖所有既有流程。
 #[tauri::command]
 fn open_workspace(path: String) -> Vec<dto::TreeNodeDTO> {
+    workspace::register_root(std::path::Path::new(&path));
     workspace::walk(std::path::Path::new(&path))
 }
 
@@ -268,8 +273,12 @@ fn filter_workspace(tree: Vec<dto::TreeNodeDTO>, query: String) -> Vec<dto::Tree
 }
 
 /// Create an empty file; refuses to overwrite (`create_new`).
+///
+/// P1-2(SEC-2)：树右键一族命令统一根校验（见 [`workspace::ensure_within_roots`]）；
+/// 调用方路径全部来自 open_workspace 的树，校验不破坏既有流程。
 #[tauri::command]
 fn create_file(path: String) -> Result<(), String> {
+    workspace::ensure_within_roots(std::path::Path::new(&path))?;
     match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(_) => Ok(()),
         Err(e) => Err(create_err("创建文件失败", &path, e)),
@@ -279,12 +288,15 @@ fn create_file(path: String) -> Result<(), String> {
 /// Create a single directory (no parents implied).
 #[tauri::command]
 fn create_folder(path: String) -> Result<(), String> {
+    workspace::ensure_within_roots(std::path::Path::new(&path))?;
     std::fs::create_dir(&path).map_err(|e| create_err("创建文件夹失败", &path, e))
 }
 
 /// 同目录重命名，返回新的完整路径（前端据此更新标签/树）。
 #[tauri::command]
 fn rename_path(path: String, new_name: String) -> Result<String, String> {
+    // 目标 = 同父目录拼接（validate_name 禁分隔符/`..`），源在根内则目标同在
+    workspace::ensure_within_roots(std::path::Path::new(&path))?;
     let target = workspace::renamed_path(&path, &new_name)?;
     let src = std::path::Path::new(&path);
     if !src.exists() {
@@ -300,6 +312,7 @@ fn rename_path(path: String, new_name: String) -> Result<String, String> {
 /// 删除文件/文件夹（Windows 走回收站，可撤销）。
 #[tauri::command]
 fn delete_path(path: String) -> Result<(), String> {
+    workspace::ensure_within_roots(std::path::Path::new(&path))?;
     let p = std::path::Path::new(&path);
     if !p.exists() {
         return Err("路径不存在".into());
@@ -385,6 +398,9 @@ fn open_terminal(path: String) -> Result<(), String> {
 /// 移动文件/目录到目标目录（同名冲突拒绝覆盖），返回新路径。
 #[tauri::command]
 fn move_path(path: String, dest_dir: String) -> Result<String, String> {
+    // 源与目标目录各自校验：跨已登记根移动合法（两棵树都在侧栏里可见）
+    workspace::ensure_within_roots(std::path::Path::new(&path))?;
+    workspace::ensure_within_roots(std::path::Path::new(&dest_dir))?;
     let src = std::path::Path::new(&path);
     if !src.exists() {
         return Err("原路径不存在".into());
@@ -415,6 +431,7 @@ fn move_path(path: String, dest_dir: String) -> Result<String, String> {
 /// 从模板新建文档（模板正文见 workspace::template_body），返回新文件路径。
 #[tauri::command]
 fn create_from_template(dir: String, name: String, kind: String) -> Result<String, String> {
+    workspace::ensure_within_roots(std::path::Path::new(&dir))?;
     let clean = name.trim();
     workspace::validate_name(clean)?;
     let file_name = if clean.to_lowercase().ends_with(".md") { clean.to_string() } else { format!("{clean}.md") };
@@ -445,38 +462,56 @@ fn create_err(what: &str, path: &str, e: std::io::Error) -> String {
 /// Resolve a markdown image `src` to a local absolute path
 /// （逻辑 = 旧 render.rs::resolve_src 平移）：
 /// - http(s)/data: -> `None`（远程图交给前端按 alt 兜底）
-/// - file:// -> 剥前缀原样使用
+/// - file:// -> 剥前缀使用
 /// - 相对路径 -> 与文档目录（base_dir）拼接
 ///
-/// P1-1(SEC-1)：asset 协议 scope 起步为空（tauri.conf.json `assetProtocol.scope: []`，
-/// 替换原 `**` 全放开），`resolve_image` 把解析出的每个路径逐个
-/// `asset_protocol_scope().allow_file` 放行——「文档可在任意盘符目录」改由运行时
-/// 按需授权支撑，文档未引用的本地文件不再默认可读。含 `..` 的解析结果另被
-/// asset 协议的 SafePathBuf 遍历检查直接 403（tauri path::SafePathBuf），归一化
-/// 待 P1-2 的根校验一并处理。
+/// P1-2(SEC-2)：解析结果经 `.`/`..` 词法归一（`..` 逃出根整体返回 None），
+/// 与文档目录之外工作区根之内的合法 `../` 引用由此可判定；逃逸的最终拒绝
+/// 在 [`resolve_within`] 的根校验。
 fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
     let s = src.trim();
     if s.is_empty() {
         return None;
     }
-    if let Some(p) = s.strip_prefix("file://") {
+    let raw = if let Some(p) = s.strip_prefix("file://") {
         // 三斜杠 file:///C:/x.png 剥 `file://` 后余 `/C:/x.png`，前导斜杠在
         // Windows 上不是有效本地路径——剥净；双斜杠 file://C:/x.png 原样无影响
         // （旧 Electron 平移行为保持）。
-        return Some(PathBuf::from(p.trim_start_matches('/')));
-    }
-    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("data:") {
-        return None;
-    }
-    let p = PathBuf::from(base_dir?).join(s);
+        PathBuf::from(p.trim_start_matches('/'))
+    } else {
+        if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("data:") {
+            return None;
+        }
+        PathBuf::from(base_dir?).join(s)
+    };
     // join 在 Windows 上插入反斜杠；统一为 '/' 保持路径字符串可预测
     // （前端展示、测试断言一致）。Win32 API 两种分隔符均接受。
-    Some(PathBuf::from(p.to_string_lossy().replace('\\', "/")))
+    workspace::normalize_lexical(&raw)
+        .map(|n| PathBuf::from(n.to_string_lossy().replace('\\', "/")))
+}
+
+/// SEC-2 根校验后的解析：结果必须落在允许根——文档目录（base_dir）或任一
+/// 已登记工作区根（[`workspace::register_root`]）——之内，否则 `None`。
+///
+/// resolve_image 是唯一被**文档内容**直接驱动的路径入口（恶意 .md 的
+/// `<img src>`），`..` 逃逸在此被拦下，P1-1 的运行时逐文件 asset 放行因此
+/// 只发生在根内路径上。
+fn resolve_within(src: &str, base_dir: Option<&str>, roots: &[PathBuf]) -> Option<PathBuf> {
+    let p = resolve(src, base_dir)?;
+    let in_base = base_dir
+        .filter(|b| !b.is_empty())
+        .is_some_and(|b| workspace::path_within(&p, std::path::Path::new(b)));
+    if in_base || roots.iter().any(|r| workspace::path_within(&p, r)) {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 #[tauri::command]
 fn resolve_image(app: tauri::AppHandle, src: String, base_dir: Option<String>) -> Option<String> {
-    resolve(&src, base_dir.as_deref())
+    let roots = workspace::allowed_roots();
+    resolve_within(&src, base_dir.as_deref(), &roots)
         .inspect(|p| {
             // P1-1(SEC-1)：解析结果即时放进 asset scope（见 resolve 上的注释）。
             // 放行失败（如路径不存在）静默忽略——本就加载不出图，不值得挡命令。
@@ -494,6 +529,13 @@ pub fn resolve_image_for_test(
     base_dir: Option<String>,
 ) -> Option<String> {
     resolve_image(app, src, base_dir)
+}
+
+/// tests/asset_scope.rs 的根登记入口（open_workspace 命令为私有 fn，同上理由
+/// 经薄壳转发；集成测试进程与 lib 单测进程隔离，静态根表互不可见）。
+#[doc(hidden)]
+pub fn register_workspace_root_for_test(path: &str) {
+    workspace::register_root(std::path::Path::new(path));
 }
 
 /// 编辑期重新渲染（open_file 已随文档首渲，此处只服务内容变化后的重解析）。
@@ -954,6 +996,90 @@ mod tests {
         let all = filter_workspace(tree.clone(), "   ".into()); // 空查询原样返回
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].children.len(), 2);
+    }
+
+    // ---- P1-2(SEC-2): 工作区写命令根校验 ----
+
+    #[test]
+    fn workspace_write_commands_fail_closed_without_registered_root() {
+        // 未登记任何工作区根时写命令必须 fail closed：前端所有树右键操作
+        // 的路径都来自 open_workspace 的 walk 结果（必在某个已登记根内），
+        // 拒绝不破坏任何既有流程；被污染的前端任意路径写入在此被拦下。
+        let dir = std::env::temp_dir().join(format!("qingbird-p12-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().into_owned();
+        let p = |n: &str| dir.join(n).to_string_lossy().into_owned();
+
+        assert!(create_file(p("x.md")).is_err());
+        assert!(create_folder(p("sub")).is_err());
+        assert!(create_from_template(dir_s.clone(), "tpl.md".into(), "blank".into()).is_err());
+
+        // rename / move：素材用 fs 直接准备（不依赖写命令本身），今天这两个
+        // 命令会对根外路径成功执行——修复后必须在任何 IO 之前拒绝。
+        std::fs::write(dir.join("a.md"), "x").unwrap();
+        assert!(rename_path(p("a.md"), "b.md".to_string()).is_err());
+        std::fs::create_dir(dir.join("dest")).unwrap();
+        assert!(move_path(p("a.md"), p("dest")).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_write_commands_allow_registered_root_lifecycle() {
+        // 登记根后：create → rename → move → delete 根内全生命周期放行；
+        // 根外（另一未登记目录）仍拒绝。
+        let dir = std::env::temp_dir().join(format!("qingbird-p12-round-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("dest")).unwrap();
+        workspace::register_root(&dir);
+        let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+
+        let f = dir.join("a.md");
+        create_file(s(&f)).unwrap();
+        let renamed = rename_path(s(&f), "b.md".to_string()).unwrap();
+        let moved = move_path(renamed, s(&dir.join("dest"))).unwrap();
+        assert_eq!(std::path::Path::new(&moved).file_name().unwrap(), "b.md");
+        delete_path(moved).unwrap();
+
+        let out =
+            std::env::temp_dir().join(format!("qingbird-p12-round-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out).unwrap();
+        assert!(create_file(s(&out.join("x.md"))).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&out);
+    }
+
+    #[test]
+    fn resolve_within_enforces_doc_dir_and_workspace_roots() {
+        let root = std::env::temp_dir().join(format!("qingbird-p12-res-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let base = root.join("docs").to_string_lossy().replace('\\', "/");
+        let root_s = root.to_string_lossy().replace('\\', "/");
+        let roots = vec![root.clone()];
+
+        // 文档目录内相对图片：放行
+        assert!(resolve_within("pic.png", Some(&base), &roots).is_some());
+        // `..` 进入工作区（文档目录之外、根之内）：放行——根校验要保住的合法形态
+        assert!(resolve_within("../assets/pic.png", Some(&base), &roots).is_some());
+        // 未登记任何根时同样的 `..`：逃出文档目录，拒绝
+        assert_eq!(resolve_within("../assets/pic.png", Some(&base), &[]), None);
+        // 越过工作区根：拒绝
+        assert_eq!(resolve_within("../../escape.png", Some(&base), &roots), None);
+        // file:// 根内绝对路径：放行；根外：拒绝
+        assert!(resolve_within(&format!("file://{root_s}/docs/pic.png"), None, &roots).is_some());
+        let other =
+            std::env::temp_dir().join(format!("qingbird-p12-res-out-{}", std::process::id()));
+        std::fs::create_dir_all(&other).unwrap();
+        let other_s = other.to_string_lossy().replace('\\', "/");
+        assert_eq!(resolve_within(&format!("file://{other_s}/x.png"), None, &roots), None);
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     // ---- Task 10: 单实例 handoff / 文件关联首开 ----

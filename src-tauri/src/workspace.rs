@@ -166,6 +166,120 @@ pub fn template_body(kind: &str) -> &'static str {
     }
 }
 
+// ---- SEC-2（P1-2）：路径归一与允许根校验 ----
+//
+// 威胁模型是「前端被污染」（SEC-1）：自定义命令不受 capability 约束，任意 JS
+// 都能带任意路径调用。根登记走 open_workspace（树右键一族命令的路径全部来自
+// 其 walk 结果），resolve 的解析结果必须落在文档目录或某个已登记根之内——
+// 这是唯一被文档内容直接驱动的路径入口。open_file/save_file 等因「打开/另存为」
+// 是合法的任意路径流程，不做根校验（有意取舍，见命令注释）。
+
+/// 本会话已登记的允许根（canonical 形态）。仅内存：应用重启即清空，不持久化。
+static ALLOWED_ROOTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// 登记一个允许根：canonical 化（解析符号链接，Windows 产出剥 `\\?\` 前缀）
+/// 后去重保存。失败（目录不存在等）静默忽略——walk 同样会失败，登记无意义。
+pub fn register_root(path: &Path) {
+    let Some(root) = std::fs::canonicalize(path).ok().map(|p| strip_verbatim(&p)) else {
+        return;
+    };
+    let mut roots = ALLOWED_ROOTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !roots.contains(&root) {
+        roots.push(root);
+    }
+}
+
+/// 已登记允许根的快照。
+pub fn allowed_roots() -> Vec<PathBuf> {
+    ALLOWED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// `path` 是否落在任一已登记根内。
+pub fn is_within_any_root(path: &Path) -> bool {
+    allowed_roots().iter().any(|r| path_within(path, r))
+}
+
+/// 工作区写命令的统一根校验：不在任一已登记根内 → Err（中文提示，前端直接
+/// toast）。校验放在一切存在性检查与 IO 之前，不向被污染方泄露根外路径信息。
+pub fn ensure_within_roots(path: &Path) -> Result<(), String> {
+    if is_within_any_root(path) {
+        Ok(())
+    } else {
+        Err("路径不在已打开的工作区内".into())
+    }
+}
+
+/// 判定 `path` 是否落在 `root` 内。两侧各自归一（canonicalize 优先——解析
+/// 符号链接并剥 Windows `\\?\` 前缀；目标不存在时退回 `.`/`..` 词法归一），
+/// 任一侧归一失败（越根/空路径）→ false。
+pub fn path_within(path: &Path, root: &Path) -> bool {
+    if path.as_os_str().is_empty() || root.as_os_str().is_empty() {
+        return false;
+    }
+    match (normalize_for_compare(path), normalize_for_compare(root)) {
+        (Some(p), Some(r)) => normalized_contains(&r, &p),
+        _ => false,
+    }
+}
+
+/// 比较用归一：canonicalize 成功则用真实路径（剥 `\\?\` 前缀）；失败（通常
+/// 是路径尚不存在，如待创建文件）退回词法归一；词法归一也失败（`..` 越根）
+/// 返回 None。
+fn normalize_for_compare(p: &Path) -> Option<PathBuf> {
+    if let Ok(canon) = std::fs::canonicalize(p) {
+        return Some(strip_verbatim(&canon));
+    }
+    normalize_lexical(p)
+}
+
+/// `.`/`..` 词法归一（逐 component 重放，不触碰文件系统、不解析符号链接）。
+/// `..` 逃出根（`/../..`、`C:\..\..`）返回 None；`.` 丢弃；重复分隔符由
+/// components 天然折叠。
+pub fn normalize_lexical(p: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None; // 越过根
+                }
+            }
+            c => out.push(c.as_os_str()),
+        }
+    }
+    Some(out)
+}
+
+/// Windows canonicalize 产出 `\\?\C:\...` / `\\?\UNC\server\share` verbatim
+/// 形态，与普通路径字符串不可比——剥回 `C:\...` / `\\server\share` 再比较。
+fn strip_verbatim(p: &Path) -> PathBuf {
+    let s = p.as_os_str().to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
+/// 两个已归一路径的包含判定：统一 '/'、去尾分隔符、Windows 大小写不敏感；
+/// 前缀命中必须落在分隔符边界（`/ws` 不包含 `/www`）。
+fn normalized_contains(root: &Path, path: &Path) -> bool {
+    let norm = |p: &Path| {
+        let s = p.to_string_lossy().replace('\\', "/");
+        let s = s.trim_end_matches('/');
+        if cfg!(windows) { s.to_lowercase() } else { s.to_string() }
+    };
+    let (r, p) = (norm(root), norm(path));
+    let Some(rest) = p.strip_prefix(&r) else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with('/')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +317,88 @@ mod tests {
         assert!(is_md("b.markdown"));
         assert!(is_md("c.txt"));
         assert!(!is_md("d.png"));
+    }
+
+    // ---- SEC-2（P1-2）：归一与根校验 ----
+
+    #[test]
+    fn normalize_lexical_collapses_dotdot_and_rejects_root_escape() {
+        use std::path::Path;
+        assert_eq!(
+            normalize_lexical(Path::new("D:/w/docs/../assets/x.png")).unwrap(),
+            PathBuf::from("D:/w/assets/x.png")
+        );
+        // `.` 丢弃（component 级比较天然吸收分隔符差异）
+        assert_eq!(
+            normalize_lexical(Path::new("D:/w/./docs/../docs/x.md")).unwrap(),
+            PathBuf::from("D:/w").join("docs/x.md")
+        );
+        // 逃出根：Unix 绝对路径与 Windows 盘符路径都返回 None
+        assert_eq!(normalize_lexical(Path::new("/a/../../..")), None);
+        assert_eq!(normalize_lexical(Path::new(r"C:\..\..")), None);
+    }
+
+    #[test]
+    fn contains_respects_separator_boundary_and_case() {
+        use std::path::Path;
+        assert!(normalized_contains(Path::new("D:/ws"), Path::new("D:/ws/docs/a.md")));
+        assert!(normalized_contains(Path::new("D:/ws"), Path::new("D:/ws")));
+        // 前缀同串但越过目录边界：不含
+        assert!(!normalized_contains(Path::new("D:/ws"), Path::new("D:/www/a.md")));
+        // Windows 大小写不敏感（非 Windows 尊重原大小写语义）
+        assert_eq!(
+            normalized_contains(Path::new("D:/WS"), Path::new("d:/ws/a.md")),
+            cfg!(windows)
+        );
+        // 盘符根：`C:\` 包含其下一切
+        assert!(normalized_contains(Path::new("C:\\"), Path::new("C:/x/y.png")));
+    }
+
+    #[test]
+    fn path_within_canonicalizes_and_falls_back_lexically() {
+        let dir = std::env::temp_dir().join(format!("qingbird-ws-within-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+
+        // 存在的子目录：canonical 归一后包含（Windows `\\?\` 前缀已剥）
+        assert!(path_within(&dir.join("docs"), &dir));
+        // 不存在的待创建路径：词法回退仍判定包含
+        assert!(path_within(&dir.join("docs").join("new.md"), &dir));
+        // `..` 逃出根：拒绝
+        assert!(!path_within(&dir.join("..").join("escape.md"), &dir));
+        // 同前缀不同目录：拒绝
+        let sibling = dir.parent().unwrap().join(format!("qingbird-ws-within-sib-{}", std::process::id()));
+        assert!(!path_within(&sibling, &dir));
+        // 空路径不包含任何东西
+        assert!(!path_within(std::path::Path::new(""), &dir));
+        assert!(!path_within(&dir, std::path::Path::new("")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn register_root_is_idempotent_and_gates_within_checks() {
+        let dir = std::env::temp_dir().join(format!("qingbird-ws-roots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        register_root(&dir);
+        register_root(&dir); // 去重
+        // 登记的是剥 `\\?\` 前缀后的 canonical 形态
+        assert_eq!(
+            allowed_roots().iter().filter(|r| **r == strip_verbatim(&dir.canonicalize().unwrap())).count(),
+            1
+        );
+        assert!(is_within_any_root(&dir.join("a.md")));
+        let outside =
+            std::env::temp_dir().join(format!("qingbird-ws-roots-out-{}", std::process::id()));
+        assert!(!is_within_any_root(&outside));
+
+        // canonical 化失败（不存在）静默忽略
+        register_root(&outside);
+        assert!(!allowed_roots().contains(&outside));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
