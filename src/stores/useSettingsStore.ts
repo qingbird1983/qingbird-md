@@ -65,6 +65,13 @@ function applyRemote(incoming: Settings) {
 
 let listening = false;
 
+// credsFor 的空兜底必须是**共享单例**，不能写 `?? {}`：zustand v5 的 selector
+// 走 React useSyncExternalStore，要求 getSnapshot 结果引用稳定——每次调用
+// 返回新对象时，把 credsFor 用作 selector 的常驻组件（StatusBar / ReviewPanel
+// 的 `useSettingsStore((s) => s.credsFor("llm"))`）会在 settings 加载完成前
+// 陷入无限重渲染，React 崩溃、整窗白屏（2026-09-19 启动白屏即此因）。
+const EMPTY_CREDS: Record<string, string> = {};
+
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   settings: null,
   theme: "auto",
@@ -152,7 +159,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     void get().save({ ...cur, palette: p });
   },
 
-  credsFor: (provider) => get().settings?.providers[provider] ?? {},
+  credsFor: (provider) => get().settings?.providers[provider] ?? EMPTY_CREDS,
 
   // 与 setTheme/setPalette 同构的守卫写法：必须读 cur 上的**归一化值**再比，
   // 不能先本地 set——那样守卫恒假、盘上无落痕，下次启动读回旧值。
