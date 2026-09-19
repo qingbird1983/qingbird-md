@@ -7,33 +7,78 @@
  * ============================================================ */
 
 /* ============ 侧栏槽位（双宿主：大纲 / AI 核查）============ */
-/* §8.2 槽位泛化：把「大纲专属列」变成「侧栏槽位」，大纲与 AI 核查
-   各自独立选边（reviewSide / outlineSide），各占一个网格列。
-   列编号 / resizer 数量 / panel-clip / --panel-anim / intro 两态一律不动。 */
+/* §8.2 槽位泛化 + 同侧共存（2026-09-19 二轮）：
+   大纲与 AI 核查各自独立选边；**同侧时 AI 核查是「外一级」高栏**——
+   跨 row 2-4（上抵标签栏下、下至状态栏上），大纲栏顺势内移一列
+   （右同侧 col7→col6、左同侧 col3→col4），形如左贴边大纲栏与主区的
+   关系：推移，不覆盖、不翻边。列号由 App.tsx 按共存关系内联（inline
+   style 恒胜，这里的 data-side 规则只作无内联时的兜底文档）。 */
 .panel-slot {
-  grid-row: 3;
   display: flex;
   position: relative;
   /* KEY: 把手（.panel-handle）必须能被画出——槽不能被 overflow:hidden 裁掉。
      面板本身的 overflow:hidden 在内层 aside 上，不在这层。 */
   overflow: visible;
 }
-
-/* 右停靠 = col7（窗口右缘，默认）；左停靠 = col3（吸附工作区左缘） */
 .panel-slot[data-side="right"] {
   grid-column: 7;
 }
 .panel-slot[data-side="left"] {
   grid-column: 3;
 }
+/* 大纲槽固定主区行；核查槽的行（2/4 高栏）由 App.tsx 内联。列号两者都内联。 */
+.panel-slot.outline-slot {
+  grid-row: 3;
+}
 
-/* ============ 侧栏把手（"舌"，钉在槽边缘垂直中点）============ */
-/* §9.2 规格：48×20 高而窄，只圆内侧两角，底色透明（滚动条从下方穿过），
-   无阴影（DESIGN.md 贴面零阴影），hover 才填底色。
-   箭头方向 = side × collapsed 两个布尔共同决定（别只按 collapsed 写死）：
+/* 面板单元：把手 + aside 的包装层。宽度/透明度的 inline style 都落在
+   这层（而非 aside）——把手要钉在「面板的可见边缘」上，就得有一个
+   收缩到 0 时把手仍贴着窗缘、展开时把手贴着面板缘的定位基准。
+   align-items:stretch 让单元在核查高栏（row 2/4）里自动撑满槽高。 */
+.panel-unit {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  transition: opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+}
+.panel-unit > aside {
+  width: 100%;
+  height: 100%;
+}
+
+/* 内嵌拖宽条：不再是独立网格列，改为槽内第一个（右停靠）/最后一个
+   （左停靠）flex 子项。发丝线仍贴主区那侧的缘——右槽线在槽左缘
+   （=主区右边界），左槽线在槽右缘（=主区左边界），与旧 col6/col4
+   网格条几何一致（空列恒 0 宽，线永远紧贴主区）。 */
+.panel-slot > .app-resizer {
+  flex: none;
+}
+.panel-slot[data-side="right"] > .app-resizer {
+  order: 0;
+}
+.panel-slot[data-side="left"] > .app-resizer {
+  order: 2; /* 左槽：条在面板外侧（靠主区那侧） */
+}
+.panel-slot[data-side="right"] > .app-resizer::before {
+  left: 0;
+}
+.panel-slot[data-side="left"] > .app-resizer::before {
+  left: auto;
+  right: 0;
+}
+
+/* ============ 侧栏把手（"舌"）============ */
+/* §9.2 规格：48×20 高而窄，底色透明，无阴影（DESIGN.md 贴面零阴影），
+   hover 才填底色。箭头方向 = side × collapsed 两个布尔共同决定：
      右停靠 未展开 ‹ ／ 已展开 ›
      左停靠 未展开 › ／ 已展开 ‹
-   物理规则：箭头 = 面板那条边「将要移动」的方向。 */
+   物理规则：箭头 = 面板那条边「将要移动」的方向。
+   几何（2026-09-19 错位修复）：
+   · 收起态——整体贴窗口边缘、全在窗内：只圆外侧两角、内侧不描边，
+     从窗缘「长出来」。
+   · 展开态——**中轴骑在发丝线上**（右槽线在槽左缘 / 左槽线在槽右缘，
+     即面板与主区的那条分割线）：左右各突出 10px，四角全圆。旧版把舌头
+     钉在面板缘、线从舌头 65% 处斜穿，交点看着是歪的（用户实测反馈）。 */
 .panel-handle {
   position: absolute;
   top: 50%;
@@ -44,10 +89,10 @@
   justify-content: center;
   padding: 0;
   border: 1px solid var(--border);
-  background: transparent; /* 底色透明：滚动条从把手下方穿过，互不干扰 */
+  background: transparent; /* 底色透明：滚动条/发丝线从下方穿过，互不干扰 */
   color: var(--fg3);
   cursor: pointer;
-  z-index: 10; /* 高于滚动条（用户已拍板：把手压在滚动条上） */
+  z-index: 10; /* 高于滚动条与发丝线（用户已拍板：把手压在滚动条上） */
   /* NO box-shadow — DESIGN.md「贴面零阴影，层级一律用发丝线」 */
   transition:
     background 0.14s var(--ease),
@@ -55,20 +100,32 @@
     border-color 0.14s var(--ease);
 }
 
-/* 右停靠：把手在面板左缘，推出面板外（left:0 + translateX(-100%） */
+/* ── 收起态：贴窗口边缘 ── */
 .panel-slot[data-side="right"] .panel-handle {
   left: 0;
-  border-right: none; /* 右边不描边——从面板左缘"长出来" */
+  border-right: none; /* 右边不描边——从窗缘"长出来" */
   border-radius: 10px 0 0 10px; /* 只圆左边两角 */
   transform: translate(-100%, -50%);
 }
-
-/* 左停靠：把手在面板右缘，推出面板外（right:0 + translateX(100%)） */
 .panel-slot[data-side="left"] .panel-handle {
   right: 0;
-  border-left: none; /* 左边不描边——从面板右缘"长出来" */
-  border-radius: 0 10px 10px 0; /* 只圆右边两角 */
+  border-left: none;
+  border-radius: 0 10px 10px 0;
   transform: translate(100%, -50%);
+}
+
+/* ── 展开态：中轴骑在发丝线上 ── */
+/* 把手的定位基准是 .panel-unit（面板缘）；线在槽缘 = 面板缘再往外 7px 热区。
+   -17px = 7px 热区 + 10px 半宽 → 20px 舌头的中轴正好压在线上，右缘轻搭面板 3px。 */
+.panel-slot[data-side="right"][data-open="true"] .panel-handle {
+  left: -17px;
+  border-radius: 10px;
+  transform: translateY(-50%);
+}
+.panel-slot[data-side="left"][data-open="true"] .panel-handle {
+  right: -17px;
+  border-radius: 10px;
+  transform: translateY(-50%);
 }
 
 /* hover：填底色——透明态下唯一的"我在这儿"反馈 */
@@ -97,22 +154,14 @@
 }
 
 /* ============ 大纲 ============ */
-/* grid-row / grid-column 已上移到 .panel-slot；这里只管内容布局。 */
+/* 宽度/透明度 inline style 与 intro keyframes 都落在 .panel-unit（见槽位节）；
+   这里只管内容布局与底色。 */
 .outline-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
-  /* 收展过渡（同 .sidebar 的 opacity 部分）。
-     **width 不走过渡曲线**——大纲栏默认要「收到 0」时，过渡曲线过冲会把
-     width 推到负值被钳为 0，看不到回弹。改用专属 keyframes intro-out-collapse：
-     前 80% 收到 0，末段 86%→100% 间先弹一小条再收尽，配合 opacity 末段淡出，
-     收缩到位后能"闪"一下微弱回弹。armed 期靠 inline style 把 width 钉在
-     INTRO_FROM_WIDTH 上保持起始态。 */
-  transition:
-    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
-  animation: none;
-  /* 分隔线由 .resizer::before 居中绘制，不要在这里重复 border-left——会双线 */
+  /* 分隔线由槽内 .app-resizer::before 绘制，不要在这里重复 border——会双线 */
 }
 
 /* 左停靠的 grid-column 已由 .panel-slot[data-side="left"] 处理，不再需要 .dock-left */
@@ -288,8 +337,6 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
-  transition:
-    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
 }
 
 /* panel-clip 左右栏共用（flex:none 保收展动画不挤压），review 内容区
@@ -581,15 +628,12 @@
 }
 
 /* 面板拖宽条（App 壳层左右栏与主区之间）
-   • 左侧 .res-left：行向 2 / 4（从工具栏顶到状态栏顶，与左侧栏灰底同起同止）
-     ——不再超入标题栏，也不下探到页脚（issue 2）。
-   • 右侧 .res-right：仅占 row 3（主区行）——上不越工具栏、下不越页脚，
-     与大纲面板同高（issue 3）。
-   • 隐藏工作区/大纲时整个 .app-resizer 跟着不被渲染。
+   • 文件栏的 .res-left：独立网格列 col2，行向 2 / 4（从工具栏顶到状态栏顶，
+     与左侧栏灰底同起同止）——不超入标题栏、不下探到页脚（issue 2）。
+   • 大纲/核查的条已内嵌进 .panel-slot（见槽位节）：同侧共存时各槽自带一条，
+     线仍贴主区那侧的缘（右槽贴槽左缘、左槽贴槽右缘）。
+   • 隐藏面板时槽内条 width/opacity 归零（App.tsx inline style 切换）。
    • 中间编辑器/预览那条 resizer（.main-body > .resizer）不走这条规则。
-   • 分线由各自 ::before 沿内缘绘制：左条线贴右缘（col 2 / col 3 边 —— 正好
-     是工具栏底部分割线与主区左缘的交汇位，使工具栏分割线「顶到」工作区分割线）；
-     右条线贴左缘（col 3 / col 4 边）。
    • res-left 拖拽条涂 --bg2，与侧栏灰底(col1)连成一体 —— 既让「底色与分割线
      对齐」（线贴在灰底右缘、无 7px 留白），又不影响拖拽热区。 */
 .app-resizer {
@@ -607,12 +651,15 @@
    缓动吞掉，拖拽严重迟滞。:has 从 resizer 的 .dragging 反向通知两个面板；
    标签条的 margin 跟随同理（拖宽时要实时贴分割线，不走过渡） */
 body:has(.app-resizer.dragging) .sidebar,
-body:has(.app-resizer.dragging) .outline-panel,
+body:has(.app-resizer.dragging) .panel-unit,
 body:has(.app-resizer.dragging) .app-resizer,
 body:has(.app-resizer.dragging) .tabbar {
   transition: none;
 }
 
+/* 文件栏拖宽条（独立网格列 col2，行向 2/4）：与侧栏灰底连成一体，
+   线贴右缘（col2/col3 边 = 工作区分割线）。大纲/核查的拖宽条已内嵌进
+   .panel-slot（见槽位节），不再占独立列。 */
 .app-resizer.res-left {
   grid-column: 2;
   grid-row: 2 / 4;
@@ -621,30 +668,7 @@ body:has(.app-resizer.dragging) .tabbar {
   background: var(--bg2);
 }
 
-.app-resizer.res-right {
-  grid-column: 6;
-  grid-row: 3;
-}
-
-/* 大纲栏左停靠时的拖宽条（col4，贴面板右缘 = 工作区左缘） */
-.app-resizer.res-olutl {
-  grid-column: 4;
-  grid-row: 3;
-}
-
-/* 左条线贴右缘（col 2 / col 3 边）——正好是工具栏底部分割线与主区左缘的
-   交汇位，让工具栏分割线「顶到」工作区分割线；右条线贴左缘（col 5 / col 6 边）。 */
 .app-resizer.res-left::before {
-  left: auto;
-  right: 0;
-}
-
-.app-resizer.res-right::before {
-  left: 0;
-}
-
-/* 左停靠大纲栏的条：面板在条左侧，线贴条右缘（朝向主区） */
-.app-resizer.res-olutl::before {
   left: auto;
   right: 0;
 }

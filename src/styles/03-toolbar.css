@@ -12,8 +12,10 @@
 .editor-toolbar {
   grid-row: 2;
   /* 左缘跟「工作区带」左端（侧栏拖宽条之后，含左停靠大纲栏的列），
-     右端 -1 = 窗口右缘（第 2 行只有侧栏与工具条，不与面板列冲突） */
-  grid-column: var(--col-ws, 3) / -1;
+     右端默认 -1 = 窗口右缘。AI 核查开成「外一级高栏」（row 2/4）时会占住
+     row 2 的一角，工具栏必须让位（App.tsx 按核查停靠侧写 --tb-*）：
+     右同侧 --tb-end=7 止于核查栏左缘；左同侧 --tb-start=4 从核查栏右缘起。 */
+  grid-column: var(--tb-start, var(--col-ws, 3)) / var(--tb-end, -1);
   display: flex;
   align-items: center;
   gap: 2px;

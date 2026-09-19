@@ -87,8 +87,10 @@ describe("useUiStore 首次启动的默认面板形态", () => {
   });
 });
 
-// AI 核查面板开关：v1 冲突（两面板同侧）自动把大纲翻到对侧，给出四栏并存。
-describe("useUiStore AI 核查面板 toggleReview 冲突化解", () => {
+// AI 核查面板开关：2026-09-19 二轮定案——同侧共存，**不翻边**。同侧时渲染层
+// 让核查占外侧列 + row 2/4 高栏、大纲栏顺势内移一列（App.tsx outlineCol），
+// store 里 side 纯属各自偏好，互不干涉。
+describe("useUiStore AI 核查面板开关与停靠侧（同侧共存，不翻边）", () => {
   beforeEach(reset);
 
   it("默认收起、右停靠、宽 320", () => {
@@ -98,33 +100,21 @@ describe("useUiStore AI 核查面板 toggleReview 冲突化解", () => {
     expect(s.reviewWidth).toBe(320);
   });
 
-  it("无冲突时开起 review 不动大纲（大纲本就开着、在对侧）", () => {
-    useUiStore.setState({ showOutline: true, outlineSide: "left", reviewSide: "right" });
+  it("toggleReview 纯开关：开起时即便与大纲同侧，也不动大纲", () => {
+    useUiStore.setState({ showOutline: true, reviewSide: "right" });
+    useUiStore.getState().setOutlineSide("right"); // 走真动作，先让 localStorage 有值
     useUiStore.getState().toggleReview();
-    expect(useUiStore.getState().showReview).toBe(true);
-    expect(useUiStore.getState().outlineSide).toBe("left"); // 未被翻动
+    const s = useUiStore.getState();
+    expect(s.showReview).toBe(true);
+    expect(s.outlineSide).toBe("right"); // 不翻边：同侧共存由渲染层化解
+    expect(localStorage.getItem("qb.outline-side")).toBe("right"); // 未被改写
   });
 
-  it("冲突时开起 review：大纲自动翻到对侧，且写回 localStorage", () => {
-    useUiStore.setState({ showOutline: true, outlineSide: "right", reviewSide: "right" });
-    useUiStore.getState().toggleReview();
-    expect(useUiStore.getState().showReview).toBe(true);
-    expect(useUiStore.getState().outlineSide).toBe("left"); // 翻到对侧
-    expect(localStorage.getItem("qb.outline-side")).toBe("left"); // 持久化
-  });
-
-  it("关起 review 不动大纲（即便此时同侧，也是用户的主动选择）", () => {
-    useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "right", reviewSide: "right" });
+  it("toggleReview 关起不动大纲", () => {
+    useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "left" });
     useUiStore.getState().toggleReview();
     expect(useUiStore.getState().showReview).toBe(false);
-    expect(useUiStore.getState().outlineSide).toBe("right"); // 未被拽回
-  });
-
-  it("outline 关闭时开起 review：不触发翻边逻辑（无冲突可翻）", () => {
-    useUiStore.setState({ showOutline: false, reviewSide: "right" });
-    useUiStore.getState().toggleReview();
-    expect(useUiStore.getState().showReview).toBe(true);
-    expect(useUiStore.getState().outlineSide).toBe("right"); // 默认值，未被动
+    expect(useUiStore.getState().outlineSide).toBe("left");
   });
 
   it("reviewSide 持久化（localStorage）", () => {
@@ -133,18 +123,13 @@ describe("useUiStore AI 核查面板 toggleReview 冲突化解", () => {
     expect(localStorage.getItem("qb.review-side")).toBe("left");
   });
 
-  it("setReviewSide 冲突时同样自动翻大纲（与 toggleReview 共享不变量）", () => {
+  it("setReviewSide 只改自己，outlineSide 与大纲开关都不受牵连", () => {
     useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "right" });
     useUiStore.getState().setReviewSide("right");
-    expect(useUiStore.getState().reviewSide).toBe("right");
-    expect(useUiStore.getState().outlineSide).toBe("left"); // 自动翻到对侧
-    expect(localStorage.getItem("qb.outline-side")).toBe("left");
-  });
-
-  it("setReviewSide 无冲突时不动大纲", () => {
-    useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "left" });
-    useUiStore.getState().setReviewSide("right");
-    expect(useUiStore.getState().outlineSide).toBe("left"); // 未被翻动
+    const s = useUiStore.getState();
+    expect(s.reviewSide).toBe("right");
+    expect(s.outlineSide).toBe("right"); // 同侧合法，不翻边
+    expect(s.showOutline).toBe(true);
   });
 });
 

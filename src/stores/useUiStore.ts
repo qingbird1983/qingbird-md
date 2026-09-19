@@ -116,8 +116,8 @@ const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
 // 大纲栏停靠侧：纯 UI 偏好，走 localStorage（不进 Rust 会话快照，避免动契约）
 const OUTLINE_SIDE_KEY = "qb.outline-side";
-// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立记忆 side，
-// 冲突（两面板同侧）由 toggleReview 自动把大纲翻到对侧化解（§8.2 v1：先落独占空槽）。
+// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立
+// 记忆 side、互不干涉——同侧时由渲染层「外一级高栏 + 大纲让位」化解（App.tsx）。
 const REVIEW_SIDE_KEY = "qb.review-side";
 
 function loadOutlineSide(): OutlineSide {
@@ -176,21 +176,10 @@ export const useUiStore = create<UiState>()((set) => ({
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
-  // AI 核查面板开关。开起时若与大纲同侧，自动把大纲翻到对侧——
-  // v1 不做「同侧槽内 Tab 合并」（§8.2 表格的中间行，留作后续子步），
-  // 而是直接给出参考图那种四栏并存（文件树 | 正文 | 大纲 | AI 核查）。
-  // 只在「开起」这一刻翻；关起不动大纲（用户可能在两个面板都开时
-  // 主动把大纲挪到同侧，那是他的选择，别拽回来）。
-  toggleReview: () =>
-    set((s) => {
-      const turningOn = !s.showReview;
-      if (turningOn && s.showOutline && s.outlineSide === s.reviewSide) {
-        const newOutlineSide: OutlineSide = s.outlineSide === "left" ? "right" : "left";
-        localStorage.setItem(OUTLINE_SIDE_KEY, newOutlineSide);
-        return { showReview: true, outlineSide: newOutlineSide };
-      }
-      return { showReview: turningOn };
-    }),
+  // AI 核查面板开关。与大纲同侧时**不翻边**（2026-09-19 二轮，用户实测定案）：
+  // 渲染层让核查占外侧列 + row 2/4 高栏、大纲栏顺势内移一列——推移而非覆盖，
+  // 形如左贴边大纲栏与主区的关系。旧版「开起时把大纲翻到对侧」已删。
+  toggleReview: () => set((s) => ({ showReview: !s.showReview })),
   setContentWidth: (w) => {
     localStorage.setItem(WIDTH_KEY, w);
     // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清
@@ -234,20 +223,11 @@ export const useUiStore = create<UiState>()((set) => ({
     localStorage.setItem(OUTLINE_SIDE_KEY, s);
     return set({ outlineSide: s });
   },
-  // AI 核查 side 变更同 outline：写 localStorage + 改 state。
-  // 与 toggleReview 共享同一不变量：showReview && showOutline → outlineSide !== reviewSide。
-  // 冲突（两面板同侧）时自动把大纲翻到对侧，而不是让两个面板挤一个槽——
-  // v1 不做「同侧槽内 Tab 合并」（§8.2 表格的中间行，留作后续子步）。
+  // AI 核查 side 变更同 outline：写 localStorage + 改 state。side 纯属偏好，
+  // 与大纲选边互不干涉（同侧共存由渲染层的列让位化解，见 App.tsx outlineCol）。
   setReviewSide: (s) => {
     localStorage.setItem(REVIEW_SIDE_KEY, s);
-    return set((prev) => {
-      if (prev.showReview && prev.showOutline && prev.outlineSide === s) {
-        const newOutlineSide: OutlineSide = prev.outlineSide === "left" ? "right" : "left";
-        localStorage.setItem(OUTLINE_SIDE_KEY, newOutlineSide);
-        return { reviewSide: s, outlineSide: newOutlineSide };
-      }
-      return { reviewSide: s };
-    });
+    return set({ reviewSide: s });
   },
   setReviewWidth: (w) => set({ reviewWidth: w }),
   setSplitRatio: (r) => set({ splitRatio: r }),

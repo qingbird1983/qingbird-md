@@ -185,12 +185,13 @@
   }
 }
 
-/* 大纲栏：armed 起始态宽度由 App.tsx 内联 style 钉在 outlineWidth（默认 200），
-   opacity 由 inline style 控制；playing 期不设 width 内联，让 keyframes 接管。
-   keyframes 0% 用 --panel-w 接住 armed 起始宽——armed→playing 之间宽度连贯
-   无跳变。keyframes 把"收到 0 → 弹一小条 → 收尽"显式写出来，末段配 opacity
-   同步淡出。 */
-#app-shell.intro-playing .outline-panel {
+/* 大纲栏：armed 起始态宽度由 App.tsx 内联 style 钉在 .panel-unit 上
+   （outlineWidth 默认 200），opacity 同在 unit 上；playing 期不设 width 内联，
+   让 keyframes 接管。keyframes 0% 用 --panel-w 接住 armed 起始宽——armed→playing
+   之间宽度连贯无跳变。keyframes 把"收到 0 → 弹一小条 → 收尽"显式写出来，
+   末段配 opacity 同步淡出。限定 .outline-slot：核查高栏（review-slot）的
+   unit 不参与 intro，别被顺带收掉。 */
+#app-shell.intro-playing .outline-slot .panel-unit {
   animation: outline-collapse var(--intro-anim) cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 

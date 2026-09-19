@@ -45,7 +45,7 @@
 | **第 2 步** 译文另存为 | 7 Rust `export_translation` | ⚠️ **部分** | `cmark.rs:77` **只实现了单语**；计划原文的签名 `(content, translations, mode, policy)` 里 **`mode` / `policy` 两个参数不存在** |
 | | 8 前端入口 + `pickSavePath` + 导出前确认 | ✅ | `lib/exportTranslation.ts`（98 行）、`AppMenu.tsx:197`、快捷键 `Ctrl+Shift+E` |
 | | 9 **双语对照导出** | ✅ | commit `49167c7`：`translate/export.rs`（576 行，8 测试）、`bridge::export_translation` 双路分发（bilingual/single-language）、前端 `exportTranslation.ts` 双语模式放开 + `.bilingual.md` 后缀 |
-| **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ✅ | 2026-09-19 落地：`.panel-slot` 双宿主（grid-column 上移槽）、`.panel-handle` 透明舌形（48×20、只圆内侧两角、hover 填底、无阴影）、`outlineDockedLeft`→`leftSlotOccupied`、冲突自动翻边（toggleReview/setReviewSide 共享不变量）、`SESSION_VERSION` 不 bump + 向后兼容测试 |
+| **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ✅ | 2026-09-19 落地：`.panel-slot` 双宿主（grid-column 上移槽）、`.panel-handle` 透明舌形（48×20、hover 填底、无阴影）、`outlineDockedLeft`→`leftSlotOccupied`、`SESSION_VERSION` 不 bump + 向后兼容测试。**同日二轮（用户实测定案）**：同侧共存取代自动翻边——核查开同侧时占外侧列 + row 2/4 高栏（上抵标签栏下），大纲栏让位内移一列（右 col7→col6 / 左 col3→col4）；拖宽条内嵌进槽（不再占 col4/col6 独立列）；把手钉 `.panel-unit`、展开态中轴骑发丝线（修复线从舌头 65% 处斜穿的错位）；`toggleReview`/`setReviewSide` 翻边逻辑删除（side 纯偏好、互不干涉） |
 | | 10b 把手与入口改造（状态栏 `AI` 钮） | ✅ | 同上：EditorToolbar 大纲开关已移除、状态栏右端 `AI` 文字钮（active 跟面板、title 带 llmReady）、`Ctrl+J` 热键（view 组，不进 Rust 系统级注册） |
 | | 11 `ReviewTimeline` | ❌ 未做 | — |
 | | 12 `ReviewComposer` | ❌ 未做 | — |

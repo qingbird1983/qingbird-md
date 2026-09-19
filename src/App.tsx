@@ -118,24 +118,18 @@ function listenHibernateOnce() {
 
 // 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
 // place 决定「条贴在哪块面板的哪条边」，同时决定拖拽方向的符号：
-// - sidebar：贴文件栏右缘，右拖增宽（+dx）
-// - outline-right：贴大纲栏（右停靠）左缘，左拖增宽（-dx）
-// - outline-left：贴大纲栏（左停靠）右缘，右拖增宽（+dx）
-// - review-right：贴 AI 核查栏（右停靠）左缘，左拖增宽（-dx）
-// - review-left：贴 AI 核查栏（左停靠）右缘，右拖增宽（+dx）
+// - sidebar：贴文件栏右缘，右拖增宽（+dx）——独立网格列 col2；
+// - outline-right / review-right：贴右停靠面板左缘，左拖增宽（-dx）；
+// - outline-left / review-left：贴左停靠面板右缘，右拖增宽（+dx）。
+// 大纲/核查的条**内嵌在 .panel-slot 里**（2026-09-19 同侧共存重构：不再是
+// 独立网格列 col4/col6——两面板同侧时各槽自带一条，发丝线仍贴主区那侧）。
 // 宽度存 uiStore，跨视图切换保持。
 type ResizerPlace = "sidebar" | "outline-right" | "outline-left" | "review-right" | "review-left";
 
 function PanelResizer({ place, hidden }: { place: ResizerPlace; hidden: boolean }) {
-  // CSS 类映射：sidebar→res-left, outline-left/review-left→res-olutl,
-  // outline-right/review-right→res-right。右停靠面板共享 col6 拖宽条，
-  // 左停靠共享 col4——两个面板分侧时各占一条，同侧时 store 保证不会同时渲染。
-  const cls =
-    place === "sidebar"
-      ? "res-left"
-      : place === "outline-left" || place === "review-left"
-        ? "res-olutl"
-        : "res-right";
+  // CSS 类映射：sidebar→res-left（独立 col2 网格条）；面板槽内的条共用 in-slot，
+  // 线的朝向（贴主区那侧）由 .panel-slot[data-side] 规则决定，不在这里分叉。
+  const cls = place === "sidebar" ? "res-left" : "in-slot";
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     const st = useUiStore.getState();
     const toSidebar = place === "sidebar";
@@ -342,10 +336,10 @@ function App() {
   const navPanelW = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
   const outlinePanelW = outlineWidth;
 
-  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 左停靠槽 /
-  // col4 左槽拖宽条 / col5 主区(1fr) / col6 右停靠槽拖宽条 / col7 右停靠槽。
-  // 左/右槽各可挂 大纲 或 AI 核查（各面板独立选边），或两者分侧并存（真四栏）。
-  // 未使用的空列（auto 且无在流项）恒为 0 宽。
+  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 左外槽（核查高栏）/
+  // col4 左内槽（大纲左停靠让位列）/ col5 主区(1fr) / col6 右内槽（大纲右停靠
+  // 让位列）/ col7 右外槽（核查高栏）。拖宽条已内嵌进各槽，col4/col6 只在
+  // 「大纲让位」时才有内容，其余时刻恒 0 宽。
   // 工作区隐藏时主内容区左缘直接顶到 col1；这样 TabBar/EditorToolbar/MainArea
   // 一起左移，不会出现「左侧 4 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
   // 与 --main-span：--main-span=1 时 main-area 占 col5 一列（1fr）；
@@ -366,12 +360,23 @@ function App() {
   const reviewDockedLeft = showReview && reviewSide === "left";
   const leftSlotOccupied = outlineDockedLeft || reviewDockedLeft;
   const absorb = navGone && !leftSlotOccupied;
+  // 同侧共存（§8.2 二轮，2026-09-19）：核查与大纲同侧时，核查是「外一级」
+  // 高栏——占外侧列（右 col7 / 左 col3）且跨 row 2-4（上抵标签栏下）；
+  // 大纲栏让位内移一列（右 →col6 / 左 →col4）。分侧时各回原列（7/3）。
+  // 推移而非覆盖、也不翻对侧（旧版 toggleReview 的自动翻边已删）。
+  const reviewOpenRight = showReview && reviewSide === "right";
+  const reviewOpenLeft = reviewDockedLeft;
+  const outlineCol = outlineSide === "right" ? (reviewOpenRight ? 6 : 7) : reviewOpenLeft ? 4 : 3;
   const mainStyle = {
     ["--col-main" as string]: String(absorb ? 1 : 5),
     ["--main-span" as string]: String(absorb ? 5 : 1),
     // 工具条左缘：与「工作区带」左端对齐（侧栏拖宽条之后，含左停靠大纲栏），
     // 右端 -1 覆盖到窗口右缘（第 2 行只有侧栏与工具条，无面板占位冲突）。
     ["--col-ws" as string]: String(absorb ? 1 : 3),
+    // 核查高栏占住 row 2 一角时工具栏让位（见 03-toolbar.css）：
+    // 右同侧止于 col7 线前，左同侧从 col4 起（col3 被核查栏占住）。
+    ...(reviewOpenRight ? { ["--tb-end" as string]: "7" } : {}),
+    ...(reviewOpenLeft ? { ["--tb-start" as string]: "4" } : {}),
     // intro 播放期间把面板过渡时长整体拉长（侧栏/大纲栏/拖宽条/标签条都继承
     // 这一个变量），三处动画共用同一时长 → 同时落定，不需要按距离分别算。
     ...(introPlaying
@@ -415,78 +420,81 @@ function App() {
         <MainArea />
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡）。
-          §8.2 槽位泛化：grid-column 已从 .outline-panel 上移到 .panel-slot；
-          .panel-handle 钉在槽边缘垂直中点（§9.2），不参与面板的 overflow:hidden
-          裁切/opacity 淡出——收起态把手仍可见，落在窗口边缘垂直中点。
-          ui.outlineSide 切换停靠侧：左停靠吸附在工作区左缘（侧栏与主区之间），
-          拖宽条随之换到 col4，主区仍在 col5。 */}
-      <PanelResizer
-        place="outline-left"
-        // armed 起始态大纲栏固定在右缘展开，col4 不能冒出左停靠的拖宽条
-        hidden={introArmed || !outlineDockedLeft}
-      />
-      <PanelResizer
-        place="outline-right"
-        hidden={!introArmed && (!showOutline || outlineSide !== "right")}
-      />
-      <div className="panel-slot" data-side={outlineSide}>
-        <PanelHandle
-          side={outlineSide}
-          showPanel={outlineVisible}
-          onToggle={toggleOutline}
-          label={outlineVisible ? "收起大纲" : "展开大纲"}
+          §8.2 同侧共存：核查同侧时本槽内移一列（outlineCol），核查栏占外侧高栏。
+          宽度/透明度 inline style 落在 .panel-unit（intro keyframes 同改这一层，
+          见 12-welcome.css）；把手钉在 unit 上——收起贴窗缘、展开骑发丝线。
+          拖宽条内嵌槽内，不再是独立网格列；intro-playing 期 width 不内联，
+          让 keyframes 接管收缩 + 回弹（inline 会盖过 animation）。 */}
+      <div
+        className="panel-slot outline-slot"
+        data-side={outlineSide}
+        data-open={outlineVisible}
+        style={{ gridColumn: outlineCol }}
+      >
+        <PanelResizer
+          place={outlineSide === "right" ? "outline-right" : "outline-left"}
+          hidden={!outlineVisible}
         />
-        <aside
-          className="outline-panel"
+        <div
+          className="panel-unit"
           style={{
-            // intro-playing 期 width 不内联：让 CSS keyframes 接管收缩 + 回弹。
-            // inline style 与 keyframe animation 同改 width 时，内联胜出 → 看不到
-            // 回弹。armed 期仍要钉起始宽，所以这条三元只在 playing 为 false 时设值。
             width: introPlaying ? undefined : outlineVisible ? outlinePanelW : 0,
             opacity: outlineVisible ? 1 : 0,
             ["--panel-w" as string]: `${outlinePanelW}px`,
           }}
         >
-          <div className="panel-clip">
-            <OutlinePanel />
-          </div>
-        </aside>
+          <PanelHandle
+            side={outlineSide}
+            showPanel={outlineVisible}
+            onToggle={toggleOutline}
+            label={outlineVisible ? "收起大纲" : "展开大纲"}
+          />
+          <aside className="outline-panel">
+            <div className="panel-clip">
+              <OutlinePanel />
+            </div>
+          </aside>
+        </div>
       </div>
-      {/* AI 核查面板（§八）：与大纲共用两个侧栏槽，各自独立选边。
-          冲突（两面板同侧）由 store 的 toggleReview/setReviewSide 自动翻边化解，
-          渲染层直接读 showReview——store 保证 showReview && showOutline 时
-          outlineSide !== reviewSide，两面板不会挤一个槽。 */}
+      {/* AI 核查面板（§八）：与大纲各自独立选边；同侧时核查占外侧列 + row 2/4
+          （高栏，上抵标签栏下），大纲让位内移——推移而非覆盖。列号/行号内联，
+          线的朝向交给 .panel-slot[data-side] CSS。面板开合走 v1 的直接挂载/卸载
+          （无收展过渡），把手 data-open 恒 true（展开态骑线样式）。 */}
       {showReview && (
-        <>
+        <div
+          className="panel-slot review-slot"
+          data-side={reviewSide}
+          data-open="true"
+          style={{
+            gridColumn: reviewSide === "right" ? 7 : 3,
+            gridRow: "2 / 4",
+          }}
+        >
           <PanelResizer
-            place="review-left"
-            hidden={reviewSide !== "left"}
+            place={reviewSide === "right" ? "review-right" : "review-left"}
+            hidden={false}
           />
-          <PanelResizer
-            place="review-right"
-            hidden={reviewSide !== "right"}
-          />
-          <div className="panel-slot" data-side={reviewSide}>
+          <div
+            className="panel-unit"
+            style={{
+              width: reviewWidth,
+              opacity: 1,
+              ["--panel-w" as string]: `${reviewWidth}px`,
+            }}
+          >
             <PanelHandle
               side={reviewSide}
               showPanel={true}
               onToggle={toggleReview}
               label="收起 AI 核查"
             />
-            <aside
-              className="review-panel"
-              style={{
-                width: reviewWidth,
-                opacity: 1,
-                ["--panel-w" as string]: `${reviewWidth}px`,
-              }}
-            >
+            <aside className="review-panel">
               <div className="panel-clip">
                 <ReviewPanel />
               </div>
             </aside>
           </div>
-        </>
+        </div>
       )}
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
