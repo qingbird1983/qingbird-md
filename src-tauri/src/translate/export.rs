@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 
 use crate::markdown::cmark;
-use crate::markdown::model::{parse_blocks, Block};
+use crate::markdown::model::{parse_blocks, Block, Inline};
 use crate::markdown::units::{block_translatable, inline_plain_text};
 use crate::translate::engine::TargetLang;
 use crate::translate::skip::RefSkipState;
@@ -118,7 +118,9 @@ fn walk_bilingual(
         //    emit_translation 内部负责把 `translation + \n\n` 拼好（不嵌前后换行）
         emit_translation(b, translations, target, st, counter, out);
 
-        // 3) 容器块：递归处理其子块的占号 + 出译文——子块源已在上面渲染过了
+        // 3) 容器块：递归处理其子块的占号 + 出译文——子块源已在上面渲染过了；
+        //    表格不是容器但同属"源已在整块渲染里、译文要按格拆开发射"的构造，
+        //    与 walk_collect 的 Table 分支同序逐格占号
         match b {
             Block::Quote { blocks: inner } => {
                 emit_children_translations(inner, translations, target, st, counter, out)
@@ -137,6 +139,9 @@ fn walk_bilingual(
             }
             Block::FootnoteDef { blocks: inner, .. } => {
                 emit_children_translations(inner, translations, target, st, counter, out)
+            }
+            Block::Table { headers, rows, .. } => {
+                emit_table_translations(headers, rows, translations, target, st, counter, out)
             }
             _ => {}
         }
@@ -179,6 +184,7 @@ fn emit_translation(
 /// 容器块内部只发射**译文**——源已在 cmark 的整块渲染里覆盖。逐块判定：
 /// - 叶子可译 → 出译文 + 推进 counter
 /// - 容器 → 继续递归
+/// - 表格 → 与 walk_collect 同序逐格占号 + 发射（`emit_table_translations`）
 /// - 非文本叶子（Code/Math/Image/Rule） → 跳过
 ///
 /// 每个 emit_translation 自己管 `\n\n`，所以这里**不再额外加换行**——多个
@@ -212,8 +218,55 @@ fn emit_children_translations(
             Block::FootnoteDef { blocks: inner, .. } => {
                 emit_children_translations(inner, translations, target, st, counter, out)
             }
+            Block::Table { headers, rows, .. } => {
+                emit_table_translations(headers, rows, translations, target, st, counter, out)
+            }
             _ => {}
         }
+    }
+}
+
+/// 表格译文：与 `units::walk_collect` 的 Table 分支**逐位一致**——先逐表头、
+/// 再按行逐单元格，每格调 `block_translatable`（heading=None）喂同一套 skip
+/// 状态机；可译者推进 counter 并发射该格译文（取 `inline_plain_text`，缺段
+/// 回退原文）。不可译格既不占号也不发射。表格源已由 `cmark` 整块渲染覆盖，
+/// 这里只发射各格译文，每格自管尾随 `\n\n`。
+fn emit_table_translations(
+    headers: &[Vec<Inline>],
+    rows: &[Vec<Vec<Inline>>],
+    translations: &HashMap<usize, String>,
+    target: TargetLang,
+    st: &mut RefSkipState,
+    counter: &mut usize,
+    out: &mut String,
+) {
+    for h in headers {
+        emit_table_cell_translation(h, translations, target, st, counter, out);
+    }
+    for row in rows {
+        for cell in row {
+            emit_table_cell_translation(cell, translations, target, st, counter, out);
+        }
+    }
+}
+
+/// 表格单格的占号 + 发射，与 `emit_translation` 的叶子语义一致：
+/// 不可译（含空格）不占号；可译则 `idx = counter` 后推进。
+fn emit_table_cell_translation(
+    inlines: &[Inline],
+    translations: &HashMap<usize, String>,
+    target: TargetLang,
+    st: &mut RefSkipState,
+    counter: &mut usize,
+    out: &mut String,
+) {
+    let plain = inline_plain_text(inlines);
+    if block_translatable(st, None, &plain, target) {
+        let idx = *counter;
+        *counter += 1;
+        let trans = translations.get(&idx).cloned().unwrap_or(plain);
+        out.push_str(&trans);
+        out.push_str("\n\n");
     }
 }
 
@@ -381,6 +434,71 @@ Final paragraph.
 
         // 尾段对照
         assert!(out.contains("Final paragraph.\n\n尾段。"), "尾段对照：\n{out}");
+    }
+
+    /// **表格占号**（BUG-1 回归）：`units::walk_collect` 对表格**逐表头、
+    /// 再按行逐单元格**推进 data-bi，导出侧必须同序占号并发射译文——否则
+    /// 表格之后的可译块在导出侧整体错号（译文张冠李戴）。
+    ///
+    /// 文档为「表格前后各一段」：前段占 0；表头 2 个占 1/2；两行单元格占
+    /// 3-6；后段占 7。修复前 `emit_translation` 不认 Table（counter 不推进、
+    /// 也不发射格译文），后段会错拿 key=1「表头一」→ 本测试必红。
+    #[test]
+    fn table_headers_and_cells_occupy_bi_and_following_paragraph_aligns() {
+        let content = "\
+Before paragraph.
+
+| H1 | H2 |
+|----|----|
+| a1 | a2 |
+| b1 | b2 |
+
+After paragraph.
+";
+        // 与 walk_collect 同序：前段0 → 表头1/2 → 单元格3-6 → 后段7
+        let map = HashMap::from([
+            (0usize, "前段。".to_string()),
+            (1usize, "表头一".to_string()),
+            (2usize, "表头二".to_string()),
+            (3usize, "甲一".to_string()),
+            (4usize, "甲二".to_string()),
+            (5usize, "乙一".to_string()),
+            (6usize, "乙二".to_string()),
+            (7usize, "后段。".to_string()),
+        ]);
+        let out = export_bilingual(content, &map, TargetLang::Zh);
+
+        // 表格前段照常对照
+        assert!(
+            out.contains("Before paragraph.\n\n前段。"),
+            "表前段对照：\n{out}"
+        );
+        // 表头/单元格译文逐格发射（修复前一个都不出现）
+        for (t, name) in [
+            ("表头一", "表头1"),
+            ("表头二", "表头2"),
+            ("甲一", "a1"),
+            ("甲二", "a2"),
+            ("乙一", "b1"),
+            ("乙二", "b2"),
+        ] {
+            assert!(out.contains(t), "{name} 的译文缺失：\n{out}");
+        }
+        // 表格之后段落对号必须正确（修复前后段错拿 key=1「表头一」）
+        assert!(
+            out.contains("After paragraph.\n\n后段。"),
+            "表后段对照错位：\n{out}"
+        );
+        // 整体顺序：前段对照 → 表格源 → 六格译文 → 后段对照
+        let mut last = 0usize;
+        for s in [
+            "前段。", "| H1", "表头一", "表头二", "甲一", "甲二", "乙一", "乙二",
+            "After paragraph.", "后段。",
+        ] {
+            let p = out.find(s).unwrap_or_else(|| panic!("缺「{s}」：\n{out}"));
+            assert!(p > last, "顺序错乱，「{s}」位置不对：\n{out}");
+            last = p;
+        }
     }
 
     /// **缺段**：translations 表里少几个 key，缺的段必须**回退原文**而不是
