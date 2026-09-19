@@ -106,6 +106,9 @@ pub fn collect_text_runs_windowed_blocks(
 }
 
 
+/// walk_* 系（本函数与 `walk_collect`）按模型嵌套递归；递归深度 = 模型块
+/// 嵌套深度，已被解析层 model.rs 的 `MAX_NESTING_DEPTH`（SEC-5，2026-09-20）
+/// 封顶——恶意深嵌套文件不会在此爆栈，模型是深度有界的唯一入口。
 fn walk_run_collect_blocks(
     blocks: &[Block],
     counter: &mut usize,
@@ -461,5 +464,25 @@ mod tests {
             collect_translatable(&blocks, EN),
             vec![(0usize, "纯中文段".into()), (1usize, "又一段中文".into())]
         );
+    }
+
+    // ---- SEC-5 深嵌套（2026-09-20）----
+
+    #[test]
+    fn deep_nested_model_walks_without_crash() {
+        // 恶意深嵌套文件（5 万层引用）解析出的模型在两个 walk 递归
+        // （run 收集 + 块收集）上都必须正常返回，不爆栈、不丢内容。
+        // 模型深度由解析层封顶（model::MAX_NESTING_DEPTH），超限内容
+        // 降级为纯文本段落，照常参与 bi/run 占号与收集。
+        let md = "> ".repeat(50_000) + "Eng tail";
+        let blocks = parse_blocks(&md);
+        assert_eq!(
+            collect_translatable(&blocks, ZH),
+            vec![(0usize, "Eng tail".into())],
+            "降级纯文本块照常参与块收集"
+        );
+        let (runs, bis) = collect_text_runs_windowed_blocks(&blocks, None, ZH);
+        assert_eq!(runs, vec![(0usize, "Eng tail".into())]);
+        assert_eq!(bis, vec![0usize]);
     }
 }

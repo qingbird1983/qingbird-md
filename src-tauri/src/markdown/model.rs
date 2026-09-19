@@ -8,6 +8,15 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use super::units::inline_plain_text;
 
+/// 嵌套深度上限（SEC-5）。块级互递归（Quote/List/FootnoteDef 经
+/// `consume_block` ↔ `collect_blocks`/`collect_items`）与行级互递归
+/// （Strong/Em/Del/Link 经 `collect_inlines` ↔ `push_inline`）共用此常量：
+/// 递归每深入一层容器加一，超限的整棵子树降级为纯文本。恶意文件
+/// （如 `>` × 10 万）曾把解析线程直接爆栈——栈溢出是 abort，panic
+/// 配置接不住，只能在上游封顶。下游 units/html 对模型的递归深度
+/// 随模型有界，因此也一并安全。
+const MAX_NESTING_DEPTH: usize = 256;
+
 /// An inline run inside a block. `Strong`/`Emph`/`Del`/`Mark`/`Link` may nest.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Inline {
@@ -149,7 +158,7 @@ pub fn parse_blocks(md: &str) -> Vec<Block> {
             // 整块跳过——元数据行里的 Text 事件随之丢弃。此分支必须排在
             // Start(tag) 兜底之前，否则落入 consume_block 变成空段落。
             Event::Start(Tag::MetadataBlock(_)) => skip_metadata(&mut it),
-            Event::Start(tag) => blocks.push(consume_block(&tag, &mut it)),
+            Event::Start(tag) => blocks.push(consume_block(&tag, &mut it, 1)),
             Event::End(_) => {}
             Event::Rule => blocks.push(Block::Rule),
             Event::DisplayMath(tex) => blocks.push(Block::Math {
@@ -183,11 +192,19 @@ fn skip_metadata<'a>(it: &mut impl Iterator<Item = Event<'a>>) {
 
 /// Consume the children of a block `tag` (already emitted as `Event::Start`)
 /// until its matching `Event::End`, returning the `Block`.
-fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>) -> Block {
+///
+/// `depth` 是本块的容器嵌套深度（顶层为 1）；超过 [`MAX_NESTING_DEPTH`]
+/// 时不再递归建块，整棵子树压成一个纯文本段落（SEC-5，防恶意文件爆栈）。
+fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> Block {
+    if depth > MAX_NESTING_DEPTH {
+        // 降级路径：collect_raw_text 迭代收文本（自身无递归），并消费掉
+        // 本块自己的 End——与正常路径的边界语义一致。
+        return Block::Paragraph { text: vec![Inline::Text(collect_raw_text(it))] };
+    }
     match tag {
-        Tag::Paragraph => paragraph_block(collect_inlines(it)),
+        Tag::Paragraph => paragraph_block(collect_inlines(it, 1)),
         Tag::Heading { level, .. } => {
-            let text = collect_inlines(it);
+            let text = collect_inlines(it, 1);
             Block::Heading { level: *level as u8, text }
         }
         Tag::CodeBlock(kind) => {
@@ -199,13 +216,13 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>) ->
             Block::Code { lang, code }
         }
         Tag::BlockQuote(_) => {
-            let blocks = collect_blocks(it, |e| matches!(e, TagEnd::BlockQuote(_)));
+            let blocks = collect_blocks(it, |e| matches!(e, TagEnd::BlockQuote(_)), depth + 1);
             Block::Quote { blocks }
         }
         Tag::List(start) => {
             let ordered = start.is_some();
             let start = start.unwrap_or(1) as u32;
-            let items = collect_items(it);
+            let items = collect_items(it, depth + 1);
             Block::List { ordered, start, items }
         }
         Tag::Table(aligns) => {
@@ -224,7 +241,7 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>) ->
         }
         Tag::FootnoteDefinition(label) => Block::FootnoteDef {
             label: label.to_string(),
-            blocks: collect_blocks(it, |e| matches!(e, TagEnd::FootnoteDefinition)),
+            blocks: collect_blocks(it, |e| matches!(e, TagEnd::FootnoteDefinition), depth + 1),
         },
         _ => Block::Paragraph { text: Vec::new() },
     }
@@ -398,15 +415,33 @@ fn collect_code<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> String {
 }
 
 /// Collect nested inlines until the next `Event::End` (the caller's container).
-fn collect_inlines<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Vec<Inline> {
+///
+/// `depth` 是行内容器嵌套深度（段落/单元格内第一层为 1）。
+fn collect_inlines<'a>(it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> Vec<Inline> {
     let mut out = Vec::new();
     while let Some(ev) = it.next() {
-        if !push_inline(&mut out, ev, it) {
+        if !push_inline(&mut out, ev, it, depth) {
             break;
         }
     }
     fold_marks(&mut out);
     out
+}
+
+/// A nested inline container at `depth`: recursed normally below the cap,
+/// degraded to plain text at/after it (SEC-5 — `****…` 恶意深嵌套爆栈).
+/// 降级必须发生在构造容器**之前**，否则降级文本仍被包一层伪容器。
+/// Both branches consume the container's own `End`.
+fn nested_inline<'a>(
+    it: &mut impl Iterator<Item = Event<'a>>,
+    depth: usize,
+    wrap: impl FnOnce(Vec<Inline>) -> Inline,
+) -> Inline {
+    if depth > MAX_NESTING_DEPTH {
+        Inline::Text(collect_raw_text(it))
+    } else {
+        wrap(collect_inlines(it, depth + 1))
+    }
 }
 
 /// Fold one inline-ish event into `out`, consuming nested events from `it`
@@ -416,6 +451,7 @@ fn push_inline<'a>(
     out: &mut Vec<Inline>,
     ev: Event<'a>,
     it: &mut impl Iterator<Item = Event<'a>>,
+    depth: usize,
 ) -> bool {
     match ev {
         Event::End(_) => false,
@@ -440,15 +476,15 @@ fn push_inline<'a>(
             true
         }
         Event::Start(Tag::Strong) => {
-            out.push(Inline::Strong(collect_inlines(it)));
+            out.push(nested_inline(it, depth, Inline::Strong));
             true
         }
         Event::Start(Tag::Emphasis) => {
-            out.push(Inline::Emph(collect_inlines(it)));
+            out.push(nested_inline(it, depth, Inline::Emph));
             true
         }
         Event::Start(Tag::Strikethrough) => {
-            out.push(Inline::Del(collect_inlines(it)));
+            out.push(nested_inline(it, depth, Inline::Del));
             true
         }
         Event::FootnoteReference(name) => {
@@ -456,8 +492,8 @@ fn push_inline<'a>(
             true
         }
         Event::Start(Tag::Link { dest_url, .. }) => {
-            let text = collect_inlines(it);
-            out.push(Inline::Link { text, href: dest_url.into_string() });
+            let href = dest_url.into_string();
+            out.push(nested_inline(it, depth, |text| Inline::Link { text, href }));
             true
         }
         Event::Start(Tag::Image { dest_url, .. }) => {
@@ -472,6 +508,7 @@ fn push_inline<'a>(
 fn collect_blocks<'a>(
     it: &mut impl Iterator<Item = Event<'a>>,
     end: impl Fn(&TagEnd) -> bool,
+    depth: usize,
 ) -> Vec<Block> {
     let mut out = Vec::new();
     while let Some(ev) = it.next() {
@@ -481,7 +518,7 @@ fn collect_blocks<'a>(
                     break;
                 }
             }
-            Event::Start(tag) => out.push(consume_block(&tag, it)),
+            Event::Start(tag) => out.push(consume_block(&tag, it, depth)),
             Event::Rule => out.push(Block::Rule),
             _ => {}
         }
@@ -489,11 +526,11 @@ fn collect_blocks<'a>(
     out
 }
 
-fn collect_items<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Vec<ListItem> {
+fn collect_items<'a>(it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> Vec<ListItem> {
     let mut items = Vec::new();
     while let Some(ev) = it.next() {
         match ev {
-            Event::Start(Tag::Item) => items.push(collect_item(it)),
+            Event::Start(Tag::Item) => items.push(collect_item(it, depth)),
             Event::End(TagEnd::List(_)) => break,
             _ => {}
         }
@@ -501,7 +538,7 @@ fn collect_items<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Vec<ListItem> 
     items
 }
 
-fn collect_item<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> ListItem {
+fn collect_item<'a>(it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> ListItem {
     let mut task = None;
     let mut blocks = Vec::new();
     // Tight lists (no blank line between items) carry item content as bare
@@ -528,17 +565,17 @@ fn collect_item<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> ListItem {
                 ) =>
             {
                 flush_stray(&mut stray, &mut blocks);
-                blocks.push(consume_block(&tag, it));
+                blocks.push(consume_block(&tag, it, depth));
             }
             Event::Start(tag) => {
-                push_inline(&mut stray, Event::Start(tag), it);
+                push_inline(&mut stray, Event::Start(tag), it, 1);
             }
             Event::Rule => {
                 flush_stray(&mut stray, &mut blocks);
                 blocks.push(Block::Rule);
             }
             ev => {
-                if !push_inline(&mut stray, ev, it) {
+                if !push_inline(&mut stray, ev, it, 1) {
                     break;
                 }
             }
@@ -577,7 +614,7 @@ fn collect_cells<'a>(it: &mut impl Iterator<Item = Event<'a>>, end: TagEnd) -> V
     let mut cells = Vec::new();
     while let Some(ev) = it.next() {
         match ev {
-            Event::Start(Tag::TableCell) => cells.push(collect_inlines(it)),
+            Event::Start(Tag::TableCell) => cells.push(collect_inlines(it, 1)),
             Event::End(e) if e == end => break,
             _ => {}
         }
@@ -848,5 +885,119 @@ mod tests {
         assert_eq!(top_level_block_lines("> 引用里的**加粗**").len(), 1);
         assert_eq!(top_level_block_lines("- 项 **粗**\n- 项 2").len(), 1);
         assert_eq!(top_level_block_lines("| a | b |\n| --- | --- |\n| 1 | 2 |").len(), 1);
+    }
+
+    // ---- SEC-5 嵌套深度上限（2026-09-20）----
+
+    /// 模型树的最大块嵌套深度（Quote/List/FootnoteDef 各算一层；仅测试用）。
+    /// 空切片为 0，叶子块为 1。
+    fn block_depth(blocks: &[Block]) -> usize {
+        let mut max = 0usize;
+        for b in blocks {
+            let d = match b {
+                Block::Quote { blocks } | Block::FootnoteDef { blocks, .. } => 1 + block_depth(blocks),
+                Block::List { items, .. } => items
+                    .iter()
+                    .map(|it| 1 + block_depth(&it.blocks))
+                    .max()
+                    .unwrap_or(1),
+                _ => 1,
+            };
+            max = max.max(d);
+        }
+        max
+    }
+
+    /// 行内嵌套深度（Strong/Em/Del/Mark/Link 各算一层；仅测试用）。
+    fn inline_depth(inlines: &[Inline]) -> usize {
+        let mut max = 0usize;
+        for il in inlines {
+            let d = match il {
+                Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
+                    1 + inline_depth(x)
+                }
+                Inline::Link { text, .. } => 1 + inline_depth(text),
+                _ => 0,
+            };
+            max = max.max(d);
+        }
+        max
+    }
+
+    /// 修复前：5 万层引用让解析线程直接爆栈 abort（独立探针实测，栈溢出
+    /// 不受 panic 配置影响）。修复后：解析正常返回，模型深度被
+    /// MAX_NESTING_DEPTH 封顶，超限内容以纯文本段落出现且文本不丢。
+    #[test]
+    fn deep_quote_50k_parses_without_crash_and_degrades_to_plain_text() {
+        let md = "> ".repeat(50_000) + "deep tail";
+        let blocks = parse_blocks(&md);
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(&blocks[0], Block::Quote { .. }));
+        let depth = block_depth(&blocks);
+        assert!(
+            depth <= MAX_NESTING_DEPTH + 1,
+            "模型块深度必须封顶于 {}: {depth}",
+            MAX_NESTING_DEPTH + 1
+        );
+        // 沿最左链走到最深处：应为降级的纯文本段落，原文内容保留
+        let mut cur = &blocks[0];
+        while let Block::Quote { blocks } = cur {
+            assert!(!blocks.is_empty(), "降级前不得出现空引用层");
+            cur = &blocks[0];
+        }
+        match cur {
+            Block::Paragraph { text } => assert!(
+                text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("deep tail"))),
+                "超限内容必须按纯文本保留: {text:?}"
+            ),
+            other => panic!("引用链最深处应为降级纯文本段落: {other:?}"),
+        }
+    }
+
+    /// 行级互递归（collect_inlines ↔ push_inline）同样封顶：修复前 2 万层
+    /// 嵌套强调爆栈（探针 stage c），修复后正常返回且深度封顶、文本不丢。
+    #[test]
+    fn deep_emphasis_20k_levels_degrades_to_plain_text() {
+        let md = "*".repeat(40_000) + "deep tail" + &"*".repeat(40_000);
+        let blocks = parse_blocks(&md);
+        assert_eq!(blocks.len(), 1);
+        let text = match &blocks[0] {
+            Block::Paragraph { text } => text,
+            other => panic!("应为段落: {other:?}"),
+        };
+        let depth = inline_depth(text);
+        assert!(
+            depth <= MAX_NESTING_DEPTH,
+            "行内深度必须封顶于 {MAX_NESTING_DEPTH}: {depth}"
+        );
+        assert!(
+            inline_plain_text(text).contains("deep tail"),
+            "超限行内内容必须保留为纯文本"
+        );
+    }
+
+    /// 列表路径（collect_items → collect_item → consume_block）同样封顶：
+    /// 300 层缩进列表超限降级；50 层以内的正常嵌套结构不受影响。
+    #[test]
+    fn deep_list_degrades_but_shallow_nesting_stays_structured() {
+        let mut deep = String::new();
+        for i in 0..300 {
+            deep.push_str(&" ".repeat(2 * i));
+            deep.push_str("- item\n");
+        }
+        let blocks = parse_blocks(&deep);
+        assert!(matches!(&blocks[0], Block::List { .. }));
+        assert!(
+            block_depth(&blocks) <= MAX_NESTING_DEPTH + 1,
+            "列表模型深度必须封顶"
+        );
+
+        let mut shallow = String::new();
+        for i in 0..50 {
+            shallow.push_str(&" ".repeat(2 * i));
+            shallow.push_str("- x\n");
+        }
+        // 50 层列表 + 最内层 item 的段落叶子 = 51；远低于上限，结构完整
+        assert_eq!(block_depth(&parse_blocks(&shallow)), 51, "正常浅嵌套不得受封顶影响");
     }
 }
