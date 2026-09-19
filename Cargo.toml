@@ -6,8 +6,11 @@ resolver = "2"
 codegen-units = 1
 lto = true
 strip = true
-# panic "abort"：移除 unwind 表；业务代码未使用 catch_unwind（已核），安全。
-# 注意：panic 即闪退，代码路径不得依赖 unwind 捕获，错误一律走 Result。
+# panic 策略（CQ-2 修正：此前注释声称已启用 abort，与实现不符）：
+# 未启用 panic="abort"，当前为默认 unwind。是否启用留待与 REL-1 的
+# panic 兜底策略一并决策；在 unwind 下错误处理仍一律走 Result，
+# 锁访问已统一 unwrap_or_else(into_inner)（P0-9），翻译 worker 的
+# running 标志由 RAII 守卫在 panic 展开时复位。
 
 # 调试构建截图提速：Glance 实测 BitBlt 473ms→50-100ms。
 # profile 仅在 workspace 根生效（src-tauri 内声明会被忽略并告警）。
