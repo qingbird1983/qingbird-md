@@ -123,27 +123,46 @@ const OUTLINE_SIDE_KEY = "qb.outline-side";
 // 记忆 side、互不干涉——同侧时由渲染层「外一级高栏 + 大纲让位」化解（App.tsx）。
 const REVIEW_SIDE_KEY = "qb.review-side";
 
+// 下面四个 load* 在 store 模块初始化时就会跑：localStorage 抛异常（隐私模式 /
+// 存储被禁）曾经直接炸掉模块加载 = 启动白屏。照 useWorkspaceStore/useRecentStore
+// 的逐点 try/catch 口径兜底：任何异常回默认值，只损失一次偏好记忆。
 function loadOutlineSide(): OutlineSide {
-  return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
+  try {
+    return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
+  } catch {
+    return "right";
+  }
 }
 
 function loadReviewSide(): PanelSide {
-  return localStorage.getItem(REVIEW_SIDE_KEY) === "left" ? "left" : "right";
+  try {
+    return localStorage.getItem(REVIEW_SIDE_KEY) === "left" ? "left" : "right";
+  } catch {
+    return "right";
+  }
 }
 
 function loadContentWidth(): ContentWidth {
-  const saved = localStorage.getItem(WIDTH_KEY) as ContentWidth | null;
-  if (saved && CONTENT_WIDTHS.includes(saved)) return saved;
-  return localStorage.getItem(LEGACY_WIDE_KEY) === "1" ? "wide" : "normal";
+  try {
+    const saved = localStorage.getItem(WIDTH_KEY) as ContentWidth | null;
+    if (saved && CONTENT_WIDTHS.includes(saved)) return saved;
+    return localStorage.getItem(LEGACY_WIDE_KEY) === "1" ? "wide" : "normal";
+  } catch {
+    return "normal";
+  }
 }
 
 // 自定义拖宽恢复：只挡非法值（NaN / 低于下限）；大于当前面板宽不回钳——
 // CSS max-width 让列自然填满面板，存值不动（面板变宽后原值生效）。
 function loadCustomWidth(): number | null {
-  const saved = localStorage.getItem(CUSTOM_WIDTH_KEY);
-  if (saved === null) return null;
-  const px = Number(saved);
-  return Number.isFinite(px) && px >= MIN_CONTENT_WIDTH ? px : null;
+  try {
+    const saved = localStorage.getItem(CUSTOM_WIDTH_KEY);
+    if (saved === null) return null;
+    const px = Number(saved);
+    return Number.isFinite(px) && px >= MIN_CONTENT_WIDTH ? px : null;
+  } catch {
+    return null;
+  }
 }
 
 export const useUiStore = create<UiState>()((set) => ({
@@ -185,16 +204,24 @@ export const useUiStore = create<UiState>()((set) => ({
   toggleReview: () => set((s) => ({ showReview: !s.showReview })),
   setReviewOpen: (open) => set({ showReview: open }),
   setContentWidth: (w) => {
-    localStorage.setItem(WIDTH_KEY, w);
-    // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清
-    localStorage.removeItem(CUSTOM_WIDTH_KEY);
+    try {
+      localStorage.setItem(WIDTH_KEY, w);
+      // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清
+      localStorage.removeItem(CUSTOM_WIDTH_KEY);
+    } catch {
+      /* 存储不可用：只降级内存态 */
+    }
     return set({ contentWidth: w, customWidth: null });
   },
   cycleContentWidth: () =>
     set((s) => {
       const next = CONTENT_WIDTHS[(CONTENT_WIDTHS.indexOf(s.contentWidth) + 1) % CONTENT_WIDTHS.length]!;
-      localStorage.setItem(WIDTH_KEY, next);
-      localStorage.removeItem(CUSTOM_WIDTH_KEY);
+      try {
+        localStorage.setItem(WIDTH_KEY, next);
+        localStorage.removeItem(CUSTOM_WIDTH_KEY);
+      } catch {
+        /* ignore */
+      }
       return { contentWidth: next, customWidth: null };
     }),
 
@@ -224,13 +251,21 @@ export const useUiStore = create<UiState>()((set) => ({
         : {},
     ),
   setOutlineSide: (s) => {
-    localStorage.setItem(OUTLINE_SIDE_KEY, s);
+    try {
+      localStorage.setItem(OUTLINE_SIDE_KEY, s);
+    } catch {
+      /* ignore */
+    }
     return set({ outlineSide: s });
   },
   // AI 核查 side 变更同 outline：写 localStorage + 改 state。side 纯属偏好，
   // 与大纲选边互不干涉（同侧共存由渲染层的列让位化解，见 App.tsx outlineCol）。
   setReviewSide: (s) => {
-    localStorage.setItem(REVIEW_SIDE_KEY, s);
+    try {
+      localStorage.setItem(REVIEW_SIDE_KEY, s);
+    } catch {
+      /* ignore */
+    }
     return set({ reviewSide: s });
   },
   setReviewWidth: (w) => set({ reviewWidth: w }),
@@ -240,7 +275,11 @@ export const useUiStore = create<UiState>()((set) => ({
   setCustomWidth: (px) => {
     // 上限在拖拽处钳（那里才有面板实时宽），store 只保底下限
     const w = Math.max(MIN_CONTENT_WIDTH, px);
-    localStorage.setItem(CUSTOM_WIDTH_KEY, String(w));
+    try {
+      localStorage.setItem(CUSTOM_WIDTH_KEY, String(w));
+    } catch {
+      /* ignore */
+    }
     set({ customWidth: w });
   },
 }));

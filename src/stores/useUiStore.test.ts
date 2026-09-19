@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MIN_CONTENT_WIDTH, contentWidthPx } from "../lib/contentWidth";
 import { useUiStore } from "./useUiStore";
 
@@ -169,5 +169,53 @@ describe("useUiStore 启动动画 introPhase 状态机", () => {
     useUiStore.getState().skipIntro();
     useUiStore.getState().finishIntro();
     expect(useUiStore.getState().introPhase).toBe("done");
+  });
+});
+
+// REL-9 兜底：隐私模式 / 存储被禁时 localStorage 读写会抛 SecurityError——
+// 读在 store 模块初始化时跑（四个 load*），旧实现一炸就是整个启动白屏；
+// 写散在五个动作里，一炸就是点击无响应。全部必须 try/catch 降级：
+// 读回默认值，写只影响落盘、内存态照常切换。
+describe("useUiStore localStorage 异常兜底（隐私模式不白屏）", () => {
+  function throwingStorage(): Storage {
+    const boom = (): never => {
+      throw new Error("存储不可用（隐私模式模拟）");
+    };
+    // 只桩 useUiStore 用到的三个方法
+    return { getItem: boom, setItem: boom, removeItem: boom } as unknown as Storage;
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("读取抛异常：store 仍能创建，宽度/停靠侧回默认（修复前模块初始化直接炸）", async () => {
+    vi.stubGlobal("localStorage", throwingStorage());
+    const fresh = await import("./useUiStore");
+    const s = fresh.useUiStore.getState();
+    expect(s.contentWidth).toBe("normal");
+    expect(s.customWidth).toBeNull();
+    expect(s.outlineSide).toBe("right");
+    expect(s.reviewSide).toBe("right");
+  });
+
+  it("写入抛异常：动作不抛、内存态照常切换", async () => {
+    vi.stubGlobal("localStorage", throwingStorage());
+    const fresh = await import("./useUiStore");
+    const store = fresh.useUiStore.getState();
+    expect(() => store.setContentWidth("wide")).not.toThrow();
+    expect(fresh.useUiStore.getState().contentWidth).toBe("wide");
+    expect(fresh.useUiStore.getState().customWidth).toBeNull();
+    expect(() => store.cycleContentWidth()).not.toThrow();
+    expect(fresh.useUiStore.getState().contentWidth).toBe("full"); // wide 的下一档
+    expect(() => store.setOutlineSide("left")).not.toThrow();
+    expect(fresh.useUiStore.getState().outlineSide).toBe("left");
+    expect(() => store.setReviewSide("left")).not.toThrow();
+    expect(fresh.useUiStore.getState().reviewSide).toBe("left");
+    expect(() => store.setCustomWidth(900)).not.toThrow();
+    expect(fresh.useUiStore.getState().customWidth).toBe(900);
   });
 });
