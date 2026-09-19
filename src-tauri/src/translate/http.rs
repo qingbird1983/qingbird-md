@@ -372,6 +372,8 @@ fn form_escape(s: &str) -> String {
 pub(crate) mod test_mock {
     use super::{Cursor, HttpClient, HttpResp};
     use std::collections::VecDeque;
+    use std::io::{BufRead, Read};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Clone)]
@@ -544,6 +546,120 @@ pub(crate) mod test_mock {
         ) -> Result<HttpResp, String> {
             self.record(url, "", headers);
             Ok(resp_for(url))
+        }
+    }
+
+    /// REL-7 测试件：SSE 流式 mock——第一条 data 行送达**之后**、下一段数据
+    /// 首次 fill 的瞬间置位共享的取消旗标，模拟「用户在长流中途按了停止」。
+    /// 配合 [`super::super::cancel::CancelableClient`] 断言：流读取必须在下
+    /// 一个行边界中止，而不是把剩余流读完（修复前的缺陷本体）。
+    pub struct MidStreamCancelMock {
+        /// 与外层 CancelableClient 共享的取消旗标（测试内 clone 一份去构造）。
+        pub cancel: Arc<AtomicBool>,
+    }
+
+    impl MidStreamCancelMock {
+        pub fn new() -> Self {
+            MidStreamCancelMock { cancel: Arc::new(AtomicBool::new(false)) }
+        }
+    }
+
+    impl Default for MidStreamCancelMock {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// 段一：第一条 data 行。delta 是**合法查词 JSON 的前半**（不带空行终止
+    /// 符——帧要在下一段的空行到达时才闭）：修复前的缺陷是流被完整读完并
+    /// 拼出可用结果，内容必须可解析，回归才抓得住它。
+    const MID_SEG1: &str = "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"t\\\":\\\"你\"}}]}\n";
+    /// 段二：空行（闭合段一的帧）+ 第二条 data 行（JSON 后半）+ DONE 终止符。
+    const MID_SEG2: &str = concat!(
+        "\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"好\\\",\\\"p\\\":null,\\\"pos\\\":null}\"}}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+
+    /// 两段静态缓冲拼成的流：段一后旗标置位，段尽转 EOF。
+    struct MidStreamReader {
+        seg: usize,
+        pos: usize,
+        cancel: Arc<AtomicBool>,
+    }
+
+    impl MidStreamReader {
+        fn segment(&self) -> &'static [u8] {
+            match self.seg {
+                0 => MID_SEG1.as_bytes(),
+                1 => MID_SEG2.as_bytes(),
+                _ => &[],
+            }
+        }
+    }
+
+    impl Read for MidStreamReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let avail = self.fill_buf()?;
+            let n = avail.len().min(buf.len());
+            buf[..n].copy_from_slice(&avail[..n]);
+            self.consume(n);
+            Ok(n)
+        }
+    }
+
+    impl BufRead for MidStreamReader {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            if self.seg >= 1 && self.pos == 0 {
+                // 第一条 data 行已送达，此刻「按下停止」：外层包装的下一次
+                // 行边界检查必须看到旗标。
+                self.cancel.store(true, Ordering::Relaxed);
+            }
+            Ok(&self.segment()[self.pos..])
+        }
+
+        fn consume(&mut self, amt: usize) {
+            if amt == 0 {
+                return;
+            }
+            self.pos += amt;
+            if self.pos >= self.segment().len() {
+                self.seg += 1;
+                self.pos = 0;
+            }
+        }
+    }
+
+    impl HttpClient for MidStreamCancelMock {
+        fn get(&self, _url: &str) -> Result<HttpResp, String> {
+            panic!("MidStreamCancelMock 只服务流式路径")
+        }
+        fn post_form(&self, _url: &str, _params: &[(String, String)]) -> Result<HttpResp, String> {
+            panic!("MidStreamCancelMock 只服务流式路径")
+        }
+        fn post_json(
+            &self,
+            _url: &str,
+            _body: &str,
+            _headers: &[(&str, &str)],
+        ) -> Result<HttpResp, String> {
+            panic!("MidStreamCancelMock 只服务流式路径")
+        }
+        fn post_json_stream(
+            &self,
+            _url: &str,
+            _body: &str,
+            _headers: &[(&str, &str)],
+            _timeout_ms: u64,
+        ) -> Result<super::StreamResp, String> {
+            Ok(super::StreamResp {
+                status: 200,
+                reader: Box::new(MidStreamReader {
+                    seg: 0,
+                    pos: 0,
+                    cancel: Arc::clone(&self.cancel),
+                }),
+            })
         }
     }
 }

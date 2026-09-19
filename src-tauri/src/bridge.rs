@@ -317,8 +317,19 @@ pub fn lookup_word(
     let dto = {
         let net_text = text.clone();
         let app = app.clone();
+        let cancel = Arc::clone(&st.cancel);
+        // REL-7：查词与整篇翻译共用同一取消旗标（请求前 + 流式行边界都快速
+        // 失败）。翻译空闲时顺手清掉上一次 stop_translation 留下的陈旧旗标，
+        // 否则「停止翻译后划词永远已取消」；翻译进行中则不动它——那一刻的
+        // stop 语义属于翻译（停止翻译顺带掐断在途查词，正是期望行为）。
+        if !st.running.load(Ordering::SeqCst) {
+            st.cancel.store(false, Ordering::SeqCst);
+        }
         std::thread::spawn(move || {
-            let http = translate::http::UreqClient::shared();
+            let http = translate::cancel::CancelableClient {
+                inner: translate::http::UreqClient::shared(),
+                cancel: &cancel,
+            };
             let mut emit = |acc: &str| {
                 let _ = app.emit(
                     "lookup-delta",
@@ -328,7 +339,7 @@ pub fn lookup_word(
                     },
                 );
             };
-            translate::lookup::lookup(&net_text, &creds, http, &mut emit)
+            translate::lookup::lookup(&net_text, &creds, &http, &mut emit)
         })
         .join()
         .map_err(|_| "查词线程崩溃".to_string())

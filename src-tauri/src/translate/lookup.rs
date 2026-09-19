@@ -533,6 +533,24 @@ mod tests {
         assert!(deltas.iter().any(|d| d.contains("便利设施")));
     }
 
+    // ---- REL-7 回归：查词流式中途取消 ----
+
+    #[test]
+    fn lookup_cancelled_midstream_fails_fast() {
+        // 查词与整篇翻译共用 consume 读循环：流中途置位取消旗标后必须在
+        // 行边界中止并报「已取消」，而不是把两条流读完、照常拼出完整卡片。
+        use crate::translate::cancel::CancelableClient;
+        use crate::translate::http::test_mock::MidStreamCancelMock;
+        let mock = MidStreamCancelMock::new();
+        let flag = std::sync::Arc::clone(&mock.cancel);
+        let http = CancelableClient { inner: &mock, cancel: &flag };
+        let c = creds(&[("baseUrl", "https://x.io/v1"), ("model", "m")]);
+        let mut noop = |_: &str| {};
+        let e = lookup("amenity", &c, &http, &mut noop)
+            .expect_err("查词流中途取消仍把流读完");
+        assert!(e.contains("已取消"), "{e}");
+    }
+
     #[test]
     fn missing_credentials_are_actionable() {
         let http = MockClient::new();
