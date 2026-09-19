@@ -652,7 +652,7 @@ npm test                      # 基线：18 文件 209 用例 → **30 文件 30
 2. **S5 = A 第 4 步 17–21 AI 语义核查**（产品分水岭，≈2 天）：面板骨架已就绪，S5 只需 ①往 `ReviewTimeline` 的 `steps` 追加步骤 ②落 `ReviewComposer`（原工单第 5 项）③`review_model` 字段 ④核查锁 `llm` + 未配则入口禁用不降级 ⑤结果不进 `Cache`。`ensureReviewPanelOpen(then)` 的 `then` 就是 S5 的"注入草稿"接缝。
 3. **README 4 张截图仍过期**（`docs/screenshots/` 停在 v0.1.10，v0.2.1/2/3 用户均选择不换）→ **下次发版前必须重拍**。
 
-### 8.7 验收后补刀：滚动条全局统一（2026-09-19，用户提出）
+### 8.7 验收后补刀：滚动条全局统一（2026-09-19，用户提出 · ✅ **真机验收通过**）
 
 **用户原话**：「ai 栏的滚动条是原生的，跟正文阅读区的不一样，而且还是常驻显示不是自主隐藏，这块要做个记录约束。**全局的滚动条都必须做到统一状态和大小形状**」。
 
@@ -677,3 +677,13 @@ npm test                      # 基线：18 文件 209 用例 → **30 文件 30
 **守卫测试** `src/lib/scrollbarUnified.test.ts`（7 用例，node 环境）：① `::-webkit-scrollbar` 只许出现在真源文件（豁免除外）；② 粗细只许 10px；③ 兜底三件（尺寸 / 滑块 / 轨道）必须存在；④ `--sb-thumb` 只许被真源文件引用；⑤ `transition-*` 长写只许在真源文件；⑥ `main.tsx` 仍在委托 `.scrolling`。**判红形态**：任何人再手写第二条滚动条样式、或把 8px 塞回来。
 
 **门禁实况**：`tsc --noEmit` **0** / `vitest run` **30 文件 305 用例**（较 S4 的 298 增 7）/ `cargo check` 0 / `cargo test` 289（本项未改 Rust）。
+
+**✅ 真机验收通过**（2026-09-19 17:27 用户确认「全部统一了」）：AI 核查栏、代码块横向、划词浮窗、菜单二级、设置页、文件树各处观感一致——静止隐形、滚动渐显、粗细相同。
+
+**验收前的量化自测（值得复用的手法，本机无 playwright）**：用**系统 Edge 无头模式**（内核与 Tauri 的 WebView2 同源）——
+`msedge --headless=new --user-data-dir=<temp> --virtual-time-budget=8000 --dump-dom http://127.0.0.1:<端口>/`。
+四个要点：① 必须给 `--user-data-dir`（否则附到用户现有 Edge 会话、真弹窗）；② `--dump-dom` 打印渲染后 DOM，所以**让页面自测把读数写进 `<pre>`** 再读回；③ `--virtual-time-budget` 快进定时器，故「过渡结束后采样」也拿得到；④ 服务用 `python -m http.server --bind 127.0.0.1`，别用 `file://`。
+
+**CSS 入口必须按 `main.tsx` 的真实 import 顺序拼全链路**：`global.css` 只含 00–13 域，`theme.css` / `palettes.css` / `markdown.css` 是另外 import 的——漏 `theme.css` 就没有 `--scrollbar-thumb`、漏 `markdown.css` 就没有代码块的 `overflow-x`，读数会**全部失真且看起来像"功能坏了"**。入口留在 `tools/probe-entry.css`（gitignored），打包需带 `--loader:.woff2=empty`（`theme.css` 有 `@font-face`）。
+
+读数口径：滚动条占位 = `offsetWidth - clientWidth`（容器用 `outline` 不用 `border` 就不用手工减边框）；伪元素尺寸 = `getComputedStyle(el, "::-webkit-scrollbar").width`；`@property` 计算值 = `getComputedStyle(el).getPropertyValue("--sb-thumb")`。**结果：6 个容器（含一个"项目 CSS 里从未出现过的类"）全部 10px + 静止 `rgba(0,0,0,0)`**，`.tabbar` 为 0。给"过渡"采样要采 t=0 与 t=过渡后各一次——t=0 读到的往往是过渡起点，只看一次会把"生效"误判成"没生效"。
