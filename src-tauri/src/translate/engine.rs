@@ -215,13 +215,17 @@ fn process_batch(
         commit(*slot, Ok(out));
         return;
     }
-    let prompt = system_prompt(req.target, packed.len() > 1);
+    // 每次请求换一个随机 nonce（BUG-4）：正文里的标记字面量猜不到它，
+    // 既截不断单元，也占不了别的槽。单单元裸发路径不进协议，但仍走同一个
+    // prompt 构造（不带批量段）。
+    let nonce = batch::new_nonce();
+    let prompt = system_prompt(req.target, (packed.len() > 1).then(|| nonce.as_str()));
     let chat = ChatRequest {
         base_url: req.creds.get("baseUrl").unwrap_or_default(),
         api_key: req.creds.get("apiKey").unwrap_or_default(),
         model: req.creds.get("model").unwrap_or_default(),
         system: &prompt,
-        user: &batch::encode(&packed),
+        user: &batch::encode(&packed, &nonce),
         temperature: 0.1,
         max_tokens: None,
         json_mode: false,
@@ -234,7 +238,8 @@ fn process_batch(
     let mut delivered = vec![false; batch.len()];
 
     // Feed only the *new* bytes of the accumulated content to the decoder.
-    let mut decoder = BatchDecoder::new();
+    // 解码只认本批 nonce 的标记——与 encode / prompt 用同一个值。
+    let mut decoder = BatchDecoder::new(&nonce);
     let mut seen: usize = 0;
     let streamed = chat_stream(&chat, req.http, &mut |acc: &str| {
         if acc.len() <= seen {
@@ -348,7 +353,7 @@ fn llm_once(
 ) -> Result<String, String> {
     // 单串裸发路径（划词 / 拆分子块）：不带批量协议，但**同样要带方向指令与
     // 不可信上下文声明**——这条路径此前用的是同一个常量，别让它掉队。
-    let prompt = system_prompt(req.target, false);
+    let prompt = system_prompt(req.target, None);
     let chat = ChatRequest {
         base_url: req.creds.get("baseUrl").unwrap_or_default(),
         api_key: req.creds.get("apiKey").unwrap_or_default(),
@@ -471,10 +476,25 @@ mod tests {
         format!("data: {payload}\n\ndata: [DONE]\n\n")
     }
 
+    /// 从批量请求负载里抠出本批 nonce（`batch::encode` 的标记形如
+    /// `<<<B0-<nonce>>>>`）。批量协议的标记带每次请求的随机 nonce，忠实的
+    /// 模型回复必须原样回显它——动态 mock 据此构造回复。
+    fn batch_nonce_of(req_body: &str) -> String {
+        let tag = "<<<B0-";
+        let start = req_body.find(tag).expect("request carries batch markers") + tag.len();
+        let end = req_body[start..].find(">>>").expect("open marker closed") + start;
+        req_body[start..end].to_string()
+    }
+
     #[test]
     fn llm_batch_delivers_every_unit_from_one_request() {
         let http = MockClient::new();
-        http.script_stream(sse("<<<B0>>>AAA<<<END>>>\n<<<B1>>>BBB<<<END>>>\n"));
+        http.script_stream_fn(|req_body| {
+            let n = batch_nonce_of(req_body);
+            sse(&format!(
+                "<<<B0-{n}>>>AAA<<<END-{n}>>>\n<<<B1-{n}>>>BBB<<<END-{n}>>>\n"
+            ))
+        });
         let creds = llm_creds();
         let u: Vec<(usize, String)> = vec![(0, "a".into()), (1, "b".into())];
         let mut cache = Cache::new();
@@ -505,7 +525,11 @@ mod tests {
     #[test]
     fn only_the_missing_unit_is_retried() {
         let http = MockClient::new();
-        http.script_stream(sse("<<<B0>>>AAA<<<END>>>\n")); // batch replied with only unit 0
+        // batch replied with only unit 0 (markers echo the request's nonce)
+        http.script_stream_fn(|req_body| {
+            let n = batch_nonce_of(req_body);
+            sse(&format!("<<<B0-{n}>>>AAA<<<END-{n}>>>\n"))
+        });
         http.script_stream(sse("BBB")); // retry of unit 1 (single, unmarked)
         let creds = llm_creds();
         let u: Vec<(usize, String)> = vec![(0, "a".into()), (1, "b".into())];
@@ -627,7 +651,12 @@ mod tests {
     fn multi_unit_batch_does_not_stream() {
         // 批量批按分隔符增量解码：单元闭合才提交，不转发 Streaming
         let http = MockClient::new();
-        http.script_stream(sse("<<<B0>>>AAA<<<END>>>\n<<<B1>>>BBB<<<END>>>\n"));
+        http.script_stream_fn(|req_body| {
+            let n = batch_nonce_of(req_body);
+            sse(&format!(
+                "<<<B0-{n}>>>AAA<<<END-{n}>>>\n<<<B1-{n}>>>BBB<<<END-{n}>>>\n"
+            ))
+        });
         let creds = llm_creds();
         let u: Vec<(usize, String)> = vec![(0, "a".into()), (1, "b".into())];
         let mut cache = Cache::new();

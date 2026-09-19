@@ -269,6 +269,10 @@ pub(crate) mod test_mock {
         /// Same FIFO, but each entry also carries an HTTP status. Checked
         /// before `streams` — lets tests script 400-retry negotiation paths.
         raws: Arc<Mutex<VecDeque<(u16, String)>>>,
+        /// Dynamic variant: the reply is computed *from the request body*, for
+        /// protocols whose markers embed per-request values (the batch nonce).
+        /// Checked before `streams`.
+        stream_fns: Arc<Mutex<VecDeque<Box<dyn Fn(&str) -> String + Send>>>>,
     }
 
     impl MockClient {
@@ -277,6 +281,7 @@ pub(crate) mod test_mock {
                 store: Arc::new(Mutex::new(Vec::new())),
                 streams: Arc::new(Mutex::new(VecDeque::new())),
                 raws: Arc::new(Mutex::new(VecDeque::new())),
+                stream_fns: Arc::new(Mutex::new(VecDeque::new())),
             }
         }
 
@@ -289,15 +294,25 @@ pub(crate) mod test_mock {
             self.streams.lock().unwrap().push_back(raw);
         }
 
+        /// Queue a reply computed from the request body — the model-echoes-
+        /// the-protocol shape (batch markers carry a per-request nonce, so a
+        /// faithful reply can't be pre-baked).
+        pub fn script_stream_fn(&self, f: impl Fn(&str) -> String + Send + 'static) {
+            self.stream_fns.lock().unwrap().push_back(Box::new(f));
+        }
+
         /// Queue a stream response with an explicit HTTP status (e.g. a 400
         /// for capability-negotiation tests).
         pub fn script_stream_raw_status(&self, status: u16, raw: String) {
             self.raws.lock().unwrap().push_back((status, raw));
         }
 
-        fn next_stream(&self) -> Option<(u16, String)> {
+        fn next_stream(&self, req_body: &str) -> Option<(u16, String)> {
             if let Some((code, raw)) = self.raws.lock().unwrap().pop_front() {
                 return Some((code, raw));
+            }
+            if let Some(f) = self.stream_fns.lock().unwrap().pop_front() {
+                return Some((200, f(req_body)));
             }
             self.streams.lock().unwrap().pop_front().map(|raw| (200, raw))
         }
@@ -374,7 +389,7 @@ pub(crate) mod test_mock {
         ) -> Result<super::StreamResp, String> {
             self.record(url, body, headers);
             // A scripted body wins over the canned one (tests control the wire).
-            if let Some((status, raw)) = self.next_stream() {
+            if let Some((status, raw)) = self.next_stream(body) {
                 return Ok(super::StreamResp {
                     status,
                     reader: Box::new(Cursor::new(raw.into_bytes())),

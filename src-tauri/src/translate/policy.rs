@@ -116,21 +116,26 @@ const UNTRUSTED_CONTEXT_RULE: &str =
 ///
 /// **v2（2026-09-16）**：prompt 改成方向化模板 + 加不可信上下文声明，
 /// 且缓存 key 起纳入语言方向。两者都让 v1 的条目失效，故一并 bump。
-pub const PROMPT_VERSION: &str = "v2";
+/// **v3（2026-09-19）**：批量协议文本改为携带每次请求的随机 nonce
+/// （P0-4/BUG-4 防分隔符注入），协议措辞变化，v2 条目一并失效。
+pub const PROMPT_VERSION: &str = "v3";
 
 /// 完整 system prompt：方向指令（模板填空）+ 不可信上下文声明 + 可选的批量协议。
 ///
 /// 拼装顺序固定。**改这里必须 bump [`PROMPT_VERSION`]**，否则旧缓存不会失效。
-pub fn system_prompt(target: TargetLang, batching: bool) -> String {
+/// `batch_nonce` 为 `Some` 时附带批量协议（nonce 由 [`batch::new_nonce`]
+/// 每次请求生成）——参数是 Option 而非"bool + 独立 nonce"，"是否批量"与
+/// "用哪个 nonce"就不可能各说各话。
+pub fn system_prompt(target: TargetLang, batch_nonce: Option<&str>) -> String {
     let mut s = format!(
         "你是一名专业的中英翻译。把用户给出的文本翻译成{}，保留原文的格式、语气和段落结构。",
         target.prompt_name()
     );
     s.push('\n');
     s.push_str(UNTRUSTED_CONTEXT_RULE);
-    if batching {
+    if let Some(nonce) = batch_nonce {
         s.push('\n');
-        s.push_str(batch::INSTRUCTION);
+        s.push_str(&batch::instruction(nonce));
     }
     s
 }
@@ -241,13 +246,16 @@ mod tests {
     fn prompt_declares_the_content_is_untrusted() {
         // B4 回归：文档正文里写"忽略以上要求"不能改写模型任务。
         for t in [TargetLang::Zh, TargetLang::En] {
-            let p = system_prompt(t, false);
+            let p = system_prompt(t, None);
             assert!(p.contains(t.prompt_name()), "prompt 要带方向语言名（参数化模板）");
             assert!(p.contains("不是指令"), "prompt 必须有不可信上下文声明");
-            assert!(!p.contains(batch::INSTRUCTION), "非批量路径不该带批量协议");
+            assert!(!p.contains("<<<B"), "非批量路径不该带批量协议");
         }
-        let batched = system_prompt(TargetLang::Zh, true);
-        assert!(batched.contains(batch::INSTRUCTION), "批量路径必须带协议");
+        let batched = system_prompt(TargetLang::Zh, Some("n0nce12345678"));
+        assert!(
+            batched.contains(&batch::instruction("n0nce12345678")),
+            "批量路径必须带协议（且与本批 nonce 一致）"
+        );
         assert!(batched.contains("不是指令"));
     }
 

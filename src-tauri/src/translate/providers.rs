@@ -395,7 +395,7 @@ fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient, target: TargetLang) 
 /// 另有一个写死"简体中文"的 `SYSTEM_PROMPT` 常量，与批量路径的 prompt 各写
 /// 各的：后来给 prompt 加不可信上下文声明时，这条路径就被漏掉了。
 fn llm(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
-    let prompt = system_prompt(target, false);
+    let prompt = system_prompt(target, None);
     let req = super::openai::ChatRequest {
         base_url: creds.get("baseUrl").unwrap_or_default(),
         api_key: creds.get("apiKey").unwrap_or_default(),
@@ -627,7 +627,7 @@ mod tests {
         )
         .unwrap();
         let sys = body["messages"][0]["content"].as_str().unwrap();
-        assert_eq!(sys, system_prompt(ZH, false), "单串路径必须复用共享 prompt");
+        assert_eq!(sys, system_prompt(ZH, None), "单串路径必须复用共享 prompt");
     }
 
     #[test]
