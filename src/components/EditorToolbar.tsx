@@ -191,7 +191,6 @@ export default function EditorToolbar() {
           预览
         </button>
       </div>
-      <Sep />
 
       {/* —— 正文宽度档已从工具栏移除（2026-09-14，用户要求）——
            理由：正文栏左右边缘可自由拖宽拉窄，四档预设的使用频率已很低。

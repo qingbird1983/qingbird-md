@@ -355,14 +355,18 @@
 }
 
 /* 槽头（§8.3 ①）：标题「AI 核查」+ 关闭。模型选择器（review_model）随
-   Step 4 的语义核查落地。 */
+   Step 4 的语义核查落地。
+   高度钉在 --h-toolbar（border-box）：核查高栏与工具栏同起 row 2 顶，
+   底线才和工具栏的 border-bottom 连成一条横线（2026-09-19 用户实测：
+   原先内容高比工具栏矮一截，两根线错位）。 */
 .review-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   flex: none;
-  padding: 12px 10px 6px 14px;
+  height: var(--h-toolbar);
+  padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
   font-size: 9.5px;
   font-weight: 500;
