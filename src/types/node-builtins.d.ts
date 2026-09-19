@@ -9,6 +9,9 @@
 // 空字符串——所以「读生成物做一致性断言」只能走 node:fs，绕不开。
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf-8"): string;
+  // 滚动条守卫要把 src/styles 下的 CSS 全量扫一遍，得先列目录（2026-09-19）：
+  // 硬编码文件名 = 又造一份要人工维护的名单，正是该守卫要消灭的东西。
+  export function readdirSync(path: string): string[];
 }
 
 declare module "node:url" {

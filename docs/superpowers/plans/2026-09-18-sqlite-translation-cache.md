@@ -540,7 +540,7 @@ cargo test                    # 基线：265 passed → **289 passed**（2026-09
 
 # 前端
 npx tsc --noEmit              # 期望 0 输出
-npm test                      # 基线：18 文件 209 用例 → **21 文件 235 用例**（2026-09-19 实测）
+npm test                      # 基线：18 文件 209 用例 → **30 文件 305 用例**（2026-09-19 实测）
 ```
 
 > **基线必须跟着涨**：加了新功能却没涨测试数，说明没写守卫。S3 这一轮（`b6a7a19`）单独就新增 `useUiStore.test.ts` 的槽位不变量用例 + `Cargo` 侧向后兼容测试，正是"涨数"的样子。
@@ -551,6 +551,7 @@ npm test                      # 基线：18 文件 209 用例 → **21 文件 23
 2. **构建走 PowerShell**（B §七 红线 7：Bash 通道会静默失败）。
 3. **快捷键单一真源是 `hotkeyRegistry.ts`**，新增必须让三方对齐测试通过。
 4. **`data-ri` / `data-bi` 索引空间不得自建 walker**（A 红线 4）——C 的改造完全不碰它，是这三份里**唯一不触碰索引空间**的计划。
+5. **滚动条不得自建样式**（2026-09-19 新增，全局生效）：样式只许写在 `src/styles/11-toast-command.css`，**禁止按容器列白名单**；新滚动容器**无需登记**（`*` 兜底 + `.scrolling` 渐显），唯一豁免 `.tabbar`。守卫 `src/lib/scrollbarUnified.test.ts`，细则见附 8.7。
 
 ---
 
@@ -631,7 +632,7 @@ npm test                      # 基线：18 文件 209 用例 → **21 文件 23
 | 项 | 基线（v0.2.3） | 现在 |
 | --- | --- | --- |
 | `tsc --noEmit` | 0 | **0** |
-| `vitest run` | 21 文件 / 235 用例 | **29 文件 / 298 用例**（新增 8 文件 63 用例） |
+| `vitest run` | 21 文件 / 235 用例 | **30 文件 / 305 用例**（S4 新增 8 文件 63 用例；另加滚动条统一守卫 1 文件 7 用例，见附 8.7） |
 | `cargo check --all-targets` | 0 / 0 | 0 / 0（本项未改 Rust） |
 | `cargo test` | 289 | 289（本项未改 Rust） |
 
@@ -650,3 +651,29 @@ npm test                      # 基线：18 文件 209 用例 → **21 文件 23
 1. ~~真机验收~~ ✅ **已通过**（2026-09-19 16:58 用户确认）：打开面板 → 出可点列表 → 点一条 → 预览滚到对应块并高亮、**不被分栏同步拽回**；手动滚离后本次不再拽回。验收口径见 8.3。
 2. **S5 = A 第 4 步 17–21 AI 语义核查**（产品分水岭，≈2 天）：面板骨架已就绪，S5 只需 ①往 `ReviewTimeline` 的 `steps` 追加步骤 ②落 `ReviewComposer`（原工单第 5 项）③`review_model` 字段 ④核查锁 `llm` + 未配则入口禁用不降级 ⑤结果不进 `Cache`。`ensureReviewPanelOpen(then)` 的 `then` 就是 S5 的"注入草稿"接缝。
 3. **README 4 张截图仍过期**（`docs/screenshots/` 停在 v0.1.10，v0.2.1/2/3 用户均选择不换）→ **下次发版前必须重拍**。
+
+### 8.7 验收后补刀：滚动条全局统一（2026-09-19，用户提出）
+
+**用户原话**：「ai 栏的滚动条是原生的，跟正文阅读区的不一样，而且还是常驻显示不是自主隐藏，这块要做个记录约束。**全局的滚动条都必须做到统一状态和大小形状**」。
+
+**根因（值得记的架构债）**：滚动条原先是**白名单制**——`11-toast-command.css` 里手写 9 个容器的选择器，各自继承 `--sb-thumb`、各挂 webkit 规则。S4 新加的 `.review-body` 没进名单，于是掉回原生滚动条：**异形 + 常显**。这类 bug 不抛错、`tsc` 看不见、jsdom 也测不出（happy-dom 的 `scrollHeight/clientHeight` 恒为 0）——只能靠"不许再出现第二个来源"来兜。**名单一定会漏**：这次漏的是新面板，上次（`markdown.css` 代码块）漏的是 8px + 常显滑块。
+
+**修法 = 把白名单反过来**（默认全覆盖 + 显式豁免）：
+
+| 层 | 规则 | 作用 |
+| --- | --- | --- |
+| 尺寸 | `*::-webkit-scrollbar { width/height: 10px }` | 任何容器都不可能再出异形条；**新滚动容器无需登记** |
+| 状态 | `@property --sb-thumb` 初值 `transparent`（`inherits: true`）+ `*::-webkit-scrollbar-thumb { background: var(--sb-thumb) }` | **静止时滑块隐形**，全应用一致 |
+| 渐显 | `.scrolling { --sb-thumb: var(--scrollbar-thumb) }`（类由 `main.tsx` 全局 capture 阶段 scroll 委托加，900ms 后摘） | 滚动中渐显、停止渐隐 |
+| 过渡 | 只在 `*` 上用**长写** `transition-property` / `transition-duration` | 全库其余处只用 `transition:` 简写（特异性高于 `*`），互不覆盖 |
+| 轨道 | `*::-webkit-scrollbar-track { background: transparent }` | 浮条观感一致 |
+
+**唯一豁免**：`.tabbar` 的 `display: none`（横向滚动条会切掉标签下边框，是刻意的光学取舍）。
+
+**顺带清的历史债**：`markdown.css` 的 `pre.code-block` 自挂 8px + 常显滑块 + `scrollbar-width: thin` → 全部删除、改由全局接管（代码卡底 `--md-pre-bg = --surface`，与 `--scrollbar-thumb` 同族，对比度无虞）。同时 `.sel-pop` / `.sel-pop-src` / `.app-menu-sub` / `.welcome` / `.math.block` 这几个**从没登记过**的容器也一次性归位。
+
+**降级不塌**：若环境不支持 `@property`，尺寸与透明滑块照旧生效、`.scrolling` 照旧能把滑块染出来，只少了 0.5s 过渡。
+
+**守卫测试** `src/lib/scrollbarUnified.test.ts`（7 用例，node 环境）：① `::-webkit-scrollbar` 只许出现在真源文件（豁免除外）；② 粗细只许 10px；③ 兜底三件（尺寸 / 滑块 / 轨道）必须存在；④ `--sb-thumb` 只许被真源文件引用；⑤ `transition-*` 长写只许在真源文件；⑥ `main.tsx` 仍在委托 `.scrolling`。**判红形态**：任何人再手写第二条滚动条样式、或把 8px 塞回来。
+
+**门禁实况**：`tsc --noEmit` **0** / `vitest run` **30 文件 305 用例**（较 S4 的 298 增 7）/ `cargo check` 0 / `cargo test` 289（本项未改 Rust）。

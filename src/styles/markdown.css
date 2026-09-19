@@ -304,21 +304,10 @@ body[data-theme="dark"] .markdown-body {
   border-radius: 0;
   background: transparent;
   overflow-x: auto;
-  scrollbar-width: thin; /* Firefox 语义；Chromium 走下方 webkit 细滚动条 */
-}
-
-.markdown-body pre.code-block::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.markdown-body pre.code-block::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: var(--md-gutter-line);
-}
-
-.markdown-body pre.code-block::-webkit-scrollbar-thumb:hover {
-  background: var(--md-pre-muted);
+  /* 滚动条**不在这里定制**：交给 11-toast-command.css 的全局唯一真源
+     （10×10 / 静止透明 / 滚动渐显）。曾经这里自挂 8px + 常显滑块，
+     与全局形状不符（2026-09-19 统一，守卫测试 scrollbarUnified.test.ts）。
+     代码卡底走 --md-pre-bg = --surface，与 --scrollbar-thumb 同族，对比度无虞。 */
 }
 
 .markdown-body pre.code-block code {

@@ -27,6 +27,9 @@
      标签条与侧栏一起"先过冲再回弹"——普通收展仍是 ease，不影响手感。 */
   transition: margin-left var(--panel-anim, 300ms) var(--ease-overshoot, ease);
   overflow-x: auto;
+  /* 标签条是全局**唯一**的滚动条豁免（滚动条全局唯一真源见
+     11-toast-command.css）：横向滚动条会切掉标签的下边框，属刻意的光学取舍。
+     新增豁免必须同步改 src/lib/scrollbarUnified.test.ts，否则守卫测试判红。 */
   scrollbar-width: none;
   -webkit-user-select: none;
   user-select: none;

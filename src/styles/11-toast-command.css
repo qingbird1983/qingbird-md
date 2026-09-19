@@ -140,72 +140,51 @@
   }
 }
 
-/* ---- 滚动条淡显淡出：静止时完全隐形，滚动中渐显，停止渐隐 ----
-   --sb-thumb 注册为可过渡的 <color>（@property，WebView2/Chromium 85+），
-   滚动条伪元素继承宿主的该变量；.scrolling 由 main.tsx 的全局 scroll 委托
-   在滚动开始时加上、停止约 900ms 后摘除，过渡随宿主 transition 渐变。 */
+/* ---- 滚动条：全局唯一真源 · 默认全覆盖 · 显式豁免 ----
+   红线（2026-09-19 定）：全应用滚动条只有这一处来源，**禁止再写「按容器列名单」**。
+   名单一定会漏——S4 新面板 .review-body 没登记，当场掉回原生常驻滚动条（异形 + 常显）。
+   改成「默认全覆盖」后，新增滚动容器无需登记：
+     ① `*::-webkit-scrollbar`        尺寸唯一（10×10）→ 任何容器都不会再出现异形滚动条
+     ② `*::-webkit-scrollbar-thumb`  取继承来的 --sb-thumb；@property 初值 transparent
+                                     ⇒ 静止时滑块透明（= 全局统一自动隐藏）
+     ③ `.scrolling`                  main.tsx 的全局 scroll 委托加类，滑块渐显
+     ④ `*` 上只声明 --sb-thumb 的过渡长写 → 渐显渐隐；各处已有的 transition 简写
+                                     特异性更高，不会被这条覆盖（全库无 transition-*
+                                     长写，故安全）
+   普通降级也不塌：若环境不支持 @property，① ② 仍是透明滑块、③ 仍能把滑块染出来，
+   只是少了 0.5s 过渡。
+   豁免**只有一处**：.tabbar 主动 `display: none`（标签条隐藏滚动条是刻意的光学取舍），
+   见 02-tabs.css。若要新增豁免，必须同时改 src/lib/scrollbarUnified.test.ts ——
+   该守卫测试会把「滚动条样式跑出本文件」判红。 */
 @property --sb-thumb {
   syntax: "<color>";
   inherits: true;
   initial-value: transparent;
 }
 
-.tree-root,
-.outline-list,
-.preview-scroll,
-.editor-cm .cm-scroller,
-.modal-body,
-.set-nav,
-.set-pane,
-.palette-list {
-  --sb-thumb: transparent;
-  transition: --sb-thumb 0.5s;
+/* 过渡宿主：--sb-thumb 只在 .scrolling 的宿主自身变化；用长写而非
+   `transition: --sb-thumb .5s` 简写，避免把别处声明的过渡一起重置。 */
+* {
+  transition-property: --sb-thumb;
+  transition-duration: 0.5s;
 }
 
-.tree-root.scrolling,
-.outline-list.scrolling,
-.preview-scroll.scrolling,
-.editor-cm .cm-scroller.scrolling,
-.modal-body.scrolling,
-.set-nav.scrolling,
-.set-pane.scrolling,
-.palette-list.scrolling {
+.scrolling {
   --sb-thumb: var(--scrollbar-thumb);
 }
 
-.ws-tree-area::-webkit-scrollbar,
-.outline-list::-webkit-scrollbar,
-.preview-scroll::-webkit-scrollbar,
-.editor-cm .cm-scroller::-webkit-scrollbar,
-.modal-body::-webkit-scrollbar,
-.set-nav::-webkit-scrollbar,
-.set-pane::-webkit-scrollbar,
-.palette-list::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.ws-tree-area::-webkit-scrollbar-thumb,
-.outline-list::-webkit-scrollbar-thumb,
-.preview-scroll::-webkit-scrollbar-thumb,
-.editor-cm .cm-scroller::-webkit-scrollbar-thumb,
-.modal-body::-webkit-scrollbar-thumb,
-.set-nav::-webkit-scrollbar-thumb,
-.set-pane::-webkit-scrollbar-thumb,
-.palette-list::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 3px solid transparent; /* 透明描边把色条收窄成浮条 */
   border-radius: 5px;
   background-clip: padding-box;
 }
 
-.ws-tree-area::-webkit-scrollbar-track,
-.outline-list::-webkit-scrollbar-track,
-.preview-scroll::-webkit-scrollbar-track,
-.editor-cm .cm-scroller::-webkit-scrollbar-track,
-.modal-body::-webkit-scrollbar-track,
-.set-nav::-webkit-scrollbar-track,
-.set-pane::-webkit-scrollbar-track,
-.palette-list::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
