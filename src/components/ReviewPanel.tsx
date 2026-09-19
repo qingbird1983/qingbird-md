@@ -6,7 +6,7 @@
 // 确定性检查（checkTranslation IPC）零 AI 成本——纯结构对比，面板一有译文就跑。
 // 语义核查（AI，锁定 llm 大模型）是另一条路径，依赖 LLM 凭据齐全
 // （baseUrl + model），未配置则按钮禁用 + 明示原因（§七.1 R2），**不静默降级**。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReviewIssueCard from "./ReviewIssueCard";
 import ReviewTimeline, { type ReviewStep } from "./ReviewTimeline";
 import { useDocStore } from "../stores/useDocStore";
@@ -22,8 +22,14 @@ import type { Issue } from "../types/ipc";
 /** 稳定空表：翻译进行中拿它顶替清单，避免每次渲染都造新数组触发无谓重渲。 */
 const EMPTY_ISSUES: Issue[] = [];
 
+/** 防抖窗口（PERF-1）：内容/mode/target 停变这么久后才真正发查词 IPC。 */
+const CHECK_DEBOUNCE_MS = 250;
+
 export default function ReviewPanel() {
-  const doc = useDocStore((s) => s.doc);
+  // 字段级订阅（CQ-13）：tabToDoc 每次 commit 都造新 doc 对象，订阅整个对象
+  // 会让面板每敲一键重渲一次。这里只挑用到的字段——原始值，引用稳定。
+  const docContent = useDocStore((s) => s.doc?.content ?? null);
+  const docPath = useDocStore((s) => s.doc?.path ?? null);
   const translations = useDocStore((s) => s.translations);
   const mode = useDocStore((s) => s.mode);
   // 翻译方向：收集单元的「可译」判定随方向变，检查必须与产出译文表那轮
@@ -41,10 +47,16 @@ export default function ReviewPanel() {
 
   const [issues, setIssues] = useState<Issue[]>([]);
   const [checking, setChecking] = useState(false);
+  /** IPC 飞行中旗标（重入闸）。不读 `checking` state：异步闭包里拿到的永远是旧值。 */
+  const checkingRef = useRef(false);
+  /** 飞行中被闸拦下的触发 → 落定后补一查，最后一次变更不能被闸吞掉。 */
+  const rerunRef = useRef(false);
+  /** 最新一帧的 runCheck：补查走它，避免旧闭包拿旧内容又查一遍过期的。 */
+  const runCheckRef = useRef<() => void>(() => {});
   /** 渲染期探测出的不可跳原因，下标对齐 `issues`。 */
   const [blockReasons, setBlockReasons] = useState<Record<number, JumpBlockReason>>({});
 
-  const checkable = mode !== "original" && translations.size > 0 && !!doc;
+  const checkable = mode !== "original" && translations.size > 0 && docContent !== null;
 
   // 面板打开 + 有译文 + 翻译模式 + **翻译已停** → 跑确定性检查。
   //
@@ -55,8 +67,8 @@ export default function ReviewPanel() {
   // 最后一查（只留状态会漏掉"状态先停、表后到"的窗口）。
   const runCheck = useCallback(async () => {
     if (translating) return;
-    // `checkable` 是 mode/doc/translations 的别名条件（TS 4.4 起按 const 布尔
-    // 窄化）：往下走时 mode 已被窄成 "translation" | "bilingual"，检查才知道
+    // `checkable` 是 mode/docContent/translations 的别名条件（TS 4.4 起按 const
+    // 布尔窄化）：往下走时 mode 已被窄成 "translation" | "bilingual"，检查才知道
     // 在哪个键空间对号（P0-2）。
     if (!checkable) {
       // 「原文模式或无译文时清空」——原先只剩注释、没有代码：切回原文模式
@@ -64,19 +76,39 @@ export default function ReviewPanel() {
       setIssues([]);
       return;
     }
+    // 重入闸（PERF-1）：上一查还在飞就不并发第二个 IPC，只记「待补查」——
+    // finally 里会用最新一帧的 runCheck 补上，最后一次变更不会被吞。
+    if (checkingRef.current) {
+      rerunRef.current = true;
+      return;
+    }
+    checkingRef.current = true;
     setChecking(true);
     try {
-      const result = await checkTranslation(doc.content, translations, mode, target);
+      const result = await checkTranslation(docContent, translations, mode, target);
       setIssues(result);
     } catch {
       setIssues([]);
     } finally {
+      checkingRef.current = false;
       setChecking(false);
+      if (rerunRef.current) {
+        rerunRef.current = false;
+        void runCheckRef.current();
+      }
     }
-  }, [translating, checkable, doc, translations, mode, target]);
+  }, [translating, checkable, docContent, translations, mode, target]);
 
   useEffect(() => {
-    void runCheck();
+    runCheckRef.current = runCheck;
+  }, [runCheck]);
+
+  // 防抖（PERF-1）：`runCheck` 的依赖随每次按键（新 doc.content）换新实例，
+  // effect 借依赖变更实现尾沿防抖——内容/mode/target 停变 CHECK_DEBOUNCE_MS
+  // 后才发查词 IPC，敲键期间一直重置计时器。不再「每键一发」。
+  useEffect(() => {
+    const t = setTimeout(() => void runCheck(), CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(t);
   }, [runCheck]);
 
   // 翻译进行中：`issues` 里的结果是**上一版译文**的，已经不对应当前内容了 →
@@ -141,7 +173,7 @@ export default function ReviewPanel() {
   }, [visibleIssues, mode]);
 
   // 滚动跟随（§8.5 四要点）：会话键 = 当前文档路径，换文档即解除"已滚离"锁存。
-  const { ref: scrollRef, follow, jumpToBottom, interrupted } = useStreamFollow<HTMLDivElement>(doc?.path);
+  const { ref: scrollRef, follow, jumpToBottom, interrupted } = useStreamFollow<HTMLDivElement>(docPath);
   useEffect(() => {
     follow("grow");
   }, [visibleIssues.length, follow]);

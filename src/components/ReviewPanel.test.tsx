@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   /** 最近一次 checkTranslation 的实参列表（P0-2：钉住 mode/target 必须传）。 */
   lastArgs: null as unknown[] | null,
   issues: [] as Issue[],
+  /** 非空时 IPC 挂起直到它 resolve（重入闸测试用它模拟慢查）。 */
+  gate: null as Promise<void> | null,
 }));
 
 vi.mock("../lib/ipc", async (importOriginal) => {
@@ -30,6 +32,7 @@ vi.mock("../lib/ipc", async (importOriginal) => {
       checkTranslation: async (...args: unknown[]) => {
         h.calls += 1;
         h.lastArgs = args;
+        if (h.gate) await h.gate;
         return h.issues;
       },
     },
@@ -90,6 +93,12 @@ async function until(cond: () => boolean, frames = 10): Promise<boolean> {
   return cond();
 }
 
+/** 真实时钟等待：防抖后的 IPC 要跨过真实时间（>250ms 窗口）才发，rAF 计数时距不稳。 */
+const settle = (ms: number) =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
+
 /** 假预览：只有 run=7 的锚点，用来分别命中"可跳"与"锚点缺失"。 */
 const mountPreview = (present = true) => {
   document.body.innerHTML = present
@@ -109,6 +118,7 @@ beforeEach(() => {
   h.calls = 0;
   h.lastArgs = null;
   h.issues = ISSUES;
+  h.gate = null;
   host = document.createElement("div");
   document.body.innerHTML = "";
   document.body.appendChild(host);
@@ -123,6 +133,7 @@ afterEach(() => {
   host.remove();
   useDocStore.setState({ doc: null, translations: new Map(), mode: "original" });
   useTranslationStore.setState({ status: "idle" });
+  useSettingsStore.setState({ settings: null, target: "zh" });
 });
 
 const renderPanel = () => act(() => root.render(<ReviewPanel />));
@@ -152,7 +163,9 @@ describe("ReviewPanel 冒烟", () => {
     });
     renderPanel();
 
-    expect(await until(() => cards().length === 2)).toBe(true);
+    // 防抖（P1-9）：首查在停变 250ms 后才发，rAF 等不到，得跨真实时钟
+    await settle(320);
+    expect(cards().length).toBe(2);
     expect(stepSummary()).toBe("确定性检查 · 2 处");
     expect(host.querySelector(".review-checks-bar")!.textContent).toContain("2");
 
@@ -175,7 +188,8 @@ describe("ReviewPanel 冒烟", () => {
     });
     renderPanel();
 
-    expect(await until(() => cards().length === 2)).toBe(true);
+    await settle(320);
+    expect(cards().length).toBe(2);
     expect(await until(() => host.querySelectorAll(".review-issue.blocked").length === 2)).toBe(true);
     for (const b of buttons()) {
       expect(b.disabled).toBe(true);
@@ -191,7 +205,8 @@ describe("ReviewPanel 冒烟", () => {
       mode: "translation",
     });
     renderPanel();
-    expect(await until(() => cards().length === 2)).toBe(true);
+    await settle(320);
+    expect(cards().length).toBe(2);
 
     const actions = host.querySelector(".review-actions")!;
     expect(actions.querySelector(".review-start-btn")).not.toBeNull();
@@ -210,11 +225,8 @@ describe("ReviewPanel 冒烟", () => {
     useTranslationStore.setState({ status: "running" });
     renderPanel();
 
-    // 给足时间：若实现没拦，IPC 早就被调了
-    await act(async () => {
-      await nextFrame();
-      await nextFrame();
-    });
+    // 给足时间跨过防抖窗（P1-9）：若 translating 没拦，这里 IPC 早就被调了
+    await settle(320);
 
     expect(h.calls).toBe(0);
     expect(cards().length).toBe(0);
@@ -240,12 +252,87 @@ describe("ReviewPanel 冒烟", () => {
       useTranslationStore.setState({ status: "idle" });
     });
 
-    expect(await until(() => cards().length === 2)).toBe(true);
+    // 防抖窗（250ms）过后补跑的那一查才落清单
+    await settle(320);
+    expect(cards().length).toBe(2);
     expect(h.calls).toBe(1);
     expect(stepSummary()).toBe("确定性检查 · 2 处");
     // P0-2：检查必须带上模式与方向——键空间由 mode 决定（translation =
     // data-ri run 空间），方向决定可译判定；缺了就在错误空间里对号。
     expect(h.lastArgs?.[2]).toBe("translation");
     expect(h.lastArgs?.[3]).toBe("zh");
+  });
+
+  // P1-9 / PERF-1：tabToDoc 每次 commit 造新 doc 对象，面板若订阅整个对象 +
+  // 依赖 doc，每敲一键就重建 runCheck → 每键一发 IPC。防抖后必须合并成停键后一发。
+  it("防抖：连敲多键只在停键后发一次 IPC，内容是最后一键（PERF-1）", async () => {
+    mountPreview();
+    useDocStore.setState({ doc: DOC, translations: new Map([[7, "你好"]]), mode: "translation" });
+    renderPanel();
+
+    // 连续三次「按键」：每次 setState 都给一个新的 doc 对象（模拟 tabToDoc 投影）
+    for (const n of [1, 2, 3]) {
+      await act(async () => {
+        useDocStore.setState({ doc: { ...DOC, content: `${DOC.content}${"x".repeat(n)}\n` } });
+      });
+    }
+
+    // 防抖窗口内：一次都不发（未加防抖时这里每键一发，必红）
+    await settle(120);
+    expect(h.calls).toBe(0);
+
+    // 停键跨过窗口：恰好一发，且查的是最后一键的内容
+    await settle(280);
+    expect(h.calls).toBe(1);
+    expect(h.lastArgs?.[0]).toBe(`${DOC.content}xxx\n`);
+  });
+
+  // mode/target 也在 runCheck 依赖里（P0-2），它们的重查同样要走防抖通道。
+  it("防抖覆盖 mode/target 变化：切换后不立即重查，跨窗后只补一发", async () => {
+    mountPreview();
+    useDocStore.setState({ doc: DOC, translations: new Map([[7, "你好"]]), mode: "translation" });
+    renderPanel();
+    await settle(320);
+    expect(h.calls).toBe(1);
+
+    await act(async () => {
+      useSettingsStore.setState({ target: "en" });
+    });
+    await settle(120);
+    expect(h.calls).toBe(1); // 窗口内不发
+
+    await settle(280);
+    expect(h.calls).toBe(2); // 跨窗后补一发（方向变 → 可译判定变，必须重查）
+    expect(h.lastArgs?.[3]).toBe("en");
+  });
+
+  // 重入闸：上一查未落地时的触发被合并（不并发第二个 IPC），落定后用**最新**
+  // 内容补查——闸不能把最后一次变更吞掉。
+  it("重入闸：慢查未落地时触发被拦下，落定后补查最终内容", async () => {
+    mountPreview();
+    useDocStore.setState({ doc: DOC, translations: new Map([[7, "你好"]]), mode: "translation" });
+    renderPanel();
+
+    // 卡住第一查：模拟慢 IPC
+    let release!: () => void;
+    h.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    await settle(320);
+    expect(h.calls).toBe(1);
+
+    // 查询未落地时改内容并跨过防抖窗 → 这次触发被闸拦下，不并发第二个 IPC
+    await act(async () => {
+      useDocStore.setState({ doc: { ...DOC, content: "changed" } });
+    });
+    await settle(300);
+    expect(h.calls).toBe(1);
+
+    // 第一查落地 → 补查最终内容（走最新 runCheck 实例，不是旧闭包）
+    release();
+    await settle(80);
+    expect(h.calls).toBe(2);
+    expect(h.lastArgs?.[0]).toBe("changed");
+    expect(await until(() => cards().length === 2)).toBe(true);
   });
 });

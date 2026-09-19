@@ -46,8 +46,9 @@ function Sep() {
 }
 
 export default function EditorToolbar() {
-  const doc = useDocStore((s) => s.doc);
-  const disabled = doc === null;
+  // 字段级订阅（CQ-13）：只用「有没有文档」这一个布尔，不订阅整个 doc 对象——
+  // tabToDoc 每次 commit 都造新对象，整订会让工具栏每敲一键白重渲一遍。
+  const disabled = useDocStore((s) => s.doc === null);
   const view = useDocStore((s) => s.view);
   const switchView = useDocStore((s) => s.switchView);
   const mode = useDocStore((s) => s.mode);

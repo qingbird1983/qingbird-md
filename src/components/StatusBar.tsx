@@ -17,7 +17,13 @@ const MODE_LABEL: Record<string, string> = {
 const DIR_LABEL: Record<string, string> = { zh: "译成中文", en: "译成英文" };
 
 export default function StatusBar() {
-  const doc = useDocStore((s) => s.doc);
+  // 字段级订阅（CQ-13）：状态条只消费 path/name/content/encoding 四个原始字段
+  // （选择器返回原始值，引用稳定）。整订 doc 对象的话，tabToDoc 每次 commit
+  // 造新对象，哪怕只是光标/脏标联动也会拖着状态条白重渲。
+  const docPath = useDocStore((s) => s.doc?.path ?? null);
+  const docName = useDocStore((s) => s.doc?.name ?? null);
+  const docContent = useDocStore((s) => s.doc?.content ?? null);
+  const docEncoding = useDocStore((s) => s.doc?.encoding ?? null);
   const isDirty = useDocStore((s) => s.isDirty);
   const mode = useDocStore((s) => s.mode);
   const setTranslateTarget = useDocStore((s) => s.setTranslateTarget);
@@ -39,12 +45,13 @@ export default function StatusBar() {
         ? "翻译失败"
         : "待机";
 
-  const pathLabel = doc ? (doc.path ?? doc.name) : "未打开文档";
+  const pathLabel = docPath ?? docName ?? "未打开文档";
   // 实时统计：char_count/line_count 是 open_file 时的 DTO 快照，编辑后即过期。
   // 字符按 code point 展开（"字符"语义），行数按 \n 切分。
-  const stats = doc
-    ? `${[...doc.content].length} 字 · ${doc.content.split("\n").length} 行`
-    : null;
+  const stats =
+    docContent === null
+      ? null
+      : `${[...docContent].length} 字 · ${docContent.split("\n").length} 行`;
 
   // LLM 凭据齐全（baseUrl + model 均非空）——§七.1 R1，与 useTranslationStore 同口径。
   // credsFor 返回 {} 时 baseUrl/model 为 undefined，?. 是真实守卫。
@@ -64,7 +71,7 @@ export default function StatusBar() {
       {/* 右侧：字数/行数 · 编码 · 阅读模式 · 翻译方向 · 翻译源 · 翻译状态 */}
       <div className="status-right">
         {stats && <span>{stats}</span>}
-        {doc?.encoding && doc.path && <span>{doc.encoding}</span>}
+        {docEncoding && docPath && <span>{docEncoding}</span>}
         <span>{MODE_LABEL[mode] ?? mode}</span>
         {/* 双向切换：点一次换一个方向。切换走 useDocStore.setTranslateTarget
             （不是直接改设置）——它会连带清显示/清译文表/按新方向重解析，
