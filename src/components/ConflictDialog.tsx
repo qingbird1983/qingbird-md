@@ -1,10 +1,11 @@
 // 保存冲突弹窗（T8）：保存时磁盘 mtime 与打开时不一致 → 覆盖/另存/取消。
-// 参考 InkNote FileConflictDialog。复用 DirtyConfirmDialog 的动态挂载 +
-// Modal 单例模式；默认焦点"覆盖"——用户本意就是 Ctrl+S，覆盖符合意图，
-// 破坏性语义已在正文写明。
-import { useEffect, useRef, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// 参考 InkNote FileConflictDialog。单例挂载经共享工厂 createDialogHost
+// （P2-2 收拢原复制的 createRoot 样板）；默认焦点"覆盖"——用户本意就是
+// Ctrl+S，覆盖符合意图，破坏性语义已在正文写明。并发二次调用时前者按
+// 「取消」结算（P2-2 收口；原实现前者 awaiter 挂死）。
+import { useEffect, useRef } from "react";
 import Modal from "./Modal";
+import { createDialogHost, useDialogPick } from "../lib/createDialogHost";
 
 type Choice = "overwrite" | "saveas" | "cancel";
 
@@ -15,17 +16,11 @@ function DialogBody({
   name: string;
   resolve: (c: Choice) => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, pick] = useDialogPick(resolve);
   const overwriteRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     overwriteRef.current?.focus();
   }, []);
-
-  const pick = (c: Choice) => () => {
-    if (busy) return;
-    setBusy(true);
-    resolve(c);
-  };
 
   return (
     <Modal title="保存冲突" onClose={pick("cancel")}>
@@ -54,24 +49,12 @@ function DialogBody({
   );
 }
 
-let liveRoot: Root | null = null;
-let liveHost: HTMLDivElement | null = null;
+/** 单例保存冲突框；并发二次调用先把前者按「取消」结算，再接管单例（P2-2）。 */
+const openConflict = createDialogHost<Choice, { name: string }>(
+  ({ name }, resolve) => <DialogBody name={name} resolve={resolve} />,
+  "cancel",
+);
 
 export function showConflict(name: string): Promise<Choice> {
-  if (!liveHost) {
-    liveHost = document.createElement("div");
-    document.body.appendChild(liveHost);
-    liveRoot = createRoot(liveHost);
-  }
-  return new Promise<Choice>((resolve) => {
-    liveRoot!.render(
-      <DialogBody
-        name={name}
-        resolve={(c) => {
-          liveRoot!.render(null);
-          resolve(c);
-        }}
-      />,
-    );
-  });
+  return openConflict({ name });
 }

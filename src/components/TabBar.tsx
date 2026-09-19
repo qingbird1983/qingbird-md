@@ -6,9 +6,10 @@
 //   - 关闭 X = 关（同一 closeTab 流程；stopPropagation 防止冒泡到单击切激活）。
 //   - 右侧 + 按钮 = 新建空标签（newTab）。
 //
-// 重入护栏（DirtyConfirmDialog 没有单例锁）：维护 closingIds Set；任一 closeTab
-// 在飞行中时禁用所有标签的关闭入口（X 按钮 + onDoubleClick），避免后续
-// showDirtyConfirm 覆盖正在显示的弹窗并使首个 promise 永不 settle。
+// 重入护栏：维护 closingIds Set；任一 closeTab 在飞行中时禁用所有标签的
+// 关闭入口（X 按钮 + onDoubleClick）。P2-2 后 DirtyConfirmDialog 被并发二次
+// 调用覆盖时会按「取消」结算、不再挂死首条 promise，本护栏保留为纵深防御
+// ——并发关闭仍不该叠加弹窗、交叉流程。
 //
 // 样式全部走 .tabbar/.tab/.tab.active/.tab-close/.tab-add/.tab-dirty（见 global.css）。
 import { useState, type CSSProperties } from "react";
@@ -50,8 +51,9 @@ export default function TabBar({ style }: { style?: CSSProperties }) {
       {tabs.map((t) => {
         const isActive = t.id === activeId;
         const isDirty = t.content !== t.savedContent;
-        // DirtyConfirmDialog 是单例且无内部锁：并发关两个脏标签会让首个 promise
-        // 永不 settle、finally 不执行、closingIds 条目卡死。任一 close 飞行中即屏蔽所有关闭入口。
+        // DirtyConfirmDialog 是应用级单例：被后到调用覆盖时前者按「取消」结算
+        // （P2-2，不再出现首个 promise 永不 settle 卡死 closingIds）。任一 close
+        // 飞行中仍屏蔽所有关闭入口，避免弹窗叠加与流程交叉。
         const isClosing = closingIds.size > 0;
         return (
           <div

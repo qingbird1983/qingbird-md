@@ -2,14 +2,14 @@
 // closeTab 据此决定保存 / 不保存 / 中止关闭。
 //
 // 设计要点：
-//   - 动态挂载（createRoot），避免污染 App 树的渲染顺序。
+//   - 单例挂载经共享工厂 createDialogHost（P2-2 收拢原复制的 createRoot 样板）。
 //   - 复用现有 Modal 组件，沿用 SettingsModal 的 .modal-actions/.modal-btn/
 //     .modal-btn-primary 按钮样式（Modal 自身没有 footer prop，按钮放在 children 内）。
 //   - 默认焦点"保存"——大多数用户意图是保存；Esc / 点遮罩走取消（Modal 自带行为）。
 //   - 标签名出现在正文里，给用户具体对象（多个标签时一眼能认出是哪个）。
-import { useEffect, useRef, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { useEffect, useRef } from "react";
 import Modal from "./Modal";
+import { createDialogHost, useDialogPick } from "../lib/createDialogHost";
 
 type Choice = "save" | "discard" | "cancel";
 
@@ -20,17 +20,11 @@ function DialogBody({
   name: string;
   resolve: (c: Choice) => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, pick] = useDialogPick(resolve);
   const saveRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     saveRef.current?.focus();
   }, []);
-
-  const pick = (c: Choice) => () => {
-    if (busy) return;
-    setBusy(true);
-    resolve(c);
-  };
 
   return (
     <Modal title="未保存的更改" onClose={pick("cancel")}>
@@ -59,25 +53,16 @@ function DialogBody({
   );
 }
 
-let liveRoot: Root | null = null;
-let liveHost: HTMLDivElement | null = null;
+const openDirtyConfirm = createDialogHost<Choice, { name: string }>(
+  ({ name }, resolve) => <DialogBody name={name} resolve={resolve} />,
+  "cancel",
+);
 
+/**
+ * 单例关闭确认框；同一时刻至多一个。并发二次调用先把前者按「取消」结算
+ * （调用方据此中止关闭流程），再接管单例——原实现被覆盖者的 awaiter 永不
+ * settle（P2-2 顺带修复，原注释「不会出现两次叠加」只对了渲染一半）。
+ */
 export function showDirtyConfirm(name: string): Promise<Choice> {
-  // 同一时刻至多一个确认框（应用级单例）。如已有遗留则覆盖——不会出现两次叠加。
-  if (!liveHost) {
-    liveHost = document.createElement("div");
-    document.body.appendChild(liveHost);
-    liveRoot = createRoot(liveHost);
-  }
-  return new Promise<Choice>((resolve) => {
-    liveRoot!.render(
-      <DialogBody
-        name={name}
-        resolve={(c) => {
-          liveRoot!.render(null);
-          resolve(c);
-        }}
-      />,
-    );
-  });
+  return openDirtyConfirm({ name });
 }

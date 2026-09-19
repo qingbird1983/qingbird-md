@@ -1,12 +1,13 @@
 // 文件已被外部修改时的重载确认弹窗（T6）。Promise-based，showReloadConfirm
 // 返回用户选择；checkExternalChange 据此决定重载或保留。
 //
-// 复用 DirtyConfirmDialog 的动态挂载 + Modal 模式（单例，Esc/遮罩=保留——
-// 非破坏性默认）。默认焦点"保留我的版本"：重载会丢未保存编辑，属于破坏性
-// 操作，绝不作为隐式默认。
-import { useEffect, useRef, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// 单例挂载经共享工厂 createDialogHost（P2-2 收拢原复制的 createRoot 样板；
+// Esc/遮罩=保留——非破坏性默认）。默认焦点"保留我的版本"：重载会丢未保存
+// 编辑，属于破坏性操作，绝不作为隐式默认。并发二次调用时前者按「保留」
+// 结算（P2-2 收口；原实现前者 awaiter 挂死）。
+import { useEffect, useRef } from "react";
 import Modal from "./Modal";
+import { createDialogHost, useDialogPick } from "../lib/createDialogHost";
 
 type Choice = "reload" | "keep";
 
@@ -19,17 +20,11 @@ function DialogBody({
   dirty: boolean;
   resolve: (c: Choice) => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, pick] = useDialogPick(resolve);
   const keepRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     keepRef.current?.focus();
   }, []);
-
-  const pick = (c: Choice) => () => {
-    if (busy) return;
-    setBusy(true);
-    resolve(c);
-  };
 
   return (
     <Modal title="文件已被外部修改" onClose={pick("keep")}>
@@ -60,25 +55,11 @@ function DialogBody({
   );
 }
 
-let liveRoot: Root | null = null;
-let liveHost: HTMLDivElement | null = null;
+const openReloadConfirm = createDialogHost<
+  Choice,
+  { name: string; dirty: boolean }
+>(({ name, dirty }, resolve) => <DialogBody name={name} dirty={dirty} resolve={resolve} />, "keep");
 
 export function showReloadConfirm(name: string, dirty: boolean): Promise<Choice> {
-  if (!liveHost) {
-    liveHost = document.createElement("div");
-    document.body.appendChild(liveHost);
-    liveRoot = createRoot(liveHost);
-  }
-  return new Promise<Choice>((resolve) => {
-    liveRoot!.render(
-      <DialogBody
-        name={name}
-        dirty={dirty}
-        resolve={(c) => {
-          liveRoot!.render(null);
-          resolve(c);
-        }}
-      />,
-    );
-  });
+  return openReloadConfirm({ name, dirty });
 }
