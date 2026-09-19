@@ -448,8 +448,12 @@ fn create_err(what: &str, path: &str, e: std::io::Error) -> String {
 /// - file:// -> 剥前缀原样使用
 /// - 相对路径 -> 与文档目录（base_dir）拼接
 ///
-/// ponytail: 不做 `..` 归一化——asset 协议 scope 显式放开为 `**`
-/// （文档可能在任意盘符目录，功能性需求而非漏洞放宽），scope 见 tauri.conf.json 的 assetProtocol。
+/// P1-1(SEC-1)：asset 协议 scope 起步为空（tauri.conf.json `assetProtocol.scope: []`，
+/// 替换原 `**` 全放开），`resolve_image` 把解析出的每个路径逐个
+/// `asset_protocol_scope().allow_file` 放行——「文档可在任意盘符目录」改由运行时
+/// 按需授权支撑，文档未引用的本地文件不再默认可读。含 `..` 的解析结果另被
+/// asset 协议的 SafePathBuf 遍历检查直接 403（tauri path::SafePathBuf），归一化
+/// 待 P1-2 的根校验一并处理。
 fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
     let s = src.trim();
     if s.is_empty() {
@@ -471,8 +475,25 @@ fn resolve(src: &str, base_dir: Option<&str>) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-fn resolve_image(src: String, base_dir: Option<String>) -> Option<String> {
-    resolve(&src, base_dir.as_deref()).map(|p| p.to_string_lossy().into_owned())
+fn resolve_image(app: tauri::AppHandle, src: String, base_dir: Option<String>) -> Option<String> {
+    resolve(&src, base_dir.as_deref())
+        .inspect(|p| {
+            // P1-1(SEC-1)：解析结果即时放进 asset scope（见 resolve 上的注释）。
+            // 放行失败（如路径不存在）静默忽略——本就加载不出图，不值得挡命令。
+            let _ = app.asset_protocol_scope().allow_file(p);
+        })
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// tests/asset_scope.rs 的直调入口（tauri 命令宏把原 fn 保留为普通可调用，
+/// 但 `pub` 会与其生成的隐藏项冲突 E0255，故经此薄壳转发，跑的是同一函数体）。
+#[doc(hidden)]
+pub fn resolve_image_for_test(
+    app: tauri::AppHandle,
+    src: String,
+    base_dir: Option<String>,
+) -> Option<String> {
+    resolve_image(app, src, base_dir)
 }
 
 /// 编辑期重新渲染（open_file 已随文档首渲，此处只服务内容变化后的重解析）。
