@@ -2,6 +2,7 @@
 //! (file read/write, settings read/write). Workspace/editor commands land in
 //! Task 6, dialogs Task 9, translation Task 8 — appended to `generate_handler!`.
 
+mod atomic_write;
 mod bridge;
 mod capture;
 mod dto;
@@ -89,9 +90,11 @@ async fn open_file(path: String, target_lang: String) -> Result<dto::DocDTO, Str
 }
 
 /// 保存文档；返回写盘后的 mtime（毫秒），前端记为新的外部修改检测基线。
+/// 原子写（REL-3）：崩溃/断电不会留下截断的文档。
 #[tauri::command]
 fn save_file(path: String, content: String) -> Result<Option<i64>, String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    atomic_write::write(std::path::Path::new(&path), content.as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(dto::file_mtime_millis(std::path::Path::new(&path)))
 }
 

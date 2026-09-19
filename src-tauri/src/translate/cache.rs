@@ -144,11 +144,12 @@ impl Cache {
     }
 
     /// Persist the cache to a JSON file.
+    /// 原子写（REL-3）：崩溃/断电不会留下截断的缓存文件。
     pub fn save(&mut self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        std::fs::write(path, self.to_json())?;
+        crate::atomic_write::write(path, self.to_json().as_bytes())?;
         self.mark_clean();
         Ok(())
     }

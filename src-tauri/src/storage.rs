@@ -239,12 +239,14 @@ pub fn load_settings_from(path: &std::path::Path) -> Settings {
 
 /// Persist `s` to `path`, creating parent dirs as needed; error string on any
 /// failure（成功与否可判定，是命令层“先落盘、后广播”的前提）。
+/// 原子写（REL-3）：崩溃/断电不会留下截断的设置文件（坏文件只会整体丢失或
+/// 保持旧内容，[`load_settings`] 的 .bak 兜底仍是最后防线）。
 pub fn save_settings_to(path: &std::path::Path, s: &Settings) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    crate::atomic_write::write(path, json.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn save_settings(s: &Settings) -> Result<(), String> {

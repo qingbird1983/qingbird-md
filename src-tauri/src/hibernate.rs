@@ -410,7 +410,8 @@ pub fn save_snapshot_to(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(snap).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    // 原子写（REL-3）：快照装着未保存的草稿，崩溃/断电绝不留半截文件。
+    crate::atomic_write::write(path, json.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn save_snapshot(snap: &SessionSnapshot) -> Result<(), String> {
