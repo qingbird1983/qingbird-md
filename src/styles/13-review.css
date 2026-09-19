@@ -410,13 +410,6 @@
   font-weight: 500;
 }
 
-.review-issue-line {
-  flex: none;
-  margin-left: auto;
-  color: var(--fg3);
-  font-variant-numeric: tabular-nums;
-}
-
 /* 摘录限两行：面板窄，长段落不能把列表撑成"一屏一条"。 */
 .review-issue-src,
 .review-issue-dst {
