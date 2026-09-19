@@ -22,7 +22,7 @@ pub struct OcrResult {
 /// 阻塞网络调用：必须在 worker 线程上跑。
 pub fn translate_image(png: &[u8], from: &str, to: &str) -> Result<OcrResult, String> {
     let salt = salt_string();
-    let sign = upload_sign(png, &salt);
+    let sign = upload_sign(png, &salt)?;
     let boundary = "qingbird-capture-9f2e7a1b";
     let fields = [
         ("clientele", CLIENTELE.to_string()),
@@ -70,10 +70,22 @@ fn parse_response(text: &str) -> Result<OcrResult, String> {
 
 /// 平移自 Glance build_upload_sign：
 /// md5(clientele + b64[..10] + b64.len() + b64[len-10..] + salt + SECRET)
-fn upload_sign(png: &[u8], salt: &str) -> String {
+///
+/// REL-6 边界护栏：首尾固定取 10 字符，b64 少于 10 字符（≤6 字节的“图片”）
+/// 会切片越界 panic。真实 PNG ≥ 8 字节签名头 → b64 ≥ 12 字符，正常路径永不
+/// 触雷；极端输入显式报错走既有失败收尾（通知用户），不炸 capture-flow 线程。
+fn upload_sign(png: &[u8], salt: &str) -> Result<String, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+    if b64.len() < 10 {
+        return Err(format!(
+            "图片数据过小（base64 仅 {} 字符），无法构造上传签名",
+            b64.len()
+        ));
+    }
     let digest_src = format!("{}{}{}", &b64[..10], b64.len(), &b64[b64.len() - 10..]);
-    md5_hex(&format!("{CLIENTELE}{digest_src}{salt}{IMAGE_TRANSLATE_SECRET}"))
+    Ok(md5_hex(&format!(
+        "{CLIENTELE}{digest_src}{salt}{IMAGE_TRANSLATE_SECRET}"
+    )))
 }
 
 fn md5_hex(s: &str) -> String {
@@ -120,11 +132,21 @@ mod tests {
     }
 
     #[test]
+    fn upload_sign_rejects_tiny_image_without_panicking() {
+        // REL-6 边界护栏：b64 不足 10 字符（≤6 字节“图片”）时旧实现固定切片
+        // 直接 panic（修复前探针实跑：`end byte index 10 is out of bounds for
+        // string of length 4`）。护栏后必须返回 Err，不炸 capture-flow 线程。
+        assert!(matches!(upload_sign(b"", "42"), Err(_)));
+        assert!(matches!(upload_sign(b"PNG", "42"), Err(_))); // b64 4 字符
+        assert!(matches!(upload_sign(b"123456", "42"), Err(_))); // b64 8 字符
+    }
+
+    #[test]
     fn upload_sign_is_stable_hex_and_salt_sensitive() {
         let png = b"0123456789";
-        let s1 = upload_sign(png, "42");
-        let s2 = upload_sign(png, "42");
-        let s3 = upload_sign(png, "43");
+        let s1 = upload_sign(png, "42").expect("合法尺寸输入必须可签名");
+        let s2 = upload_sign(png, "42").expect("合法尺寸输入必须可签名");
+        let s3 = upload_sign(png, "43").expect("合法尺寸输入必须可签名");
         assert_eq!(s1, s2, "同输入同 salt 必须同签名");
         assert_ne!(s1, s3, "salt 参与签名");
         assert_eq!(s1.len(), 32);

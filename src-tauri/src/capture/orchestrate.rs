@@ -62,21 +62,27 @@ fn run_flow(app: tauri::AppHandle) -> Result<(), String> {
     while let Ok(event) = event_rx.recv() {
         match event {
             CaptureEvent::Selection { x, y, w, h } => {
-                let _ = window::capture_proxy().send_event(CaptureCommand::ShowLoading);
+                if let Ok(proxy) = window::capture_proxy() {
+                    let _ = proxy.send_event(CaptureCommand::ShowLoading);
+                }
                 match translate_selection(&rgba, img_w, x, y, w, h) {
                     Ok((result_rgba, rw, rh)) => {
-                        let _ = window::capture_proxy().send_event(CaptureCommand::ShowResult {
-                            rgba_bytes: result_rgba,
-                            x,
-                            y,
-                            w: rw,
-                            h: rh,
-                        });
+                        if let Ok(proxy) = window::capture_proxy() {
+                            let _ = proxy.send_event(CaptureCommand::ShowResult {
+                                rgba_bytes: result_rgba,
+                                x,
+                                y,
+                                w: rw,
+                                h: rh,
+                            });
+                        }
                     }
                     Err(e) => {
                         eprintln!("[capture] translate failed: {e}");
                         notify_error(&app, &e);
-                        let _ = window::capture_proxy().send_event(CaptureCommand::Close);
+                        if let Ok(proxy) = window::capture_proxy() {
+                            let _ = proxy.send_event(CaptureCommand::Close);
+                        }
                         break;
                     }
                 }
