@@ -10,6 +10,7 @@ import type {
   ParseResult,
   ProviderInfo,
   Settings,
+  SettingsBroadcast,
   ProgressPayload,
   TranslationPartialPayload,
   DonePayload,
@@ -192,8 +193,10 @@ export const api = {
     listen<TranslationPartialPayload>("translation-partial", (e) => cb(e.payload)),
   listenDone: (cb: (p: DonePayload) => void) =>
     listen<DonePayload>("translation-done", (e) => cb(e.payload)),
-  listenSettingsUpdated: (cb: (s: Settings) => void) =>
-    listen<Settings>("settings-updated", (e) => cb(e.payload)),
+  // SEC-3：settings-updated 只广播脱敏摘要 {theme, palette}（Rust
+  // settings_broadcast_payload），整份 Settings 含明文凭据、不进事件。
+  listenSettingsUpdated: (cb: (s: SettingsBroadcast) => void) =>
+    listen<SettingsBroadcast>("settings-updated", (e) => cb(e.payload)),
   // T29 全局热键回调（Rust hotkeys.rs emit）；payload 为模式字符串，由调用方校验
   listenHotkeyMode: (cb: (m: string) => void) => listen<string>("hotkey-mode", (e) => cb(e.payload)),
   // 休眠握手：Rust 侧倒计时到点下发，前端须同步收集快照并回 hibernateReady。

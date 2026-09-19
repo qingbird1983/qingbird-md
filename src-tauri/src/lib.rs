@@ -180,8 +180,11 @@ fn load_settings() -> storage::Settings {
     storage::load_settings()
 }
 
-/// 保存设置到用户数据目录，成功后向全部窗口广播 `settings-updated`
-/// （payload 即新 Settings 对象——前端多窗口/刷新后感知，Task 14 监听）。
+/// 保存设置到用户数据目录，成功后向全部窗口广播 `settings-updated`。
+/// payload 是**脱敏摘要**（只含 theme/palette，见 storage::settings_broadcast_payload）
+/// ——SEC-3：整份 Settings 带明文 api_key，不再整包广播；前端唯一消费方
+/// useSettingsStore.applyRemote 只读这两项（已逐一核对），需要全量设置走
+/// load_settings IPC 按需拉取。
 /// 先持久化、后广播：磁盘写入失败直接返回 Err 且不发事件。
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: storage::Settings) -> Result<(), String> {
@@ -189,7 +192,7 @@ fn save_settings(app: tauri::AppHandle, settings: storage::Settings) -> Result<(
     // T29：设置落盘后同步全局热键（unregister_all + 按新值重注册）。
     // 同步命令跑在主线程，满足 RegisterHotKey 的线程约束。
     hotkeys::sync(&app, &settings);
-    app.emit("settings-updated", &settings)
+    app.emit("settings-updated", storage::settings_broadcast_payload(&settings))
         .map_err(|e| e.to_string())
 }
 

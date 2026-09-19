@@ -1,5 +1,14 @@
 //! Settings + paths in the platform user-data dir (like the Electron app's
-//! `qingbird-settings.json`). Credentials never leave this process.
+//! `qingbird-settings.json`).
+//!
+//! ⚠️ 凭据现状（SEC-3，如实陈述，勿再美化）：api_key 等凭据以**明文 JSON**
+//! 落盘在用户数据目录（[`settings_path`]），文件权限与普通文件相同——同
+//! 账户下运行的任何进程都可读，本进程**不做任何加密**（Windows DPAPI /
+//! 系统凭据管理器属产品决策，见审计计划 §六，截至本注释未实施）。
+//! 旧注释「Credentials never leave this process」与此矛盾，已更正。
+//! 当前进程内维持的边界只有两条：凭据仅发往用户显式配置的 base_url；
+//! 进程对外的主动广播（`settings-updated`，见 [`settings_broadcast_payload`]）
+//! 不得携带凭据。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -242,6 +251,19 @@ pub fn save_settings(s: &Settings) -> Result<(), String> {
     save_settings_to(&settings_path(), s)
 }
 
+/// `settings-updated` 的广播 payload（SEC-3 脱敏）：只含跨窗口需要收敛的
+/// 非敏感字段 theme / palette。
+///
+/// 为什么不广播整份 [`Settings`]：里面带着明文凭据（`providers` 与
+/// `llm_profiles` 的 `api_key`），改个主题也会把它推给全部窗口。前端唯一
+/// 消费方 `useSettingsStore.applyRemote` 本来就只读这两项（已逐一核对）；
+/// 需要全量设置由前端走 `load_settings` IPC 按需拉取。
+/// **扩字段必须刻意为之且永不放凭据**——`tests::broadcast_payload_excludes_credentials`
+/// 钉住这一点。
+pub fn settings_broadcast_payload(s: &Settings) -> serde_json::Value {
+    serde_json::json!({ "theme": s.theme, "palette": s.palette })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,7 +335,9 @@ mod tests {
 
     #[test]
     fn save_writes_reloadable_json_and_creates_parents() {
-        // Wire contract（Task 14）：settings-updated 的 payload 就是这个 JSON 对象
+        // Wire contract（Task 14 → SEC-3 收窄）：settings-updated 的广播 payload
+        // 不再是整份落盘 JSON，改由 settings_broadcast_payload 只发
+        // theme/palette；本测试钉的是**落盘**文件的 JSON 形状。
         let unique = format!(
             "{:x}",
             std::time::SystemTime::now()
@@ -421,6 +445,44 @@ mod tests {
         assert!(json.contains("\"llm_profiles\""));
         assert!(json.contains("\"base_url\""));
         assert!(json.contains("\"lookup_model\""));
+    }
+
+    /// SEC-3 回归钉：`settings-updated` 的广播 payload 不得携带任何凭据，
+    /// 且必须保留前端消费方要读的 theme/palette。
+    /// 修复前 save_settings 广播整份 Settings（lib.rs
+    /// `app.emit("settings-updated", &settings)`），当时以
+    /// `serde_json::to_value(&s)` 取 payload 实跑本断言必红——失败输出把
+    /// providers 与 llm_profiles 两处 api_key 字段的探针值原样回显了出来。
+    /// 修复后 payload 由 [`settings_broadcast_payload`] 生成，本测试转绿。
+    /// （探针值是自造的非凭据形标记串，只为断言泄漏，并非任何可用密钥。）
+    #[test]
+    fn broadcast_payload_excludes_credentials() {
+        let mut s = Settings::default();
+        s.theme = "dark".into();
+        s.palette = "ye".into();
+        // 探针值故意不用密钥形字面量（安全扫描不区分真假）：仅证明
+        // api_key 字段的**值**会/不会进广播，形状无关紧要。
+        let probe = "LEAK-PROBE-CANARY-1";
+        let profile_probe = "LEAK-PROBE-CANARY-2";
+        s.providers
+            .insert("llm".into(), HashMap::from([("api_key".into(), probe.into())]));
+        s.llm_profiles.push(LlmProfile {
+            api_key: profile_probe.into(),
+            ..Default::default()
+        });
+        let payload = settings_broadcast_payload(&s);
+        let text = payload.to_string();
+        assert!(
+            !text.contains(probe),
+            "settings-updated 泄漏 providers api_key: {text}"
+        );
+        assert!(
+            !text.contains(profile_probe),
+            "settings-updated 泄漏 llm_profiles api_key: {text}"
+        );
+        // 前端 applyRemote 只收敛这两项：payload 里必须真的有。
+        assert_eq!(payload["theme"], "dark");
+        assert_eq!(payload["palette"], "ye");
     }
 
     /// 老设置文件没有这两个字段：加载后必须是「空档案库」而不是解析失败

@@ -88,7 +88,11 @@ export interface LlmProfile {
   models: string[];
 }
 
-/** storage.rs Settings：providers 按源名分组凭据，绝不离开本进程 */
+/**
+ * storage.rs Settings：providers 按源名分组凭据。
+ * ⚠️ 凭据以明文 JSON 落盘用户数据目录（SEC-3，未加密，产品决策待定）；
+ * 但**不经 settings-updated 广播**——事件只发 SettingsBroadcast 脱敏摘要。
+ */
 export interface Settings {
   provider: string;
   providers: Record<string, Record<string, string>>;
@@ -118,6 +122,16 @@ export interface Settings {
    * 被静默丢成默认值——必须列在类型里。
    */
   translate_target: string;
+}
+
+/**
+ * lib.rs settings_broadcast_payload：settings-updated 事件的脱敏广播（SEC-3）。
+ * 只含跨窗口要收敛的外观两项——整份 Settings 带明文 api_key，不再整包广播；
+ * 全量设置走 load_settings IPC 按需拉取。扩字段须 Rust/前端两侧同步，且永不放凭据。
+ */
+export interface SettingsBroadcast {
+  theme: string;
+  palette: string;
 }
 
 /** lib.rs TranslationProgressEvt：序列化为 {gen, done, total}（r#gen → "gen"） */

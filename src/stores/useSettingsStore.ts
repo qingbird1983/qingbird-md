@@ -2,7 +2,7 @@
 // 每次变更即持久化（save_settings 成功后后端广播 settings-updated，
 // 本 store 的监听回调只在 theme 变化时收敛 theme 并提示——绝不回写，防广播风暴）。
 import { create } from "zustand";
-import type { Settings, TargetLang } from "../types/ipc";
+import type { Settings, SettingsBroadcast, TargetLang } from "../types/ipc";
 import { api } from "../lib/ipc";
 import { normalizePalette, type PaletteId } from "../lib/paletteSeeds";
 import { useUiStore, errText } from "./useUiStore";
@@ -42,6 +42,8 @@ export const normalizeTarget = (t: string | undefined): TargetLang => (t === "en
 /**
  * 跨源同步（监听回调专用，不落盘）：广播来的设置只收敛「外观」两项
  * （theme / palette），不整包覆写 settings——否则会打翻正在编辑的表单草稿。
+ * SEC-3 起广播 payload 本身就只有这两项（SettingsBroadcast，后端
+ * settings_broadcast_payload 脱敏），类型上已杜绝整包覆写的可能。
  * 本地态先改再判断，是为了防止 echo → save → 广播 → echo 死循环。
  *
  * **刻意不收 translations_target（方向）**：外观是纯展示，收敛即刻生效；
@@ -49,7 +51,7 @@ export const normalizeTarget = (t: string | undefined): TargetLang => (t === "en
  * translations + 清 doneHtml」那一整套 reset 一起走（useDocStore.setTranslateTarget）。
  * 在这里顺手收敛，等于制造一次「方向变了但没有 reset」的静默错位。
  */
-function applyRemote(incoming: Settings) {
+function applyRemote(incoming: SettingsBroadcast) {
   const t = normalizeTheme(incoming.theme);
   const p = normalizePalette(incoming.palette);
   const s = useSettingsStore.getState();
@@ -93,7 +95,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
     if (!listening) {
       listening = true;
-      // 后端在每次 save_settings 落盘后广播；回调用作跨源同步点。
+      // 后端在每次 save_settings 落盘后广播（payload 只含 theme/palette，
+      // SEC-3 脱敏，不含凭据）；回调用作跨源同步点。
       // 只做 theme/palette 收敛 + toast，不整包覆写 settings（避免打翻表单草稿）。
       api.listenSettingsUpdated((incoming) => {
         applyRemote(incoming);
