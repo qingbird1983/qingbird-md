@@ -79,6 +79,11 @@ interface DocState {
    */
   openExampleTab(name: string, content: string): void;
   closeTab(id: string): Promise<void>;
+  /** 放弃指定标签的未保存改动：savedContent 对齐 content（工作区删除脏文件的
+   *  「不保存」分支用）。必须走 patchTab 集中写路径——isDirty 投影与写入在
+   *  同一次 set 内重算；跨 store 直接 setState 会漏掉这一步（BUG-6：脏标
+   *  停留到下一次任意写动作才自愈）。 */
+  discardChanges(id: string): void;
   switchTab(id: string): void;
 
   openDocFromArgs(): Promise<void>;
@@ -418,6 +423,13 @@ export const useDocStore = create<DocState>()((set, get) => {
         }
         return commit(tabs, activeId);
       });
+    },
+
+    /** 放弃未保存改动（BUG-6 收口）：savedContent 对齐 content。走 patchTab
+     *  集中写路径，isDirty 投影在同一次 set 内重算——工作区删除脏文件曾直接
+     *  setState 只改真源，脏标停留到下一次任意写动作才自愈。 */
+    discardChanges: (id) => {
+      patchTab(id, (t) => ({ ...t, savedContent: t.content }));
     },
 
     switchTab: (id) => {

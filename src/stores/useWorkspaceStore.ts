@@ -574,10 +574,10 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
           const ok = await useDocStore.getState().saveDoc(false);
           if (!ok) return; // 另存为里取消 → 中止
         } else {
-          // 放弃改动：把磁盘基线对齐内容，closeTab 便不再弹确认
-          useDocStore.setState((s) => ({
-            tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, savedContent: t.content } : t)),
-          }));
+          // 放弃改动：把磁盘基线对齐内容，closeTab 便不再弹确认。
+          // 必须走 useDocStore 暴露的动作（内部 patchTab，投影同次重算）——
+          // 此处直接 setState 只改真源，isDirty 投影失真（BUG-6）。
+          useDocStore.getState().discardChanges(tab.id);
         }
       }
 
