@@ -166,6 +166,17 @@ fn start_watcher(app: tauri::AppHandle) {
     }
 }
 
+/// 休眠在销毁前被唤醒（[`CANCELLED`] 置位）的统一收尾。
+///
+/// 前端已经落了草稿，但这次休眠作废了：必须删掉它。否则文件会一直
+/// 躺在磁盘上，等下次真正的冷启动时冒出用户早就不用的旧内容。
+fn abandon_cancelled_hibernate() {
+    eprintln!("[hibernate] 销毁前检测到唤醒，放弃本次休眠");
+    if let Err(e) = clear_snapshot() {
+        eprintln!("[hibernate] 清理已取消的草稿失败: {e}");
+    }
+}
+
 /// 到点：与前端握手落草稿 → 销毁。
 fn do_hibernate(app: &tauri::AppHandle) {
     eprintln!("[hibernate] 到点：发起休眠握手（等前端落草稿 {HANDSHAKE_TIMEOUT:?}）");
@@ -183,16 +194,20 @@ fn do_hibernate(app: &tauri::AppHandle) {
     *READY_TX.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
     if CANCELLED.load(Ordering::SeqCst) {
-        eprintln!("[hibernate] 销毁前检测到唤醒，放弃本次休眠");
-        // 前端已经落了草稿，但这次休眠作废了：必须删掉它。否则文件会一直
-        // 躺在磁盘上，等下次真正的冷启动时冒出用户早就不用的旧内容。
-        if let Err(e) = clear_snapshot() {
-            eprintln!("[hibernate] 清理已取消的草稿失败: {e}");
-        }
+        abandon_cancelled_hibernate();
         return;
     }
     match app.get_webview_window(MAIN_LABEL) {
         Some(w) => {
+            // TOCTOU 收口（审查 REL-5）：上面那次检查与 destroy 之间还隔着窗口
+            // 查找，用户可恰在此间隙唤醒（cancel() 置位 + ensure_main_window 把
+            // 窗口 show 回来）——直接 destroy 会把刚弹回的窗口打掉（闪现又消失）。
+            // 销毁前复检一次：剩余竞态窗口收窄到复检与 destroy 之间的几条指令。
+            if CANCELLED.load(Ordering::SeqCst) {
+                eprintln!("[hibernate] destroy 前复检到唤醒，放弃本次休眠");
+                abandon_cancelled_hibernate();
+                return;
+            }
             if let Err(e) = w.destroy() {
                 eprintln!("[hibernate] destroy 失败: {e}");
             } else {
