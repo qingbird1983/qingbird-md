@@ -1,6 +1,6 @@
 # 青鸟 Markdown（qingbird-md）
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.2.2](https://img.shields.io/badge/Release-v0.2.2-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release: v0.2.3](https://img.shields.io/badge/Release-v0.2.3-1d9e75.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Platform: Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-378ADD.svg)](https://gitee.com/muyan1983/qingbird-md/releases) [![Stack: Rust + Tauri 2](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202-534AB7.svg)](CHANGELOG.md)
 
 带流式中英翻译的 Markdown 桌面编辑器。**Rust 核心 + React/TypeScript 前端 + Tauri 2**， 面向「读英文技术文档、写双语内容」的场景设计——选中即译、整篇流式翻译、框选屏幕就能译。
 
@@ -52,6 +52,8 @@
 | 三种阅读模式 | 译文 / 原文 / 中英对照（双语逐段对齐，打字机按文档序回填） |
 | 划词查词 | 选中英文即弹释义浮窗；可用独立轻量「查词模型」，不打断阅读 |
 | 智能分段 | 相邻短段合并减少请求，超长段自动分块，兼顾速度与质量 |
+| 译文导出 | **译文另存为…**（`Ctrl+Shift+E`）：单语模式导出纯译文，中英对照模式导出「原文 + 译文」逐段对照稿；代码 / 公式 / 图片等不可译块只出原文，未译段落保留原文 |
+| 译文检查 | **确定性检查**（零 AI 成本）：漏译 / 原文充译 / 标记丢失 / 结构不对等 / 代码被侵入五类结构比对，在右侧 **AI 核查面板**（`Ctrl+J`）按类别看计数 |
 
 ### 截图翻译（OCR）
 
