@@ -93,9 +93,6 @@ pub struct EditResult {
 }
 
 /// One credential field of a provider's settings form.
-///
-/// `ponytail:` unused until Task 8 wires provider listing commands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderFieldDto {
     pub key: String,
@@ -105,9 +102,6 @@ pub struct ProviderFieldDto {
 }
 
 /// Static metadata for a translation provider (mirrors providers_meta).
-///
-/// `ponytail:` unused until Task 8 wires provider listing commands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderInfoDto {
     pub key: String,

@@ -785,7 +785,6 @@ pub fn run() {
             open_external,
             // Task 8: 翻译（编排与事件见 bridge.rs）
             bridge::get_providers,
-            bridge::get_provider_meta,
             bridge::translate_text,
             // 选区查词（2026-08-29 spec）
             bridge::lookup_word,
@@ -919,10 +918,6 @@ mod tests {
         // generation starts fresh even when a lock is held
         assert_eq!(t.r#gen.load(Ordering::Relaxed), 0);
     }
-
-    // ---- Task 6: 工作区 / 编辑器命令外壳 ----
-
-    // ---- Task 7: 图片解析 / Markdown 解析命令 ----
 
     #[test]
     fn resolve_skips_remote_and_resolves_relative() {

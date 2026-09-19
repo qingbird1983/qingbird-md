@@ -79,7 +79,6 @@ export const api = {
 
   // ---- 翻译 ----
   getProviders: () => invoke<ProviderInfo[]>("get_providers"),
-  getProviderMeta: (k: string) => invoke<ProviderInfo | null>("get_provider_meta", { key: k }),
   translateText: (t: string, p: string, c: Record<string, string>) =>
     invoke<string>("translate_text", { text: t, provider: p, creds: c }),
   translateDocument: (

@@ -41,16 +41,13 @@ export default function ReviewIssueCard({ issue, seq, blockReason }: ReviewIssue
         type="button"
         className="review-issue-hit"
         disabled={blocked}
-        aria-label={`跳转到第 ${issue.src_line} 行：${issueKindLabel(issue.kind)}`}
-        title={blocked ? (hint ?? undefined) : `跳到 L${issue.src_line}`}
+        aria-label={`跳转到正文对应位置：${issueKindLabel(issue.kind)}`}
+        title={blocked ? (hint ?? undefined) : undefined}
         onClick={onClick}
       >
         <span className="review-issue-head">
           <span className="review-issue-seq">{seq}</span>
           <span className="review-issue-kind">{issueKindLabel(issue.kind)}</span>
-          <span className="review-issue-line">
-            L{issue.src_line} → L{issue.dst_line}
-          </span>
         </span>
         <span className="review-issue-src">{issue.src_excerpt}</span>
         {issue.dst_excerpt ? <span className="review-issue-dst">{issue.dst_excerpt}</span> : null}

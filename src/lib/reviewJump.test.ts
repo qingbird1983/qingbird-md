@@ -29,8 +29,6 @@ const mkIssue = (over: Partial<Issue> = {}): Issue => ({
   severity: "Warning",
   src_excerpt: "Hello world",
   dst_excerpt: "",
-  src_line: 12,
-  dst_line: 14,
   ...over,
 });
 
@@ -112,15 +110,15 @@ describe("jumpToIssue 的失败分支（非 actionable）", () => {
   });
 });
 
-describe("jumpToIssue 的成功路径：锁窗 → 滚动 → 同步", () => {
-  it("先给预览上锁、再滚动、最后把源行号推给编辑器", () => {
+describe("jumpToIssue 的成功路径：锁窗 → 滚动", () => {
+  it("先给预览上锁、再滚动；不再向分栏总线推坐标（P2-4 删恒 0 的 src_line）", () => {
     mountPreview(`<p data-ri="7">命中</p>`);
     const editorSeen: number[] = [];
     const previewSeen: number[] = [];
     subscribeSplitSync("editor", (l) => editorSeen.push(l));
     subscribeSplitSync("preview", (l) => previewSeen.push(l));
 
-    const res = jumpToIssue(mkIssue({ run: 7, src_line: 12 }));
+    const res = jumpToIssue(mkIssue({ run: 7 }));
 
     expect(res.ok).toBe(true);
     // ② 落点滚动参数：behavior 必须 auto（smooth 会冲出 180ms 锁窗）
@@ -128,8 +126,8 @@ describe("jumpToIssue 的成功路径：锁窗 → 滚动 → 同步", () => {
     expect(scrollIntoView.mock.calls[0]![0]).toMatchObject({ behavior: "auto", block: "center" });
     // ① 预览仍处锁窗内 —— 证明 lockSplitSide("preview") 确实生效过
     expect(splitSyncLocked("preview")).toBe(true);
-    // ③ 编辑器收到的是**源行号**（公共坐标），且预览侧不该被反向通知
-    expect(editorSeen).toEqual([12]);
+    // ③ 历史行为是向编辑器推恒 0 的 src_line（无信息量）；字段删除后总线全静默
+    expect(editorSeen).toEqual([]);
     expect(previewSeen).toEqual([]);
   });
 

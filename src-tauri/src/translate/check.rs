@@ -33,8 +33,6 @@ pub struct Issue {
     pub severity: Severity,
     pub src_excerpt: String,
     pub dst_excerpt: String,
-    pub src_line: usize,
-    pub dst_line: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,8 +103,6 @@ pub fn check_translation(
                 severity: Severity::Warning,
                 src_excerpt: src,
                 dst_excerpt: String::new(),
-                src_line: 0,
-                dst_line: 0,
             }),
             Some(dst) if dst == &src => issues.push(Issue {
                 run: idx,
@@ -114,8 +110,6 @@ pub fn check_translation(
                 severity: Severity::Warning,
                 src_excerpt: src,
                 dst_excerpt: dst.clone(),
-                src_line: 0,
-                dst_line: 0,
             }),
             Some(dst) => {
                 if let Some(issue) = check_marks_lost(&src, dst, idx) {
@@ -150,8 +144,6 @@ fn check_marks_lost(src_text: &str, dst_text: &str, run: usize) -> Option<Issue>
             severity: Severity::Warning,
             src_excerpt: src_text.to_string(),
             dst_excerpt: dst_text.to_string(),
-            src_line: 0,
-            dst_line: 0,
         })
     } else {
         None
@@ -185,8 +177,6 @@ fn check_structure(src_text: &str, dst_text: &str, run: usize) -> Option<Issue> 
         severity: Severity::Warning,
         src_excerpt: src_text.to_string(),
         dst_excerpt: dst_text.to_string(),
-        src_line: 0,
-        dst_line: 0,
     })
 }
 
@@ -214,8 +204,6 @@ fn check_code_invaded(src_text: &str, dst_text: &str, run: usize) -> Option<Issu
         severity: Severity::Warning,
         src_excerpt: src_text.to_string(),
         dst_excerpt: dst_text.to_string(),
-        src_line: 0,
-        dst_line: 0,
     })
 }
 

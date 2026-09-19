@@ -48,8 +48,3 @@ export function collectSnapshot(): SessionSnapshot {
     },
   };
 }
-
-/** 草稿 tab 数；>0 表示恢复后要提示「已恢复上次未保存的内容」。 */
-export function dirtyCount(snap: SessionSnapshot): number {
-  return snap.tabs.filter((t) => t.content !== null).length;
-}

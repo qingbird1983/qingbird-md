@@ -181,11 +181,6 @@ fn to_dto(key: &str, m: &ProviderMeta) -> crate::dto::ProviderInfoDto {
     }
 }
 
-/// One provider's DTO by registry key.
-pub fn info(key: &str) -> Option<crate::dto::ProviderInfoDto> {
-    get(key).map(|m| to_dto(key, m))
-}
-
 /// Every provider flattened from [`REGISTRY`] in registry order.
 pub fn all_infos() -> Vec<crate::dto::ProviderInfoDto> {
     REGISTRY.iter().map(|(k, m)| to_dto(k, m)).collect()
@@ -205,8 +200,8 @@ mod tests {
         assert_eq!(auto.max_concurrency, 3);
         // 平铺序 = REGISTRY 序；字段转换无损（label/fields 完整搬出）
         assert_eq!(v[0].key, "mymemory");
-        let llm = info("llm").unwrap();
+        let llm = v.iter().find(|p| p.key == "llm").unwrap();
         assert_eq!(llm.fields.len(), 4);
-        assert!(info("nope").is_none());
+        assert!(get("nope").is_none());
     }
 }

@@ -264,11 +264,6 @@ pub fn get_providers() -> Vec<dto::ProviderInfoDto> {
     translate::providers_meta::all_infos()
 }
 
-#[tauri::command]
-pub fn get_provider_meta(key: String) -> Option<dto::ProviderInfoDto> {
-    translate::providers_meta::info(&key)
-}
-
 #[tauri::command(async)]
 pub fn translate_text(
     text: String,

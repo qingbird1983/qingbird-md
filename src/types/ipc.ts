@@ -303,6 +303,4 @@ export interface Issue {
   severity: Severity;
   src_excerpt: string;
   dst_excerpt: string;
-  src_line: number;
-  dst_line: number;
 }

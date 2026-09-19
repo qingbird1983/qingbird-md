@@ -54,8 +54,6 @@ const ISSUES: Issue[] = [
     severity: "Warning",
     src_excerpt: "Hello",
     dst_excerpt: "",
-    src_line: 12,
-    dst_line: 14,
   },
   {
     run: 99,
@@ -63,8 +61,6 @@ const ISSUES: Issue[] = [
     severity: "Warning",
     src_excerpt: "World",
     dst_excerpt: "World",
-    src_line: 40,
-    dst_line: 41,
   },
 ];
 

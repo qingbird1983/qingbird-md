@@ -29,17 +29,13 @@ describe("Issue 与 Rust translate::check::Issue 的字段镜像", () => {
       severity: "Warning",
       src_excerpt: "",
       dst_excerpt: "",
-      src_line: 0,
-      dst_line: 0,
     };
     expect(Object.keys(sample).sort()).toEqual([
       "dst_excerpt",
-      "dst_line",
       "kind",
       "run",
       "severity",
       "src_excerpt",
-      "src_line",
     ]);
   });
 
@@ -71,8 +67,6 @@ describe("countByKind（面板徽标用）", () => {
     severity: "Warning",
     src_excerpt: "",
     dst_excerpt: "",
-    src_line: 0,
-    dst_line: 0,
   });
 
 

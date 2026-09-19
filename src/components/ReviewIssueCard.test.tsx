@@ -21,8 +21,6 @@ const mkIssue = (over: Partial<Issue> = {}): Issue => ({
   severity: "Warning",
   src_excerpt: "Hello world",
   dst_excerpt: "",
-  src_line: 12,
-  dst_line: 14,
   ...over,
 });
 
@@ -70,17 +68,17 @@ afterEach(() => {
 describe("可跳转态", () => {
   beforeEach(() => mountPreview(true));
 
-  it("渲染类别标签 + 行号区间 + 摘录，且不带提示文案", () => {
+  it("渲染类别标签 + 摘录，且不带提示文案", () => {
     render(null);
     expect(btn().textContent).toContain("漏译");
-    expect(btn().textContent).toContain("L12 → L14");
     expect(btn().textContent).toContain("Hello world");
+    expect(btn().textContent).not.toContain("→"); // 行号区间随恒 0 字段一并删除（P2-4）
     expect(btn().disabled).toBe(false);
     expect(hint()).toBeNull();
     expect(host.querySelector(".review-issue")!.classList.contains("blocked")).toBe(false);
   });
 
-  it("点一下：预览滚到落点、行号推给编辑器、卡片自身不出现提示", () => {
+  it("点一下：预览滚到落点、不向分栏总线推坐标、卡片自身不出现提示", () => {
     const seen: number[] = [];
     subscribeSplitSync("editor", (l) => seen.push(l));
     render(null);
@@ -88,7 +86,7 @@ describe("可跳转态", () => {
     act(() => btn().click());
 
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(seen).toEqual([12]);
+    expect(seen).toEqual([]); // 历史行为是推恒 0 的 src_line，字段已删（P2-4）
     expect(btn().classList.contains("issue-flash")).toBe(false); // 高亮落在预览块上，不在卡片上
     expect(hint()).toBeNull();
   });

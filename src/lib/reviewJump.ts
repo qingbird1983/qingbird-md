@@ -7,16 +7,18 @@
  * 只要这个函数的**内部实现**换掉，调用方一行不用改。散写则每个点都要重改。
  * —— 见 `docs/superpowers/plans/2026-09-18-sqlite-translation-cache.md` 附 8.4。
  *
- * 锚点不新增机制，`Issue` 自带三个现成坐标：
+ * 锚点不新增机制，`Issue` 自带现成坐标：
  *   - `run`      → `data-ri` run 空间（translation 模式）
  *   - `run` 回退  → `data-bi` 块空间（bilingual 模式只渲染源块 + tr-box）
- *   - `src_line` → 直接喂 `emitSplitSync`，**分栏联动的公共坐标就是源行号**
+ *
+ * （历史注：曾用恒为 0 的 `src_line` 作分栏联动坐标，P2-4/CQ-8 随字段一并
+ * 删除——跳转只滚到锚点，不再向编辑器推坐标。）
  *
  * 「能不能跳」与「跳」共用同一个探测函数（`probeIssueAnchor`）：面板要在**渲染时**
  * 就知道该不该把卡片画成禁用态，运行时点击又要再判一次——两处判定必须同源，
  * 否则会出现"画着可点、点了没反应"的静默态。
  */
-import { emitSplitSync, lockSplitSide } from "./splitSync";
+import { lockSplitSide } from "./splitSync";
 import type { Issue } from "../types/ipc";
 
 /** 跳不了的原因。**必须让用户看见**（非 actionable 态），不许静默。 */
@@ -69,7 +71,7 @@ export function jumpBlockReason(issue: Issue, doc: Document = document): JumpBlo
 }
 
 /**
- * 跳到某条 issue 对应的正文位置。**三步顺序不可换**：
+ * 跳到某条 issue 对应的正文位置。**两步顺序不可换**：
  *
  * ① `lockSplitSide("preview")` —— 预览即将被程序化滚动，先压掉它自己外发的
  *    中间态。否则滚动途经的每一块都会报给编辑器，编辑器被拽到半路，观感就是
@@ -77,8 +79,10 @@ export function jumpBlockReason(issue: Issue, doc: Document = document): JumpBlo
  * ② `scrollIntoView({ behavior: "auto" })` —— **不用 `smooth`**：平滑滚动要跑
  *    300ms 上下，早就冲出 180ms 的锁窗，中途的 scroll 事件照样外发（这正是
  *    ①要拦的东西）。
- * ③ `emitSplitSync("preview", issue.src_line)` —— 落定后用**精确源行号**让编辑器
- *    跟随。这里传的是原文行号，不是译文/块号。
+ *
+ * （不再向编辑器 `emitSplitSync`：原先喂的 `src_line` 恒为 0，无信息量，
+ * 字段已随 CQ-8 删除。锁窗仍要先行——scrollIntoView 引发的滚动事件同样
+ * 会被联动总线听到。）
  */
 export function jumpToIssue(issue: Issue, opts: { flash?: boolean; doc?: Document } = {}): JumpResult {
   const probe = probeIssueAnchor(issue, opts.doc ?? document);
@@ -86,7 +90,6 @@ export function jumpToIssue(issue: Issue, opts: { flash?: boolean; doc?: Documen
 
   lockSplitSide("preview");
   probe.target.scrollIntoView({ behavior: "auto", block: "center" });
-  emitSplitSync("preview", issue.src_line);
 
   if (opts.flash !== false) flashIssueTarget(probe.target);
   return { ok: true, target: probe.target };
