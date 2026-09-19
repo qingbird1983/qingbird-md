@@ -103,13 +103,13 @@ pub fn can_emit_document(app: &tauri::AppHandle) -> bool {
 pub fn push_pending_open(path: String) {
     PENDING_OPEN
         .lock()
-        .expect("hibernate mutex poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .push(path);
 }
 
 /// 取走全部待打开路径（前端启动阶段调用；取走即清空，不重复打开）。
 pub fn take_pending_open() -> Vec<String> {
-    std::mem::take(&mut *PENDING_OPEN.lock().expect("hibernate mutex poisoned"))
+    std::mem::take(&mut *PENDING_OPEN.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 // ---- 休眠状态机 ----
@@ -120,7 +120,7 @@ pub fn schedule(app: &tauri::AppHandle) {
         "[hibernate] 关窗：排定 {:.0}s 后销毁 WebView",
         hibernate_delay().as_secs_f64()
     );
-    *HIBERNATE_AT.lock().expect("hibernate mutex poisoned") =
+    *HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()) =
         Some(Instant::now() + hibernate_delay());
     CANCELLED.store(false, Ordering::SeqCst);
     start_watcher(app.clone());
@@ -128,7 +128,7 @@ pub fn schedule(app: &tauri::AppHandle) {
 
 /// 任一唤醒路径（托盘 / 热键 / 单实例 handoff）调用：取消待卸载计时。
 pub fn cancel() {
-    let had_pending = HIBERNATE_AT.lock().expect("hibernate mutex poisoned").take().is_some();
+    let had_pending = HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
     if had_pending {
         eprintln!("[hibernate] 唤醒：取消待卸载计时");
     }
@@ -150,11 +150,11 @@ fn start_watcher(app: tauri::AppHandle) {
         .name("hibernate-watch".into())
         .spawn(move || loop {
             let due = {
-                let at = HIBERNATE_AT.lock().expect("hibernate mutex poisoned");
+                let at = HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner());
                 should_hibernate(Instant::now(), *at)
             };
             if due {
-                *HIBERNATE_AT.lock().expect("hibernate mutex poisoned") = None;
+                *HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 do_hibernate(&app);
             }
             std::thread::sleep(TICK);
@@ -170,7 +170,7 @@ fn start_watcher(app: tauri::AppHandle) {
 fn do_hibernate(app: &tauri::AppHandle) {
     eprintln!("[hibernate] 到点：发起休眠握手（等前端落草稿 {HANDSHAKE_TIMEOUT:?}）");
     let (tx, rx) = mpsc::channel();
-    *READY_TX.lock().expect("hibernate mutex poisoned") = Some(tx);
+    *READY_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
 
     // 前端收此事件 → save_session → hibernate_ready（src/lib/session.ts）
     if let Err(e) = app.emit("session-hibernate", ()) {
@@ -180,7 +180,7 @@ fn do_hibernate(app: &tauri::AppHandle) {
         Ok(()) => {}
         Err(_) => eprintln!("[hibernate] 前端握手超时，强制销毁（草稿可能不完整）"),
     }
-    *READY_TX.lock().expect("hibernate mutex poisoned") = None;
+    *READY_TX.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
     if CANCELLED.load(Ordering::SeqCst) {
         eprintln!("[hibernate] 销毁前检测到唤醒，放弃本次休眠");
@@ -207,7 +207,7 @@ fn do_hibernate(app: &tauri::AppHandle) {
 pub fn mark_ready() -> Result<(), String> {
     match READY_TX
         .lock()
-        .expect("hibernate mutex poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .take()
     {
         Some(tx) => tx.send(()).map_err(|e| format!("休眠握手信道已关闭: {e}")),

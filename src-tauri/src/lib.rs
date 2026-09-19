@@ -211,7 +211,7 @@ fn get_data_dir_label() -> String {
 /// save 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
 #[tauri::command]
 fn clear_cache(st: tauri::State<AppTxn>) -> Result<(), String> {
-    let mut c = st.cache.lock().expect("cache mutex poisoned");
+    let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
     c.clear();
     c.save(&storage::cache_path()).map_err(|e| e.to_string())
 }
@@ -542,7 +542,7 @@ static INITIAL_FILE_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// 冷重建窗口前的标志复位（显示闩 + 静默标志 + 首开参数标志），见各处注释。
 fn reset_startup_flags() {
-    *SHOWN.lock().expect("shown mutex poisoned") = false;
+    *SHOWN.lock().unwrap_or_else(|e| e.into_inner()) = false;
     SILENT.store(false, Ordering::SeqCst);
     INITIAL_FILE_PENDING.store(false, Ordering::SeqCst);
 }
@@ -559,7 +559,7 @@ fn show_main_window(app: &tauri::AppHandle) -> bool {
     if SILENT.load(Ordering::SeqCst) {
         return false;
     }
-    let mut shown = SHOWN.lock().expect("shown mutex poisoned");
+    let mut shown = SHOWN.lock().unwrap_or_else(|e| e.into_inner());
     if *shown {
         return false;
     }
@@ -680,7 +680,7 @@ pub fn run() {
                     show_main_window(&h);
                 });
             }
-            if let Some(p) = initial.lock().expect("initial file mutex poisoned").take() {
+            if let Some(p) = initial.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 // 延迟发射；detached 线程不阻塞事件循环（现有逻辑原样）
                 let wv = wv.clone();
                 std::thread::spawn(move || {

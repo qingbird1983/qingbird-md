@@ -42,7 +42,7 @@ static LAST_TRANSLATE_AT: LazyLock<Mutex<Instant>> =
 
 /// 翻译相关 IPC 入口调一次：刷新「最近一次翻译活动」时间戳。
 fn note_translate_activity() {
-    *LAST_TRANSLATE_AT.lock().expect("translate-activity mutex poisoned") = Instant::now();
+    *LAST_TRANSLATE_AT.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
 }
 
 /// worker 收尾调用：若离上次翻译活动已超过 [`IDLE_SHRINK_AFTER`] 且当前
@@ -52,7 +52,7 @@ fn shrink_if_idle(cache: &mut Cache) -> bool {
     let now = Instant::now();
     let last = *LAST_TRANSLATE_AT
         .lock()
-        .expect("translate-activity mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
     if now.saturating_duration_since(last) >= IDLE_SHRINK_AFTER
         && cache.len_pub() > SHRINK_TO
     {
@@ -135,6 +135,17 @@ struct WorkerState {
     cache: Arc<Mutex<Cache>>,
     cancel: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
+}
+
+/// REL-1：worker 线程的 running 标志 RAII 守卫。无论正常收尾还是 panic
+/// 展开，Drop 都把 running 打回 false——否则一次 panic 跳过手工复位，
+/// 此后所有翻译报「已有翻译在进行」，只能重启应用。
+struct RunningGuard(Arc<AtomicBool>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 pub(crate) fn done_payload_parts(
@@ -298,7 +309,7 @@ pub fn lookup_word(
     let creds = translate::providers::Creds(creds);
     let variant = translate::lookup::cache_variant_for(&creds);
     {
-        let c = st.cache.lock().expect("cache mutex poisoned");
+        let c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(dto) = translate::lookup::cache_get_lookup(&c, &text, &variant) {
             return Ok(dto);
         }
@@ -324,7 +335,7 @@ pub fn lookup_word(
         .and_then(|r| r)?
     };
     {
-        let mut c = st.cache.lock().expect("cache mutex poisoned");
+        let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
         translate::lookup::cache_put_lookup(&mut c, &text, &variant, &dto);
         let _ = c.save(&storage::cache_path());
     }
@@ -347,7 +358,10 @@ pub fn stop_translation(state: tauri::State<AppTxn>) {
     state.cancel.store(true, Ordering::SeqCst);
 }
 
-#[tauri::command]
+// async（PERF-2）：本命令里有 parse_blocks + 整缓存快照 clone + 收口时的
+// 最多 3 次整树渲染，同步命令在主线程执行会冻结窗口——与 open_file /
+// parse_markdown 刻意 async 的口径一致。
+#[tauri::command(async)]
 pub fn translate_document(
     app: AppHandle,
     content: String,
@@ -378,7 +392,7 @@ pub fn translate_document(
         }
         other => return Err(format!("不支持的模式：{other}")),
     };
-    let snapshot = state.cache.lock().expect("cache mutex poisoned").clone();
+    let snapshot = state.cache.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let (indices, texts): (Vec<usize>, Vec<String>) = units.into_iter().unzip();
     let bilingual = mode == "bilingual";
     let variant = translate::engine::cache_variant(
@@ -526,6 +540,9 @@ fn spawn_translation(
     target: TargetLang,
 ) {
     std::thread::spawn(move || {
+        // RAII 复位（REL-1）：本闭包任何一步 panic，守卫在展开时把 running
+        // 打回 false；正常路径里它代替原来的手工 store(false) 收尾。
+        let _running = RunningGuard(Arc::clone(&st.running));
         let http0 = translate::http::UreqClient::shared();
         let http = translate::cancel::CancelableClient {
             inner: http0,
@@ -571,7 +588,7 @@ fn spawn_translation(
                 );
             }
             translate::engine::EngineEvent::Progress { done, total } => {
-                let mut last = last_progress.lock().expect("progress mutex poisoned");
+                let mut last = last_progress.lock().unwrap_or_else(|e| e.into_inner());
                 let due = last
                     .map(|t| t.elapsed() >= PROGRESS_MIN_INTERVAL)
                     .unwrap_or(true);
@@ -603,7 +620,7 @@ fn spawn_translation(
         let results = translate::engine::run(&req, &mut work_cache, &emit);
 
         {
-            let mut shared = st.cache.lock().expect("cache mutex poisoned");
+            let mut shared = st.cache.lock().unwrap_or_else(|e| e.into_inner());
             for (i, r) in results.iter().enumerate() {
                 if let Ok(v) = r {
                     shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
@@ -663,7 +680,7 @@ fn spawn_translation(
                 outline: None,
             }
         };
-        st.running.store(false, Ordering::SeqCst);
+        // running 的复位由 _running 守卫的 Drop 负责（panic 也覆盖）。
         let _ = app.emit("translation-done", payload);
     });
 }
@@ -1021,5 +1038,59 @@ mod tests {
         assert_eq!(v["gen"], 3);
         assert_eq!(v["done"], 2);
         assert_eq!(v["total"], 5);
+    }
+
+    // ---- REL-1 / REL-2：panic 后功能可继续 ----
+
+    /// REL-2 守卫：持锁线程 panic 把互斥量中毒后，翻译活动入口必须仍可用。
+    /// 锁访问统一 `unwrap_or_else(|e| e.into_inner())`——中毒只是"带着中毒前
+    /// 的数据继续"，不能级联 panic 把翻译入口全部堵死。修复前这里是
+    /// `.expect(...poisoned)`，本测试必红（panic 逃出 note_translate_activity）。
+    #[test]
+    fn poisoned_translate_activity_mutex_still_functions() {
+        // 故意投毒：持锁 panic（静音钩子，别让预期内的 panic 刷屏）。
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = LAST_TRANSLATE_AT.lock().unwrap();
+            panic!("intentional poison (REL-2 guard)");
+        }));
+        std::panic::set_hook(prev);
+
+        // 中毒后两个入口都必须照常工作：读（shrink_if_idle）与写（note_*）
+        let mut scratch = Cache::new();
+        assert!(
+            !shrink_if_idle(&mut scratch),
+            "中毒后 shrink_if_idle 不得 panic，返回 false"
+        );
+        note_translate_activity();
+    }
+
+    /// REL-1 守卫：RunningGuard 在正常 Drop 与 panic 展开两条路都必须把
+    /// running 复位——worker 线程任一处 panic 不能把「已有翻译在进行」留成
+    /// 永久态（修复前手工 `store(false)` 在 panic 时被跳过）。
+    /// 注：spawn_translation 本体要 AppHandle，单测环境无法整体驱动；这里
+    /// 直接钉住守卫原语的两条 Drop 路径。
+    #[test]
+    fn running_guard_resets_on_drop_and_panic() {
+        let running = Arc::new(AtomicBool::new(true));
+
+        // 正常收尾：离开作用域 Drop → 复位
+        {
+            let _g = RunningGuard(Arc::clone(&running));
+        }
+        assert!(!running.load(Ordering::SeqCst), "正常收尾必须复位");
+
+        // worker 中途 panic：展开时 Drop → 复位
+        running.store(true, Ordering::SeqCst);
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = RunningGuard(Arc::clone(&running));
+            panic!("worker panic (REL-1 guard)");
+        }));
+        std::panic::set_hook(prev);
+        assert!(result.is_err(), "应捕获到 worker panic");
+        assert!(!running.load(Ordering::SeqCst), "panic 展开必须复位 running");
     }
 }
