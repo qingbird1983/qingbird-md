@@ -1,0 +1,466 @@
+/* ============================================================
+ * 域：AI 核查面板（翻译正确性计划 §八）
+ * ------------------------------------------------------------
+ * 2026-09-19 S4 从 05-panels.css 抽出：原文件已到 701 行，逼近
+ * 「CSS <= 800 行/文件」阈值，S4 新增的 issue 卡片 / 进度时间线 /
+ * 滚动跟随样式已经没有落脚处。只搬运，规则内容与顺序未变。
+ * .issue-flash 一并搬过来 —— 它是核查面板的交互产物，与 .review-* 成套。
+ * ============================================================ */
+
+/* ============ AI 核查面板（§八） ============ */
+/* 占位壳已升级为完整面板（S4，2026-09-19）：槽头 + 滚动区（进度时间线 +
+   issue 卡片列表 / 空态卡）+ 动作区（计数条 + 语义核查入口）。
+   形态与大纲栏平行——各自独立槽头 + 内容区。 */
+.review-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* panel-clip 左右栏共用（flex:none 保收展动画不挤压），review 内容区
+   同样需要纵向 flex 布局。 */
+.review-panel .panel-clip {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 槽头（§8.3 ①）：标题「AI 核查」+ 关闭。模型选择器（review_model）随
+   Step 4 的语义核查落地。
+   高度钉在 --h-toolbar（border-box）：核查高栏与工具栏同起 row 2 顶，
+   底线才和工具栏的 border-bottom 连成一条横线（2026-09-19 用户实测：
+   原先内容高比工具栏矮一截，两根线错位）。 */
+.review-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  height: var(--h-toolbar);
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+.review-title-text {
+  letter-spacing: 0.18em;
+}
+
+.review-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg3);
+  cursor: pointer;
+}
+
+.review-close:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+/* 空态引导卡（§8.3 ③）：检查项说明 + 确定性检查计数 + 开始核查钮 */
+.review-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 18px;
+}
+
+.review-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+}
+
+.review-empty-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-empty-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg2);
+  line-height: 1.5;
+}
+
+.review-empty-checks .tag {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg3);
+  color: var(--fg3);
+}
+
+.review-empty-checks .tag.det {
+  color: var(--muted-fg);
+}
+
+/* 确定性检查结果条（已落地的 check_translation IPC 计数） */
+.review-checks-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.review-checks-bar .count {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.review-checks-bar.ok .count {
+  color: var(--accent);
+}
+
+.review-checks-bar.warn .count {
+  color: var(--zhu);
+}
+
+/* 开始核查钮：LLM 未就绪时禁用 + 明示原因（§七.1 R2） */
+.review-start-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.14s var(--ease),
+    border-color 0.14s var(--ease),
+    color 0.14s var(--ease);
+}
+
+.review-start-btn:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.review-start-btn:disabled {
+  background: var(--bg3);
+  border-color: var(--border);
+  color: var(--muted-fg);
+  cursor: default;
+}
+
+.review-start-hint {
+  font-size: 11px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+
+/* ============ issue 跳转的落点高亮（S4 #16） ============ */
+
+/* 目标元素在**预览**里，样式却归这个域：它是核查面板的交互产物，与
+   .review-* 成套（同一条链：点卡片 → jumpToIssue → 预览落点高亮）。
+   只描边 + 极浅底，**不改块的任何排版属性**——落点是被 render_translated
+   渲染出来的块，动它的尺寸/边距会让打字机的高度账目与 tr-box 的
+   min-height 锁定对不上。class 由 JS 增删（`ISSUE_FLASH_CLASS`），
+   属于**纯装饰**：不写回 content、不参与索引空间。 */
+.issue-flash {
+  outline: 2px solid var(--zhu);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--zhu) 8%, transparent);
+}
+
+/* ============ S4：滚动区 / 动作区 ============ */
+/* 面板从「壳」变「完整面板」时补的两层：
+   内容区可滚（长清单不再把槽头挤出视野），动作区不滚（入口永远够得着）。 */
+.review-body {
+  /* flex:1 + min-height:0 缺一不可——少了 min-height:0，
+     列向 flex 子项的高度下限是内容高，滚动条永远不会出现。 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.review-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============ S4 #11：进度时间线 ============ */
+.review-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.review-timeline-title {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--fg3);
+  letter-spacing: 0.18em;
+}
+
+.review-timeline-toggle {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--fg3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.review-timeline-toggle:hover {
+  background: var(--item-hover-bg);
+  color: var(--fg);
+}
+
+.review-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+
+.review-step-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg3);
+}
+
+.review-step[data-tone="ok"] .review-step-dot {
+  background: var(--accent);
+}
+
+.review-step[data-tone="busy"] .review-step-dot {
+  background: var(--accent);
+  /* 进行中状态点呼吸：纯 CSS，**不引 setInterval**（WebView2 会把它
+     节流到 >=1000ms，与 useTranslationStore.pumpReveal 那条注释同源）。 */
+  animation: review-step-pulse 1.2s var(--ease, ease-in-out) infinite;
+}
+
+.review-step[data-tone="bad"] .review-step-dot {
+  background: var(--zhu);
+}
+
+@keyframes review-step-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.review-step-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.review-step-summary {
+  color: var(--fg);
+}
+
+.review-step-detail {
+  font-size: 11px;
+  color: var(--muted-fg);
+}
+
+.review-step-status {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--fg3);
+}
+
+.review-timeline-folded {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--muted-fg);
+}
+
+/* ============ S4 #16：issue 卡片 ============ */
+.review-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-issue-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  color: var(--fg2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.14s var(--ease, ease),
+    background 0.14s var(--ease, ease);
+}
+
+.review-issue-hit:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg3);
+}
+
+/* 非 actionable 态：**禁掉指针与 hover，但不隐藏**。
+   隐藏会让「N 处问题」和「列出 M 条」对不上，看着像面板漏报；
+   降透明度 + 下方那行原因，才说明"它在，只是现在跳不了"。 */
+.review-issue.blocked .review-issue-hit {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.review-issue-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.review-issue-seq {
+  flex: none;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--bg3);
+  color: var(--fg3);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+}
+
+.review-issue-kind {
+  flex: none;
+  color: var(--zhu);
+  font-weight: 500;
+}
+
+.review-issue-line {
+  flex: none;
+  margin-left: auto;
+  color: var(--fg3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 摘录限两行：面板窄，长段落不能把列表撑成"一屏一条"。 */
+.review-issue-src,
+.review-issue-dst {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.review-issue-src {
+  color: var(--fg2);
+}
+
+.review-issue-dst {
+  color: var(--fg3);
+  font-family: var(--font-serif);
+}
+
+.review-issue-hint {
+  margin: 0;
+  padding-left: 2px;
+  font-size: 10.5px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+
+/* ============ S4 #13：回到底部 ============ */
+/* 只在「用户已滚离本次流式」时出现 —— 正常跟随状态下它是纯噪声。 */
+.review-follow-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.review-follow-btn:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}

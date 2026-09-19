@@ -19,6 +19,7 @@ import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 import { openFile } from "./components/commands";
 import { exportActiveTranslation } from "./lib/exportTranslation";
+import { ensureReviewPanelOpen, revealReviewIssues } from "./lib/reviewPanel";
 import { comboMatches } from "./lib/hotkeys";
 import { HOTKEYS, effectiveHotkeys, type AppHotkeyId } from "./lib/hotkeyRegistry";
 import type { Mode } from "./types/ipc";
@@ -67,7 +68,19 @@ const APP_ACTIONS: Record<AppHotkeyId, () => void> = {
   split_view: () => useDocStore.getState().switchView("split"),
   palette: () => useUiStore.getState().openPalette(),
   // AI 核查面板开关（§八）：Ctrl+J 与 Guanmo 同键。
-  toggle_review: () => useUiStore.getState().toggleReview(),
+  // 开着 → 收起；关着 → **先开面板、等布局落定再把 issue 清单滚进视野**。
+  // 顺序不能反：面板是条件挂载的，立刻 scrollIntoView 会按"主区还没变窄"的
+  // 旧布局算落点，滚完偏一截（见 lib/reviewPanel.ts 文件头）。
+  toggle_review: () => {
+    const ui = useUiStore.getState();
+    if (ui.showReview) {
+      ui.setReviewOpen(false);
+      return;
+    }
+    ensureReviewPanelOpen(() => {
+      revealReviewIssues();
+    });
+  },
   bold: () => void useDocStore.getState().applyFormat("bold"),
   italic: () => void useDocStore.getState().applyFormat("italic"),
 };

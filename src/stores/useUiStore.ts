@@ -81,6 +81,9 @@ interface UiState {
   toggleNav(): void;
   toggleOutline(): void;
   toggleReview(): void;
+  /** 显式开合。`toggleReview` 做不到「确保打开」——S4 #14 的
+   *  `ensureReviewPanelOpen()` 需要幂等语义（already open 时不能再翻成关）。 */
+  setReviewOpen(open: boolean): void;
   setContentWidth(w: ContentWidth): void;
   setCustomWidth(px: number): void;
   cycleContentWidth(): void;
@@ -180,6 +183,7 @@ export const useUiStore = create<UiState>()((set) => ({
   // 渲染层让核查占外侧列 + row 2/4 高栏、大纲栏顺势内移一列——推移而非覆盖，
   // 形如左贴边大纲栏与主区的关系。旧版「开起时把大纲翻到对侧」已删。
   toggleReview: () => set((s) => ({ showReview: !s.showReview })),
+  setReviewOpen: (open) => set({ showReview: open }),
   setContentWidth: (w) => {
     localStorage.setItem(WIDTH_KEY, w);
     // 点菜单四档 = 放弃拖宽自定义：两处（store + localStorage）同步清

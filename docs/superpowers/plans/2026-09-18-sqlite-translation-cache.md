@@ -488,11 +488,11 @@ A 要加 `.panel-slot` / `.panel-handle` / 状态栏 AI 钮；B 的 L0/L1 加标
 
 | 阶段 | 内容 | 累计 | 里程碑 | 状态（2026-09-19 复核） |
 | --- | --- | --- | --- | --- |
-| **S0** | **P0-1 CSS 拆分** + **P0-2 patchPartial 日志** | 1.2 天 | 地基就位，后续三份计划都可安全落笔 | ⚠️ **半完成**：P0-1 ✅（`49167c7`）；**P0-2 ❌ 仍未做**（2 小时，建议作为下一项的第 0 步顺手清掉） |
+| **S0** | **P0-1 CSS 拆分** + **P0-2 patchPartial 日志** | 1.2 天 | 地基就位，后续三份计划都可安全落笔 | ✅ **完成**：P0-1 `49167c7`；**P0-2 已完成于 2026-09-19 S4 第 0 步**——`patchPartial.ts` 三处静默 `return` 统一走 `warnMissingAnchor`（带 `mode` / `index` / 选择器坐标），`patchPartial.test.ts` 10 用例 |
 | **S1** | **A 第 2 步第 9 项**：双语对照导出 | +0.5 天 | 🚩 **可发布**：第 2 步收尾，用户感知明确 | ✅ **完成**（`49167c7`）→ 随 v0.2.3 发布，真机验收通过 |
 | **S2** | **A 第 3 步第 15 项**：确定性检查断言（纯 Rust） | +1 天 | 检查能力可用（无 UI 也能靠测试证明） | ✅ **完成**（`translate/check.rs`，5 类检查 + 5 测试） |
 | **S3** | **A 第 3 步 10/10b**：槽位泛化 + `.panel-slot` + 把手 + 状态栏 AI 钮 | +1.5 天 | 🚩 **可发布**：面板能开能关能拉宽，但还只能跑确定性检查 | ✅ **完成**（`b6a7a19` → `b20fcc0` → `1dbd295` → `99cb63c`）→ 随 v0.2.3 发布，真机验收通过 |
-| **S4** | **A 第 3 步 11/12/13/14/16**：Timeline / Composer / 滚动跟随 / 入口层 / IssueCard | +1.5 天 | 🚩 **可发布**：核查面板完整（L2 ① 全部落地） | 👉 **下一项**（未开始，工单见附 8） |
+| **S4** | **A 第 3 步 11/13/14/16**（12 并入 S5）：Timeline / 滚动跟随 / 入口层 / IssueCard | +1.5 天 | 🚩 **可发布**：核查面板完整（L2 ① 全部落地）→ 12 项留下一个输入框的缺口，不影响"可看可点可跳" | ✅ **代码完成**（2026-09-19，工单见附 8.5）；⏳ 待真机验收 |
 | **S5** | **A 第 4 步 17–21**：AI 语义核查 | +2 天 | 🚩 **可发布**：交付型翻译闭环完成 ← **本项目的产品分水岭** | ⏸ 未开始 |
 | **S6** | **A 第 5 步 22–23**：重排版规则集 | +1.5 天 | 🚩 A 计划全部完成 | ⏸ 未开始 |
 | **S7** | **B 第一阶段**：L0 + L1-a + 视口裁剪 | +1 天 | 🚩 **可发布**：编辑观感第一步 | ⏸ 未开始（冲突 1 / 2 已消解，可安全开工） |
@@ -503,7 +503,7 @@ A 要加 `.panel-slot` / `.panel-handle` / 状态栏 AI 钮；B 的 L0/L1 加标
 
 **总长约 16–17 个工作日**（S0–S10），到 S8 就能覆盖三份计划里**用户可感知的主体**（约 11 天）。
 
-**进度（2026-09-19）**：**S0–S3 已交付**（P0-1 + S1/S2/S3 全部随 **v0.2.3** 发布并真机验收），**实际用掉 2 个日历日**（09-18 立项 → 09-19 发布）。剩余 **S4–S10 ≈ 12 天**（含 P0-2 的 2 小时）。
+**进度（2026-09-19）**：**S0–S4 已交付**（P0-1 + S1/S2/S3 随 **v0.2.3** 发布并真机验收；**S4 同日完成**，待真机验收），**实际用掉 2 个日历日**（09-18 立项 → 09-19 发布 → 09-19 当日推进到 S4）。剩余 **S5–S10 ≈ 11 天**。**下一项 = S5 AI 语义核查**（产品分水岭）。
 
 ### 为什么 A 排在 B 前面（而 B 文档自己建议"另存为先行"）
 
@@ -594,7 +594,59 @@ npm test                      # 基线：18 文件 209 用例 → **21 文件 23
 - 门禁：`cargo test` ≥ 289、`vitest` ≥ 21 文件 235 用例，**新增用例必须能验证"旧代码会变红"**
 - 真机复验（DOM 行为 + 观感，jsdom 测不出来）
 
-### 8.4 S4 开工前要清掉的一件事
+### 8.4 S4 开工前要清掉的一件事 —— ✅ **已拍板（2026-09-19）：走方案 B**
 
-- **冲突 3（视图联动）**：本计划 §六 的"跳转先锁窗"与 wysiwyg §六 的"行号→offset 映射"是同一处机制，S4 的第 16 项会直接用到它。**建议在 S4 开工前先择一**（B 先做映射，或明确接受 A 先用块级锚点），否则做完还要返工。
+**冲突 3 的处置**（原问题：本计划 §六 的"跳转先锁窗"与 wysiwyg §六 的"行号→offset 映射"是同一处机制）：
+
+| | 内容 |
+| --- | --- |
+| **决策** | **方案 B** —— S4 先用现有锚点跳块，映射重构留给 WYSIWYG。**不为了 1.5 天的 S4 去提前启动一个 2.5 天起的机制改造** |
+| **依据** | 确定性检查的 5 类 issue **全部是块级 / run 级**（漏译、原文充译、标记丢失、结构不对等、代码被侵入）→ 跳块比跳字符 offset 更贴合"定位到出问题的那一段"的意图；§8.7 自己也写了"issue 大多块级性质，跳块即可" |
+| **硬约束（把返工面压到零）** | A 的跳转**必须收敛成单个函数** `jumpToIssue(issue, ...)`，内部封装「锁窗 → 滚动 → 同步」三步，**不允许散写在组件里**。B 之后把内部实现从像素反查换成行号→offset 时，A 侧一行不改 |
+| **跳转锚点（现成，不新增机制）** | `Issue` 自带三样坐标：`run`（`data-ri` run 空间）、`src_line` / `dst_line`。实现 = `[data-ri="N"]` 元素优先 → 回退 `[data-bi="N"]`，再 `emitSplitSync("preview", src_line)` **正好复用分栏联动的公共坐标（源行号）** |
+
 - A §五 21 的 `review_model` 属 **S5** 范畴（S4 不需要），可以先不动。
+
+---
+
+### 8.5 S4 执行结果（2026-09-19 当日完成，⏳ 待真机验收）
+
+**工单第 0–4 项全部落地**（第 5 项 12 `ReviewComposer` 按建议整体并入 S5）。
+
+| 工单项 | 交付物 | 关键设计（为什么这么做） |
+| --- | --- | --- |
+| 0 **P0-2** | `lib/patchPartial.ts` + `patchPartial.test.ts`（10 用例） | 三处静默 `return` 统一走 `warnMissingAnchor(...)`，日志带 `mode` / `index` / 选择器坐标；**只加日志、不改控制流**。它是跳转排障的前置：锚点缺失原先"什么都不说"，用户只看到"翻译没反应" |
+| 1 **#16 IssueCard** | `components/ReviewIssueCard.tsx`、`lib/reviewJump.ts`、`lib/issueKind.ts`、`styles/13-review.css` | 跳转收敛成**唯一实现点** `jumpToIssue()`（方案 B 的硬约束）；`probeIssueAnchor` 让**渲染期与点击期判定同源**（防"画着能点、点了没反应"）；非 actionable 态**禁用不隐藏** + 写明原因 |
+| 2 **#13 滚动跟随** | `lib/streamFollow.ts` + `streamFollow.test.ts`（13 用例） | 四要点齐全；核心是**不碰 React/DOM 的纯类**（`ScrollBox` 只有三个读数）故可离线单测；**源码级守卫**禁止出现 `addEventListener("scroll")` 与 `setInterval(` |
+| 3 **#11 Timeline** | `components/ReviewTimeline.tsx` + 测试（5 用例） | 默认折叠只显最新一步；`tone` 走 `satisfies Record<…>` 保穷尽；**只接确定性检查一步**，S5 往 `steps` 追加即可 |
+| 4 **#14 入口层** | `lib/reviewPanel.ts` + `reviewPanel.test.ts`（9 用例）+ `reviewWiring.test.ts`（3 用例） | `afterLayoutStable` = **两帧**（一帧时槽位可能还没进 DOM）；`Ctrl+J` 执行体改走 `ensureReviewPanelOpen` → 布局稳定后 `revealReviewIssues()` |
+| **面板本体** | `components/ReviewPanel.tsx` 重写 | 三层结构：**槽头**（不动）+ **`.review-body` 可滚区**（时间线 + 清单/空态）+ **`.review-actions` 不滚区**（入口永远够得着）。顺手修两个真 bug：① `runCheck` 注释写着"原文模式或无译文时清空"但代码没清 → 切回原文会留上一次的清单；② **流式期不跑检查**——`mergeTranslations` 是逐批换 Map 身份的，不拦的话每批都要跑一次 IPC，而且半篇译文会把"还没轮到"的段落全报成 `OmittedUntranslated`（面板被假问题刷屏）。改为**等翻译停再查**（时间线显示「确定性检查 · 等翻译停」并收起上一版清单），翻译一停自动补跑一次 |
+
+**新增/改动文件**：`src/lib/{reviewJump,streamFollow,reviewPanel,issueKind,patchPartial}.ts`(+测试)、`src/components/{ReviewIssueCard,ReviewTimeline,ReviewPanel}.tsx`(+测试)、`src/styles/13-review.css`（**新域文件**）、`src/styles/05-panels.css`（−174 行）、`src/styles/global.css`、`src/stores/useUiStore.ts`（+`setReviewOpen`）、`src/App.tsx`。
+
+**⚠️ 顺手做的第二次 CSS 拆分（需要知道，别以为是多余的）**：`05-panels.css` 当时已 **701 行**，顶到「CSS ≤ 800 行/文件」阈值，S4 新增样式**没有落脚处** → 把「AI 核查面板」与 `.issue-flash` 两段抽成第 14 个域文件 **`13-review.css`**（编号 = import 顺序，排在 `12-welcome.css` 之后）。抽取只搬运、规则内容与顺序未变；搬运结果是**纯删除**（`git diff --numstat` 里 `05-panels.css` 插入列 = 0）。抽取脚本 `tools/extract_review_css.py` 带逐边界断言（行号 + 首行内容），与 `tools/css-probe.py` 一样属**本地一次性工具、不进仓**（`.gitignore:19 /tools`）。
+
+**门禁实况（2026-09-19）**：
+
+| 项 | 基线（v0.2.3） | 现在 |
+| --- | --- | --- |
+| `tsc --noEmit` | 0 | **0** |
+| `vitest run` | 21 文件 / 235 用例 | **29 文件 / 298 用例**（新增 8 文件 63 用例） |
+| `cargo check --all-targets` | 0 / 0 | 0 / 0（本项未改 Rust） |
+| `cargo test` | 289 | 289（本项未改 Rust） |
+
+新增的 8 个测试文件：`patchPartial.test.ts`(10)、`reviewJump.test.ts`(10)、`streamFollow.test.ts`(13)、`reviewPanel.test.ts`(9)、`reviewWiring.test.ts`(3)、`ReviewTimeline.test.tsx`(5)、`ReviewIssueCard.test.tsx`(7)、`ReviewPanel.test.tsx`(6)。
+
+**守卫测试的"旧代码会变红"形态**（附 8.3 的硬要求，逐条说明）：
+- `reviewJump.test.ts`：断言跳完预览**仍处锁窗内**（而不是"看结果对"）+ `behavior` 必须是 `auto` + 渲染期与点击期判定必须同源。
+- `streamFollow.test.ts`：无 `reset()` 时**滚回底部也不跟随**（锁存）+ 护栏窗口内/外行为相反 + **源码级**禁止 `addEventListener("scroll")` 与 `setInterval(`。
+- `reviewPanel.test.ts`：`then` **不得在同一 tick 执行** + `afterLayoutStable` 必须是**两帧**（跑第 1 帧后回调仍未执行）。
+- `reviewWiring.test.ts`：读 `App.tsx` 源码，禁止 `toggle_review` 退回直接 `toggleReview()`。
+
+**⚠️ 一个环境坑（下次别踩）**：`act` 从 `react-dom/test-utils` 引会在 vitest 里打出 `ReactDOMTestUtils.act is deprecated` 警告 —— 这是**既有**现象（`SettingsModal.test.tsx` 同样有），不是 S4 引入的。React 18.3 已导出 `React.act`，将来可统一换掉（属独立清理，与 S4 无关）。
+
+### 8.6 S4 遗留 / 下一步
+
+1. **真机验收（未做）**：jsdom 测不出 DOM 行为与观感 —— 需确认「打开面板 → 出可点列表 → 点一条 → 预览滚到对应块并高亮、**不被分栏同步拽回**」「手动滚离 → 本次不再拽回」。验收脚本见 8.3。
+2. **S5 = A 第 4 步 17–21 AI 语义核查**（产品分水岭，≈2 天）：面板骨架已就绪，S5 只需 ①往 `ReviewTimeline` 的 `steps` 追加步骤 ②落 `ReviewComposer`（原工单第 5 项）③`review_model` 字段 ④核查锁 `llm` + 未配则入口禁用不降级 ⑤结果不进 `Cache`。`ensureReviewPanelOpen(then)` 的 `then` 就是 S5 的"注入草稿"接缝。
+3. **README 4 张截图仍过期**（`docs/screenshots/` 停在 v0.1.10，v0.2.1/2/3 用户均选择不换）→ **下次发版前必须重拍**。

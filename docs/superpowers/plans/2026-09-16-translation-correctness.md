@@ -48,21 +48,21 @@
 | | 9 **双语对照导出** | ✅ | commit `49167c7`：`translate/export.rs`（576 行，8 测试）、`bridge::export_translation` 双路分发（bilingual/single-language）、前端 `exportTranslation.ts` 双语模式放开 + `.bilingual.md` 后缀 |
 | **第 3 步** 面板骨架 + 确定性检查 | 10 侧栏槽位泛化 + `.panel-slot` / `.panel-handle` | ✅ | 2026-09-19 落地：`.panel-slot` 双宿主（grid-column 上移槽）、`.panel-handle` 透明舌形（48×20、hover 填底、无阴影）、`outlineDockedLeft`→`leftSlotOccupied`、`SESSION_VERSION` 不 bump + 向后兼容测试。**同日二轮（用户实测定案）**：同侧共存取代自动翻边——核查开同侧时占外侧列 + row 2/4 高栏（上抵标签栏下），大纲栏让位内移一列（右 col7→col6 / 左 col3→col4）；拖宽条内嵌进槽（不再占 col4/col6 独立列）；把手钉 `.panel-unit`、展开态中轴骑发丝线（修复线从舌头 65% 处斜穿的错位）；`toggleReview`/`setReviewSide` 翻边逻辑删除（side 纯偏好、互不干涉） |
 | | 10b 把手与入口改造（状态栏 `AI` 钮） | ✅ | 同上：EditorToolbar 大纲开关已移除、状态栏右端 `AI` 文字钮（active 跟面板、title 带 llmReady）、`Ctrl+J` 热键（view 组，不进 Rust 系统级注册） |
-| | 11 `ReviewTimeline` | ❌ 未做 | — |
-| | 12 `ReviewComposer` | ❌ 未做 | — |
-| | 13 滚动跟随（四要点） | ❌ 未做 | — |
-| | 14 `ensureReviewPanelOpen()` + `Ctrl+J` | ⚠️ **部分**（2026-09-19 复核） | `Ctrl+J` **已在注册表**：`hotkeyRegistry.ts:93` = `{ id: "toggle_review", label: "AI 核查面板", def: "Ctrl+J", group: "view" }`（view 组、不进 Rust 系统级注册），`toggleReview` 已接线（`b6a7a19`）。**但 `ensureReviewPanelOpen()` 函数全仓库不存在**——它是"先开面板再注入"的入口层，消费方在第 4 步的 AI 核查，随 S5 一起做 |
+| | 11 `ReviewTimeline` | ✅ | 2026-09-19 S4：`components/ReviewTimeline.tsx`——默认**折叠只显最新一步** + 状态点，`STEP_STATUS_TONE` 用 `satisfies Record<ReviewStepStatus, string>` 保类型穷尽，`tone → data-tone`（不在 JSX 散写颜色）。**先只接确定性检查一步**，AI 步骤由第 4 步往 `steps` 数组追加，组件不用改。`ReviewTimeline.test.tsx` 5 用例 |
+| | 12 `ReviewComposer` | ⏸ **并入第 4 步** | 它的输入是 AI 核查的追问、数据源在语义核查（第 4 步）→ 按 S4 工单第 5 项整体合并，S4 **不落空壳**（避免一个永远 disabled 的输入框） |
+| | 13 滚动跟随（四要点） | ✅ | 2026-09-19 S4：`lib/streamFollow.ts`（`StreamFollower` 纯类 + `useStreamFollow` 钩子，核心逻辑不碰 React/DOM 故可离线单测）——①**只认 `wheel`/`touchstart`/`pointerdown`，禁监听 `scroll`** ②`PROGRAMMATIC_SCROLL_GUARD_MS = 120` 时间戳护栏 ③`interrupted` **锁存**：滚离后本次流式不再拽回（即使他后来滚回底部），只有 `reset()` 才解除 ④rAF 合并写入、**不引 `setInterval`**。阈值照搬 180 / 120 / 96。`streamFollow.test.ts` 13 用例，含**源码级守卫**：源码中不得出现 `addEventListener("scroll")` 与 `setInterval(` |
+| | 14 `ensureReviewPanelOpen()` + `Ctrl+J` | ✅ | 2026-09-19 S4：`lib/reviewPanel.ts` = `afterLayoutStable()`（**两帧**：第 1 帧槽位可能还没被 React 提交进 DOM）+ `ensureReviewPanelOpen(then?)`（已开则同步执行，不空等）+ `revealReviewIssues()`（落点优先计数条，使「多少条」与「哪几条」同时可见）。`Ctrl+J` 已在注册表，本项补的是**执行体**：`App.tsx` 的 `toggle_review` 改为「开着→收起；关着→`ensureReviewPanelOpen` 开面板 + 布局稳定后落清单」。`reviewPanel.test.ts` 9 用例 + `reviewWiring.test.ts` 3 条源码守卫（读 `App.tsx` 钉住不得退回直接 `toggleReview()`） |
 | | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ✅ | commit `49167c7`：`translate/check.rs`（357 行，5 检查 + 5 测试）、`bridge::check_translation`、前端 `lib/checkTranslation.ts` + 守卫测试 |
-| | 16 `ReviewIssueCard` | ❌ 未做 | — |
+| | 16 `ReviewIssueCard` | ✅ | 2026-09-19 S4：`components/ReviewIssueCard.tsx`（**含非 actionable 态**：跳不动时**禁用跳转并写明原因，而不是隐藏**——隐藏会让「N 处问题」与「列出 M 条」对不上、看着像漏报）+ 跳转收敛成**唯一实现点** `lib/reviewJump.ts`（`probeIssueAnchor` 让**渲染期与点击期判定同源**，杜绝"画着能点、点了没反应"；`jumpToIssue` 内部封装「`lockSplitSide("preview")` → `scrollIntoView({behavior:"auto"})` → `emitSplitSync("preview", src_line)`」，`behavior` 不用 `smooth` 是因为它跑 300ms 会冲出 180ms 锁窗）+ `lib/issueKind.ts`（类别标签穷尽表，`satisfies Record<IssueKind, string>`）+ 样式独立成域 `styles/13-review.css`。`reviewJump.test.ts` 10 用例、`ReviewIssueCard.test.tsx` 7 用例 |
 | **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | ❌ 未做 | 无 `review_model` 字段 |
 | **第 5 步** 重排版规则集 | 22–23 | ❌ 未做 | — |
 
-**结论（2026-09-19 复核更新）**：**第 2 步已全部完成**（第 9 项双语导出随 v0.2.3 发布并真机验收）；**第 3 步只剩 11 / 12 / 13 / 16 四项 UI 组件 + 第 14 项的函数体**（`Ctrl+J` 已在）；第 4、5 步未做。
+**结论（2026-09-19 S4 更新）**：**第 2 步已全部完成**（第 9 项双语导出随 v0.2.3 发布并真机验收）；**第 3 步 UI 部分已收口**——11 / 13 / 14 / 16 四项 ✅ 落地，**12 `ReviewComposer` 并入第 4 步**（它的数据源在语义核查）。第 4、5 步未做。
 
-> **下一项 = 第 3 步的 11/12/13/14/16（把 `ReviewPanel` 从 v1 壳层做成完整面板）**，约 1.5 天，其中第 12 项 `ReviewComposer` 建议并入第 4 步。**详细工单（含依赖重排与验收口径）见 `2026-09-18-sqlite-translation-cache.md` 附 8。**
+> **下一项 = 第 4 步 AI 语义核查（17–21）**，约 2 天，**本项目产品分水岭**（翻译从"能看"到"可信交付"）。工单见 `2026-09-18-sqlite-translation-cache.md` 附 5 的 S5；面板骨架已就绪，S5 只需往 `ReviewTimeline` 的 `steps` 追加步骤 + 渲染 AI 追问（`ReviewComposer`）。
 
-**另外一项计划外的技术债（已于 2026-09-19 清掉一半）**：
-`src/styles/global.css` 的 **3590 行拆分已完成**（`49167c7`：52 行 manifest + 13 个域文件），§九 的 `.panel-slot` / `.panel-handle` / 状态栏 AI 钮已顺利落进 `05-panels.css`，没有再堆进大文件。**另一半 `patchPartial.ts` 锚点缺失打日志仍未做**（2 小时，建议作为 S4 的第 0 步）。
+**另外一项计划外的技术债（两项均已清）**：
+`src/styles/global.css` 的 **3590 行拆分已完成**（`49167c7`：52 行 manifest + 13 个域文件）。2026-09-19 S4 又补了**第二次拆分**：核查面板样式从 `05-panels.css`（当时已 701 行，顶到 800 阈值）抽成第 14 个域文件 `13-review.css`，新卡片/时间线/滚动跟随样式才落得下。**`patchPartial.ts` 锚点缺失打日志也已随 S4 第 0 步完成**（三处静默 `return` 统一走 `warnMissingAnchor`，带 `mode` / `index` / 选择器坐标；`patchPartial.test.ts` 10 用例）。
 
 ---
 
@@ -762,6 +762,15 @@ col1 文件栏 │ col2 拖宽条 │ col3 左停靠槽 │ col4 该槽拖宽条
 阈值照搬：`STREAM_START_FOLLOW_PX = 180` / `STREAM_GROWTH_FOLLOW_PX = 120` / `STREAM_BOTTOM_GAP_PX = 96`。
 
 > 这与我们翻译打字机用 rAF 的理由**同源**——`useTranslationStore` 里 `pumpReveal` 的注释写了 `setInterval` 在 WebView2 被节流到 ≥1000ms 的问题。保持一致，别再引 `setInterval`。
+
+**补充：确定性检查必须等翻译停（2026-09-19 S4 实测补）**
+
+译文表是 `useDocStore.mergeTranslations` **逐批** merge 进来的（每批换一次 `Map` 身份）。若检查跟着 `translations` 的变化就跑：
+
+1. **每批一次 IPC**（几百批就是几百次往返）；
+2. 更糟的是**语义错**——半篇译文里"还没轮到"的 run 会被判成 `OmittedUntranslated`，面板被假问题刷屏，而用户完全没做错什么。
+
+做法：`useTranslationStore.status === "running"` 时**不查、也不展示上一版结果的清单**（时间线显示「确定性检查 · 等翻译停」），并让依赖同时包含 `translations` 与 `status` —— 两者谁后落地都能触发"最后一查"（只盯状态会漏掉"状态先停、表后到"的窗口）。
 
 ### 8.6 入口层（照 `services/aiContext.ts`）
 
