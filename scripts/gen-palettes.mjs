@@ -1,4 +1,4 @@
-// 由 src/lib/paletteSeeds.ts 生成 src/styles/palettes.css。
+// 由 src/lib/paletteSeeds/（index.ts 汇聚种子表，P2-8g 起按 id 分文件）生成 src/styles/palettes.css。
 //
 // 跑法：`npm run gen:palettes`（= node scripts/gen-palettes.mjs）。
 //
@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { paletteCss } from "../src/lib/paletteSeeds.ts";
+import { paletteCss } from "../src/lib/paletteSeeds/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const target = join(here, "..", "src", "styles", "palettes.css");
