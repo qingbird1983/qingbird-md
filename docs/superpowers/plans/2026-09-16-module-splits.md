@@ -41,6 +41,21 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 > 生产 8,135 → 8,165（+30：模块声明、`pub use` 转发、新文件头注释），测试 4,052 → 4,065（+13）。
 > 净增 43 行，全部是拆分本身的开销——**没有一行是逻辑改动**。
 
+**总量复测快照（2026-09-20，P2 批次二·Rust 拆分完成后）**
+
+> 工具：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File` 跑第一节原版脚本
+> （`.Count` 口径 + `*_tests.rs` 整体计测试规则），全树逐一计数后 `Measure-Object` 汇总。
+> **Rust**：文件数 40 → **75**，生产 8,165 → **9,750**，测试 4,065 → **5,944**，
+> 合计 12,230 → **15,694**；**最大生产文件 = `capture/window/mod.rs` 371 行**（全树 ≤ 400 达标）。
+> 文件数净变化以 `git diff --name-status eed0304 HEAD -- src-tauri/src` 实测为凭：
+> 新增 40、删除 5——含 P2-7 九文件拆分的目录化（bridge/ commands/ model/ html/ cmark/
+> hibernate/ providers/ translate/{events,runner} capture/window/）、基线后功能批次的
+> `check.rs` / `export.rs`（翻译正确性）与 P1-6 的 `atomic_write.rs`。
+> **前端**：文件数 83 → **122**（P1-2 CSS 十三域拆分 + 批次一 MenuPanes/createDialogHost 等），
+> 生产 15,664 → **17,654**，测试 2,311 → **4,752**，合计 17,975 → **22,406**。
+> 两树行数净增含 P0/P1/批次一/批次二的功能与测试增量，非拆分开销（拆分单元各自的
+> 纯提取审计见《审查与整改》执行记录）。
+
 ---
 
 ## 二、阈值（拆分判定线）
@@ -61,32 +76,44 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 
 ### 3.1 Rust
 
+**复测表（2026-09-20，P2 批次二拆分后；工具与汇总见第一节复测快照。原 2026-09-16 表中被拆
+文件的旧行数已随行标注）**
+
 | 生产 | 总量 | 内联测试 | 文件 | 超标项 |
 | --- | --- | --- | --- | --- |
-| **812** | 999 | 187 | `src-tauri/src/lib.rs` | 生产 ✗ 总量 ✗ |
-| **751** | 781 | 30 | `capture/window.rs` | 生产 ✗ 总量 ✗ |
-| **599** | 807 | 208 | `markdown/model.rs` | 生产 ✗ 总量 ✗ |
-| **559** | 886 | 327 | `bridge.rs` | 生产 ✗ 总量 ✗ |
-| **429** | 652 | 223 | `hibernate.rs` | 生产 ✗ |
-| 397 | 525 | 128 | `translate/providers.rs` | — |
-| 366 | 605 | 239 | `translate/lookup.rs` | — |
-| 366 | 678 | 312 | `translate/engine.rs` | ✅ **P0-1 已达标**（原 634 / 1107） |
-| 288 | 451 | 163 | `markdown/units.rs` | — |
-| 151 | 244 | 93 | `translate/policy.rs` | ✅ P0-1 新建 |
-| 145 | 226 | 81 | `translate/packing.rs` | ✅ P0-1 新建 |
-| 559 | 562 | 3 | `markdown/html.rs` | ✅ **P0-2 已达标**（原 559 / 1201，测试已外迁） |
-| — | 639 | 639 | `markdown/html_tests.rs` | 纯测试文件（生产 0） |
+| **371** | 371 | 0 | `capture/window/mod.rs` | —（P2-7k2 拆后全树最大；原 `capture/window.rs` 751/781 已撤） |
+| 370 | **748** | **378** | `translate/http.rs` | 总量 ✗ 内联测试 ✗（**未登记·新发现**；P1-4/P1-8 加固增厚所致，存量非本批引入） |
+| 367 | 632 | 239 | `translate/lookup.rs` | — |
+| 321 | 598 | 277 | `translate/runner.rs` | ✅ **P2-7j 已达标**（执行器；`engine.rs` 留 40/105/65，原 366/678） |
+| 305 | 488 | 183 | `markdown/units.rs` | — |
+| 295 | 298 | 3 | `markdown/html.rs` | ✅ **P2-7f 已达标**（原 559/562，生产拆出 html/{inline,code,footnote}） |
+| 285 | 415 | 130 | `bridge/worker.rs` | ✅ **P2-7a 已达标**（原 `bridge.rs` 559/886 已撤） |
+| 283 | 475 | 192 | `translate/openai.rs` | — |
+| 276 | 308 | 32 | `bridge/commands.rs` | ✅ P2-7a |
+| 271 | 477 | 206 | `markdown/model/parse.rs` | ✅ **P2-7e 已达标**（原 `model.rs` 599/807 已撤） |
+| 268 | 505 | 163 | `storage.rs` | — |
+| 267 | 421 | 154 | `markdown/cmark/writer.rs` | ✅ **P2-7g 已达标**（原 `cmark.rs` 426/621 已撤） |
+| 260 | 333 | 73 | `capture/window/pixels.rs` | ✅ P2-7k2 |
+| 254 | 612 | **358** | `translate/export.rs` | 内联测试 ✗（**未登记·新发现**；BUG-1 回归增厚所致，存量非本批引入） |
+| 254 | 411 | 157 | `workspace.rs` | — |
+| 252 | 270 | 18 | `window_boot.rs` | ✅ **P2-7d 已达标**（新建；原 `lib.rs` 812/999） |
+| 238 | 332 | 94 | `markdown/model/inlines.rs` | ✅ P2-7e |
+| 231 | 409 | 94 | `translate/batch.rs` | — |
+| 204 | 263 | 59 | `translate/providers/signed.rs` | ✅ **P2-7i 已达标**（原 `providers.rs` 397/525 已撤） |
+| 195 | 401 | 206 | `translate/check.rs` | — |
+| 193 | 275 | 82 | `commands/workspace_ops.rs` | ✅ P2-7d |
+| 0 | 639 | 639 | `markdown/html_tests.rs` | 纯测试文件（生产 0） |
 
-其余 28 个文件生产均 < 300 行，健康。
+其余 53 个文件生产均 < 190 行，健康（含 P0-1 新建的 `policy.rs` 169 / `packing.rs` 145、
+P2-7h 拆后的 `hibernate/{state 136, session 125, window 72, handoff 50}`）。
 
-> **P0 之后还剩什么**：生产超线（> 400）的 Rust 文件**从 7 个降到 5 个**——
-> `lib.rs` 812 / `capture/window.rs` 751 / `model.rs` 599 / `bridge.rs` 559 / `hibernate.rs` 429。
-> 其中 `bridge.rs` 是 P1-5（Step 1 的方向入参、Step 2 的导出命令都要碰它），
-> `lib.rs` 是 P2-1（计划里就写明「Step 2 加导出命令**之前**先拆」）——都已在排期里，现在不必动。
->
-> **`translate/` 目录现在是三个各司其职的文件**：`engine.rs` 只管「怎么跑」、
-> `policy.rs` 管「怎么判定 / 怎么措辞 / 缓存怎么版本化」、`packing.rs` 管「怎么切批 / 怎么排批 /
-> 怎么分片」。Step 1 要改的东西**全在 `policy.rs` 里**，改动面从"上千行文件里翻找"变成"改一个 151 行的文件"。
+> **P2 批次二之后还剩什么**：生产超线（> 400）的 Rust 文件**清零**——9-16 清单上的
+> `lib.rs` 812 / `capture/window.rs` 751 / `model.rs` 599 / `bridge.rs` 559 / `hibernate.rs` 429
+> 五个全部拆完，`providers.rs` / `engine.rs` / `html.rs` / `cmark.rs` 同批归位。
+> 剩余债集中在**总量 / 内联测试块**两线：`http.rs`（总量 748、测试块 378）与
+> `export.rs`（测试块 358）——均为存量（P1-4/P1-8 加固与 BUG-1 回归各自增厚测试），
+> 非本批拆分引入；按第二节「先把内联测试挪出去，再判生产」的最便宜一刀处理即可，
+> 留待后续批次。前端拆分（P2-8）未动，见 §3.2。
 
 ### 3.2 前端
 
@@ -189,8 +216,9 @@ mod tests;
 | P0-2 | `markdown/html.rs` 测试外迁 | ✅ **已完成**（`55e0900`）· 1201 → **562**（生产 559 一行未动） |
 | P0-1 | `translate/engine.rs` 三分 | ✅ **已完成**（`a3dea26` + `eed0304`）· 1107 → **engine 678 / policy 244 / packing 226** |
 | P1-2 | `src/styles/global.css` 按域拆分 | ✅ **已完成**· 3636 → 13 个 ≤ 800 行文件 + 52 行 manifest。`tools/css-probe.py` 固化源码+构建两层等价核对 |
-| P1-1, P1-3..6 | 见上 | ☐ 待排期 |
-| P2-1..8 | 见上 | ☐ 待排期 |
+| P1-1, P1-3..6 | 见上 | ☐ 待排期（前端拆分，留批次三） |
+| P2-1..4 | `lib.rs` / `capture/window.rs` / `markdown/model.rs` / `hibernate.rs` | ✅ **已完成**（P2 批次二 2026-09-20，即《审查与整改》P2-7d / 7k1+7k2 / 7e / 7h）· 拆后全树生产 ≤ 371，Rust 生产超线清零 |
+| P2-5..8 | SettingsModal / Sidebar / useWorkspaceStore / paletteSeeds | ☐ 待排期（前端拆分，留批次三） |
 
 > **P0 收尾事实（2026-09-16 晚）**
 > - 三步拆分全部是**纯提取**：`cargo test` 261 passed、三次逐位一致、零 warning。
@@ -237,3 +265,17 @@ mod tests;
 > `06-views.css` / `08-popovers.css` 已经预留好「双栏预览 / 划词浮窗」的位置，T03
 > 「确定性检查」（`.panel-slot` / `.panel-handle`）可以直接落到 `05-panels.css` 而不用
 > 先建文件。
+
+> **P2 批次二收尾事实（2026-09-20）**
+> - 九个 Rust 超长文件全部归位为「薄根 + 子模块」形态：`bridge.rs` → bridge/{commands,payload,worker,events}+mod；
+>   `lib.rs` → commands/{file,workspace_ops,dialogs,settings}+window_boot（lib.rs 留薄根）；
+>   `markdown/model.rs` → model/{types,anchors,parse,inlines}+mod；`markdown/html.rs` → html/{inline,code,footnote}（根保留）；
+>   `markdown/cmark.rs` → cmark/{escape,writer}+mod；`hibernate.rs` → hibernate/{state,window,session,handoff}+mod；
+>   `translate/providers.rs` → providers/{mod,free,signed,llm}；`translate/engine.rs` → {events,runner}（根留转发与再导出）；
+>   `capture/window.rs` → capture/window/{mod,session,pixels,encode}。
+> - 12 个执行单元、14 个提交（P2-7e/7i 各一轮返工），逐项独立评审通过；拆分均为纯提取
+>   （逐行审计期望 532~1504 行全命中），旧路径 `pub use` 保留、全仓 use 零改动，
+>   Tauri IPC wire 命令名逐字不变。逐单元明细见《审查与整改》「执行记录（2026-09-20，P2 批次二）」。
+> - 复测（工具与口径见第一节快照）：全树 75 个文件生产 ≤ **371**（capture/window/mod.rs），
+>   **Rust 生产超线清零**；新发现存量债 `http.rs` 总量 748 / 测试块 378、`export.rs` 测试块 358
+>   （均为功能/加固批次增厚测试所致，非拆分引入），已入 §3.1 复测表待后续批次。

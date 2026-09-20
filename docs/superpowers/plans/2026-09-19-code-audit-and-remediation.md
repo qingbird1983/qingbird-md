@@ -479,3 +479,33 @@ CSS 已在 P1-2 拆成 13 个 ≤ 800 行域文件（最大 694/691），本次�
 - **开放决策（沿用 §六）**：AppMenu「退出」按钮的 `window.close()` 在 WebView2 是否有效仍属 §六.7 人工确认项，本批拆分未动其行为；§六.5（batch.rs 预留 API 接或删）已由 P2-5 以「删」落定。
 - **Mimosa 备注**：本批次各项提交前钩子均提示扫描结论不完整（python_ast 不可用等，按兼容策略放行）；各批均为纯删除/去重/纯结构拆分，不涉及安全面声明，本记录不构成项目级安全审计。
 - **门禁与工作区状态**：收口门禁四项全绿（`cargo check`/`cargo test`/`tsc --noEmit`/`vitest run` 退出码 0，数据来自批次收口材料）。工作区残留 `?? nul` 为基线已有，全程未触碰；本文档本节追加后随本提交入库。
+
+---
+
+## 执行记录（2026-09-20，P2 批次二：Rust 拆分）
+
+本批次按 §四.P2-7 处方完成 Rust 拆分全部九文件，共 12 个执行单元、14 个提交（P2-7e 与 P2-7i 各含一轮返工提交），逐项经独立代码评审，结论均为「评审通过」：10 个单元一次通过（reviewRounds=0），P2-7e（返工删随迁测试零引用导入）与 P2-7i（返工把 codes/creds 的 pub(super) 降回私有，可见性不外扩红线）各经一轮返工后复审通过。**执行过程如实呈现**：P2-7k 原单元（capture/window.rs，生产占比 96% 无测试兜底）在前次运行两次卡死，按处方「先给 blit_pixels/draw_border 补边界测试再拆」的内置注记拆为 7k1（先测后拆）/7k2（拆分本体）两个子单元；P2-7a..P2-7k1 十一个单元均由前次运行完成实施并逐项通过评审，本次运行经 `git cat-file`/`git log` 逐一核验 14 个提交在库后**复用其结论，未重复实施与评审**；本运行实际执行的是 P2-7k2——前次运行遗留的拆分半成品（window/ 下四个草稿文件未提交、cargo check 报 13 个错误），本次以 HEAD 原文件为基准逐文件审阅补齐后提交（084b549），另有批次收口门禁与本记录（《拆分记录》行数复测同步更新）。红证据口径：拆分类单元处方未要求新增回归（纯提取审计即验收主体），P2-7k1 为「先测后拆」前置的测试新增单元、P2-7c 新增挂接级回归并做变异验证（临时删守卫该测试必红），其余按 redAttested=false 如实记录。批次收口门禁四项全绿、退出码均为 0：`cargo check`、`cargo test`、`tsc --noEmit`、`vitest run`（收口流程实跑；Rust 侧收口时点 327 unit + 2 integration 全绿，与 7k1 后基线一致）。拆分纪律遵照：八处拆分逐行审计期望行数全命中（7a 1056 / 7d 1504 / 7e 1181 / 7f 532 / 7g 610 / 7h 687 / 7i 826 / 7k2 854）；旧路径 `pub use` 保留、全仓 use 零改动；IPC wire 命令名逐字不变（7a 九个、7d 四十一个）；P0-9 RunningGuard、P1-4 校验器、P1-5 深度上限、P1-11 capture_proxy Result 化与 TOCTOU 复检、html/cmark 单遍遍历红线均逐字保持。
+
+| 计划项 | 提交 | 要点 | 验收状态（含评审结论） |
+|---|---|---|---|
+| P2-7a bridge.rs 四分 | a8eabb7 | `bridge/{commands,payload,worker,events}+mod`：命令外壳 / 载荷组装 / worker（活动戳+空闲收缩+RunningGuard+spawn_translation）/ wire 事件类型；13 个内联测试按引用归属随迁逐字未改；lib.rs 经模块根 `pub use`（9 命令 + 18 个 `__cmd__`/`__tauri_command_name` 隐藏伴随宏）注册路径零改动 | ✅ 评审通过（0 轮）。1056 行逐行审计全命中，白名单 8 处 `pub(super)`；拆后各文件生产 75–292 / 总量 207–326。关键决策：tauri generate_handler 按定义模块路径解析伴随宏，先用独立 rustc 实验证实再实施 |
+| P2-7b 缓存快照降本 | b3cd6b8 | `translate_document` 整缓存 `clone()`（≤5000 条深拷贝）降为 O(本轮单元) 定向播种：precheck 与 worker scratch 共用播种 Cache，窗口扫荡短临界区直查共享 cache（PERF-2 移交半项清偿） | ✅ 评审通过（0 轮）。缓存语义零变化、无新 pub 面，仅动 bridge/commands.rs（+23/-5） |
+| P2-7c 可靠性小补清偿 | 6f58ded | spawn_translation 线程体提为可测内核 worker_main（WorkerEmit seam，wire 名与发送失败丢弃语义不变）；新增挂接级回归 worker_panic_resets_running_via_hook（伪造 emitter 首事件 panic，断言 running 守卫复位、新一轮 CAS 可抢占）；engine.rs 最后一处 poisoned expect 与 worker 测试 unwrap 统一 `unwrap_or_else(into_inner)`（P0-10 记录项清偿） | ✅ 评审通过（0 轮）。挂接回归已做变异验证（临时删守卫行必红） |
+| P2-7d lib.rs 五分 | fa144c0 | `commands/{file,workspace_ops,dialogs,settings}+window_boot`：文档 IO/工作区右键族/对话框薄壳/设置转发布 + 启动标志与 run() 装配；17 个内联测试按引用随迁；命令注册改 `commands::X::name` 全路径经隐藏宏解析 | ✅ 评审通过（0 轮）。1504 行逐行审计全命中，41 个 wire 命令名逐字不变、窗口/启动装配时序逐行保持；拆后各文件生产 ≤315 / 总量 ≤335 |
+| P2-7e model.rs 四分 | 43a4df9 + 18f4eaf | `model/{types,anchors,parse,inlines}`：parse_blocks 与 top_level_block_lines 共用同一 options()、顶层事件序逐字未改；P1-5 MAX_NESTING_DEPTH 两条互递归降级路径原样；18 个测试按引用随迁 | ✅ 评审通过（1 轮返工：18f4eaf 删 anchors.rs 随迁测试零引用的 Block/Inline 导入清 unused 告警，门禁补 `--profile test` 口径）。1181 行审计全命中；拆后生产 ≤293 / 总量 ≤507 |
+| P2-7f html.rs 三拆 | 25b6f1d | 按「给谁 write」拆 `html/{inline,code,footnote}`；遍历核与 sub/bi/ref 三计数器留根，单次遍历同轮推进不拆轮次（FootnoteDef 仅提取为同 match 内方法）；html_tests.rs 一行未改、模块路径不变 | ✅ 评审通过（0 轮）。532 行审计全命中，白名单 pub(super)×5 与分支提取缩进左移；拆后生产 ≤295 / 总量 ≤298 |
+| P2-7g cmark.rs 二分 | fdaa95b | `cmark/{escape,writer}`：五个纯转义函数 / 三个 pub API + Md 序列化器；data-ri run 计数只有 Inline::Text 推进的红线逐字保留；8 个测试按引用面二分（escape 2 / writer 6） | ✅ 评审通过（0 轮）。610 行审计全命中；拆后生产 ≤288 / 总量 ≤458 |
+| P2-7h hibernate.rs 四分 | faf03b4 | `hibernate/{state,window,session,handoff}`：状态机 / 建窗 / 快照（P1-6 原子写调用点原样）/ 前端 handoff；P1-11 TOCTOU 销毁前复检与 abandon_cancelled_hibernate 复用逐字保持；19 个测试按引用随迁 | ✅ 评审通过（0 轮）。687 行审计全命中零白名单；根再导出精确收敛到 13 个外部实际引用项；拆后生产 ≤157 / 总量 ≤306 |
+| P2-7i providers.rs 归族 | a4c7c3d + d5b74d2 | `providers/{mod,free,signed,llm}` 按凭据要求归族：免密钥族（含 auto 降级链）/ 签名族（含时间签名助手）/ LLM 族 / 分发与共享件；分发入口 provider() 行为逐字不变；11 个测试按族同迁 + 方向不变量哨兵留 mod | ✅ 评审通过（1 轮返工：d5b74d2 把 codes/creds 的 pub(super) 降回私有——父模块私有项对子孙本已可见，原标注反扩可见域至 translate 子树）。826 行审计全命中；拆后生产 ≤207 / 总量 ≤266 |
+| P2-7j engine.rs 三分 | 98b43c0 | 拆出 events.rs（EngineEvent wire 类型）与 runner.rs（EngineRequest/run/finalize/process_batch/translate_one/llm_once），engine.rs 只留转发与 re-export（仿 policy/packing 先例）；13→10 测试按引用面二分（缓存命中/results 对齐留 engine，LLM 协议族随 runner）；转发随消费者迁移同步收口防 unused 告警 | ✅ 评审通过（0 轮）。780 行审计全命中；拆后 engine 105 / events 18 / runner 615（生产 331/测试 284） |
+| P2-7k1 先测后拆（capture/window.rs 前置） | 1fa7646 | blit_pixels 三例（stride≠w 源偏移搬运、dy 越底边行级裁剪、空缓冲/零尺寸容错）+ draw_border 三例（3x3 描边厚度 1 中心不着色、厚度互斥守卫满幅填充、右下越界裁剪与完全出界 no-op），纯函数离线断言、期望值逐像素手工推演 | ✅ 评审通过（0 轮）。window 9 测试（原有 3 + 新增 6），327+2 全绿 |
+| P2-7k2 window.rs 四分 | 084b549 | `capture/window/{mod,session,pixels,encode}`：会话状态机（HandlerState/CaptureHandler+ApplicationHandler+finish_selection）/ 命令事件类型与事件循环单例（REL-6 降级护栏原样）/ 每帧渲染与像素助手 / 选区归一化+裁剪编码（P1-11 encode_png Result 化原样）；9 个 k1 测试按归属随迁（pixels 7 / encode 2）逐字未改 | ✅ 评审通过（0 轮）。前次运行遗留草稿经逐文件审阅补齐三处缺口（根模块漏再导出 CaptureCommand/CaptureEvent、mod 漏 use session::CaptureEvent、pixels 漏 use super::CaptureSession）后 13 个编译错误清零；854 行审计全命中，白名单 4 处 pub(super) + super::normalize_rect 路径调整；拆后 mod 375 / session 136 / pixels 337 / encode 65 |
+
+### 遗留与移交
+
+- **P2-8 未动，留批次三**：本批次仅覆盖 §四.P2-7（Rust 拆分）；P2-8 前端拆分（useTranslationStore → useDocStore/Sidebar/PreviewView/SettingsModal/App.tsx/paletteSeeds 六项）未启动。《拆分记录》口径下的前端项（P1-1、P1-3..6、P2-5..8）同留批次三。
+- **《拆分记录》复测新发现存量债（非本批引入、未处理）**：`translate/http.rs` 总量 748 > 700、内联测试块 378 > 300（P1-4/P1-8 加固增厚测试所致）；`translate/export.rs` 内联测试块 358 > 300（BUG-1 回归增厚所致）。两处生产均未超线，按《拆分记录》第二节「先挪内联测试」的最便宜一刀处理，留后续批次。
+- **需真机/运行时验证**：① P2-7c 的 worker panic 注入——挂接回归系离线驱动 worker_main 内核 + 伪造 emitter（engine 走 cache pass 不触网），真实 spawn 线程的 panic 展开、RunningGuard 复位与「panic 后新一轮翻译可重新抢占」的端到端运行时行为未验证；② P2-7d 的 41 个 IPC 命令经 generate_handler 全路径注册的真实调用（Tauri runtime 不可离线单测，静态核对 wire 名与隐藏宏解析链）；③ P0-8 移交的「大文档实测不冻结」（7b 缓存快照降本落地后仍待实测）；④ 截图窗口真实交互（7k2 拆分后的选区/遮罩/右键切换）建议人工过一遍。
+- **各单元 notes 如实收录（要点级，全文见各单元提交信息）**：7a——模块根采 mod.rs 形态（随项目既有 markdown/translate 风格，lib.rs 零改动）；tauri 隐藏伴随宏 18 个必须随命令再导出（generate_handler 按定义模块路径解析 `__cmd__X`，独立 rustc 实验先证后行）；无人经旧路径使用的项不转发（P0-1 教训）；工作区行尾实测混合，新文件按源文件与 git index 写 LF；storage.rs/cache.rs/前端测试注释中的「bridge.rs」字样为注释性提及未动。7k2——草稿可救未推倒重做；修复三处缺口后 13 错清零；normalize_rect 新增一行 doc 注释（草稿所加、描述与实现一致，保留）；orchestrate.rs 等消费方零改动。7e/7f/7g/7h/7i 的逐项白名单（pub(super) 清单、签名折行、路径限定等）见各自提交信息。
+- **Mimosa 备注**：本批次各项提交前钩子均提示扫描结论不完整（python_ast 不可用等，按兼容策略放行）；本批均为纯拆分/结构类改动，不涉及安全面声明，本记录不构成项目级安全审计。
+- **门禁与工作区状态**：收口门禁四项退出码全 0（`cargo check`/`cargo test`/`tsc --noEmit`/`vitest run`，收口流程实跑）。工作区残留 `?? nul` 为基线已有，全程未触碰；本文档本节与《拆分记录》复测更新随本提交入库。
