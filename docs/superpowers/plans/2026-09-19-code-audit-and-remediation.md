@@ -453,3 +453,29 @@ CSS 已在 P1-2 拆成 13 个 ≤ 800 行域文件（最大 694/691），本次�
 - **实施中发现的计划外事项**：① 测试基建——tauri 自带 mock runtime 在本机使测试 exe 起步即 0xc0000139（上游已知问题 #13419/#13954），asset_scope 回归改真实 Wry 集成测试；集成测试链入 tauri app 后缺 Common-Controls v6 manifest 同样起步崩，按 tauri 官方同解在 build.rs 用 rustc-link-arg-tests 仅为测试二进制嵌 manifest（主程序不受影响）；`#[tauri::command]` 隐藏项与 pub fn 冲突（E0255），加 `resolve_image_for_test` 薄壳转发跑同一函数体。② P1-4 首轮红测暴露校验器漏剥端口的真 bug（127.0.0.1:11434 被误拒），修端口剥离后转绿；另核实 ureq 2.12.1 自带 10MiB 内部上限（计划称「无上限」不准确），改显式 16MiB 不再依赖库实现细节。③ P1-8 侦察假设与现状不符：查词 bridge.rs 此前用裸 `UreqClient::shared()`，根本没经过 CancelableClient，本项补上接线。④ P1-11 计划 REL-9「与 safeGet/safeSet 口径不一致」措辞不实（全仓无该助手），实际照 useWorkspaceStore/useRecentStore 逐点 try/catch 模式包裹；P1-9 计划 CQ-13 称 StatusBar「只用到 `!!doc` 或 `doc.content`」与实况不符（还用 path/name/encoding），按实际消费字段最小等价改写。⑤ P1-2 实施中一次 Edit 误改 workspace.rs 模板字符串，提交前 diff 审查发现并逐字还原（`git show HEAD` 复核无模板行变更）。⑥ P1-6 Windows 失败注入发现 `std::fs::File::open` 默认共享位含 FILE_SHARE_DELETE（拦不住 rename），测试改 `OpenOptionsExt::share_mode` 显式去 DELETE 位才稳定触发 sharing violation；P1-3 探针值改用非凭据形标记串 LEAK-PROBE-CANARY-*（Mimosa 两次拦截凭据形字面量，即便明显假密钥），防护效果等价。
 - **Mimosa 备注**：本批次多轮提交前钩子提示扫描结论不完整（python_ast 不可用等，按兼容策略放行），本记录不构成项目级安全审计声明，仅各项改动经其检查。
 - **门禁与工作区状态**：收口门禁四项全绿（数据来自批次收口材料，撰写本记录时未复跑）。工作区残留 `?? nul` 为基线已有（f9a69f2 时即存在），全程未触碰；本文档本节追加后随本提交入库。
+
+---
+
+## 执行记录（2026-09-20，P2 批次一：清理）
+
+本批次按 §四.P2 处方完成清理与结构类七项（P2-1~P2-6、P2-9；P2-7/P2-8 为拆分项，未动，留待批次二/三），共 7 个执行单元、8 个提交（P2-4 首轮评审打回后补一个返工提交），逐项经独立代码评审：六项一次通过（reviewRounds=0），P2-4 经一轮返工（评审指出删徽标后 `.review-issue-line` 死 CSS 残留于 13-review.css，补删后通过，其余各项核实结论均维持）。红证据口径：本批为清理/去重/纯结构拆分类，处方未要求新增回归，redAttested 一律 false；其中 P2-2 新增 7 条并发/结算/独立单例测试、P2-4 同步改写 4 个受字段删除影响的既有测试，均属对存活行为的正向钉固，不构成修复前红证据。批次收口门禁四项全绿，退出码均为 0：`cargo check`（0）、`cargo test`（0；P2-5 时点项内实测 320 unit + 2 integration passed / 0 failed，较 P1 收口的 327 减少 7 = 删除 6 个锚定死 API 的测试 + providers_meta 测试改写归并）、`tsc --noEmit`（0）、`vitest run`（0；36 files / 332 tests passed，较 P1 收口的 325 净增 7 = P2-2 新增测试）。
+
+| 计划项 | 提交 | 要点 | 验收状态（含评审结论） |
+|---|---|---|---|
+| P2-1 删除死代码菜单 TopBar+5 | ee125a5 | 删 6 文件共 274 行（保留活代码共用的 Menu.tsx 与 .menu-* CSS），删除前全仓 grep 复核零代码引用；顺手更正 01-titlebar.css:350 注释为共用样式口径 | ✅ 评审通过（0 轮）。.topbar 规则块评估后有意保留（注释明言「保留选择器防遗漏」，删则需级联更正两处文件头注释，且零行为影响）；.brand/.brand-sep 无 CSS 规则可删 |
+| P2-2 抽 createDialogHost 合并四对话框 | 4eaf01a | 新建 lib/createDialogHost.ts（工厂 + useDialogPick busy 闸），覆盖前按取消语义结算收进通用 host 并推广到全部四对话框（Conflict/Dirty="cancel"、Reload="keep"，即各自 Esc/遮罩语义）；对外 API 位置参数签名逐字不变；补 DialogHosts.test.tsx 7 用例 | ✅ 评审通过（0 轮）。P1-7 并发契约（pending 闸、覆盖前 resolve(false)）逐行等价保留，ConfirmDialog.test.tsx 未改一字全绿；首版工厂单 props 对象签名违反硬约束被 tsc 拦下（19 处），提交前改为保留原签名导出函数内部委托工厂；顺带修 Conflict/Dirty/Reload 三处被覆盖 awaiter 永不 settle 的既有缺陷（计划授权），TabBar 重入护栏降为纵深防御仅更正失实注释 |
+| P2-3 baseName/SESSION_VERSION/hex/clean 去重 | 666178e | name 半径统一 wsPath.baseName（三处调用点）；base_dir 半径存为局部 baseDirOf 并注释与 dirName 的语义差异（裸名返 null、盘根不特判）；SESSION_VERSION 下沉 lib/sessionVersion.ts（session.ts 读 store 不可反向依赖）；hex 收拢 sign.rs（pub(super) 不外扩）；clean 并入 openai::strip_fence（逐点等价，删重复测试） | ✅ 评审通过（0 轮）。四门禁全绿；cargo 无 dead_code 警告即证无孤儿 |
+| P2-4 删 dirtyCount/getProviderMeta/恒 0 行号字段/过期 allow/空注释 | 16a2a34 + 8c71bc2 | dirtyCount；getProviderMeta 全链（ipc 封装+bridge 命令+lib.rs 注册行+独占实现 providers_meta::info，两个 Provider DTO 非独占均保留）；src_line/dst_line 双侧删字段并清理前端消费链（ReviewIssueCard 行号徽标/aria、reviewJump emitSplitSync 推恒 0 坐标、4 个测试同步）；dto.rs 两处过期 allow(dead_code)；lib.rs Task 6/7 空脚手架注释 | ✅ 评审通过（1 轮返工）。首轮唯一意见：.review-issue-line 死 CSS 残留（13-review.css:413-418，全仓零使用）——补删提交 8c71bc2 后复审通过，其余核实结论维持。处方「预计前端无消费」不成立（恒 0 但被 UI 与跳转真消费），按处方「一并清理」执行；实现真行号属功能活未做（见遗留） |
+| P2-5 batch.rs 预留 API 删除 | 070d264 | 删 map_slots/ignored_protocol/has_leftover/fed_len 四函数 + 4 处 allow(dead_code) + fed_len 死字段（连带 new/push 读写行）+ 6 个锚定测试；preamble 测试改写保留存活路径断言；engine.rs:412 旧式协议 fixture 改普通文本（P0-4 评审移交项） | ✅ 评审通过（0 轮）。删除后 cargo check 零警告即证无读写残留；fed_len() 本就零测试锚定；该 fixture 测试只断言 from_cache 旗标，零风险 |
+| P2-6 收窄同形别名 | a527607 | OutlineSide 并入 PanelSide（无跨文件 importer，useUiStore 内 3 处引用 + 注释合并）；App.tsx/contentWidth.ts/PreviewView.tsx 三处内联 "left"\|"right" 并集统一 type-import PanelSide；classifyPreviewHref/StreamFollower 加测试入口红线标注（resetSplitSync 原注释已标） | ✅ 评审通过（0 轮）。ExportMode（收窄 IPC 契约，合入 Mode 反放宽）、SplitSide（域不同）、33 个「符号活、仅导出面为测试服务」export 与 hotkeyDef（唯一纯测试符号，删除需连带测试无收益）经评估不动作，理由见处方 b 款授权 |
+| P2-9 AppMenu 二级菜单拆子组件 | a2e2a48 | 新建 components/menu/MenuPanes.tsx（FileMenuPane/ViewMenuPane/TranslatePane + HkTip 随迁），store 订阅按归属下沉、共享件仅 close/hk；AppMenu 314→192 行只留一级结构/定位/悬停/收回交互；条目文案/快捷键/回调/CSS 类名逐字不变，subMenus Record 改仅激活 Pane 条件挂载（不再白建三份 JSX） | ✅ 评审通过（0 轮）。hotkeyRegistry 源码扫描测试（hk.<id> 对注册表）随代码迁移等价扩域为 AppMenu+MenuPanes 两文件拼接，断言不变（实际命中 6 个静态 id）；window.close() 退出按钮归 §六.7 未动 |
+
+### 遗留与移交
+
+- **P2-7/P2-8 未动**：本批次仅覆盖 §四.P2 的清理与结构七项；P2-7（Rust 拆分：bridge → lib → model/html/cmark/hibernate/providers/capture）留待批次二、P2-8（前端拆分：useTranslationStore → useDocStore/Sidebar/PreviewView/SettingsModal/App.tsx/paletteSeeds）留待批次三，均按 §三.2 处方与《拆分记录》纪律执行。
+- **注释级遗留（非阻塞）**：P2-1 后 `Menu.tsx:7` 注释仍提及「TopBar 菜单」（他处注释，超出该项授权未动，后续拆分批次顺手更正即可）；`01-titlebar.css` 的 `.topbar` 选择器块（:345-348、:365-378）评估后有意保留——文件头两处「旧 topbar 选择器兜底」注释与其互为因果，删除需三文件级联且零行为收益。
+- **功能级让位（如实记录）**：P2-4 删除恒 0 的 src_line/dst_line 后，核查卡片不再显示「第 0 行」徽标、issue 跳转不再向编辑器推恒 0 坐标（原行为无信息量）；「真实行号 + 跳转跟随」属功能新增，本清理批不做，后续如需应作为独立功能项（reviewJump.ts 头注已留历史注说明）。
+- **结构决策记录**：P2-2 焦点策略未随 busy 闸上提工厂——ConfirmDialog 焦点 effect 依赖 `[focus]` 且按 danger/defaultFocus 选 ref，其余三对话框为固定 ref 的 `[]` effect，结构不同，强行统一有行为漂移风险；P2-9 二级面板订阅下沉为 Pane 内部字段级选择器（原 AppMenu 常驻订阅收敛为「激活才订阅」，可见行为不变）。
+- **开放决策（沿用 §六）**：AppMenu「退出」按钮的 `window.close()` 在 WebView2 是否有效仍属 §六.7 人工确认项，本批拆分未动其行为；§六.5（batch.rs 预留 API 接或删）已由 P2-5 以「删」落定。
+- **Mimosa 备注**：本批次各项提交前钩子均提示扫描结论不完整（python_ast 不可用等，按兼容策略放行）；各批均为纯删除/去重/纯结构拆分，不涉及安全面声明，本记录不构成项目级安全审计。
+- **门禁与工作区状态**：收口门禁四项全绿（`cargo check`/`cargo test`/`tsc --noEmit`/`vitest run` 退出码 0，数据来自批次收口材料）。工作区残留 `?? nul` 为基线已有，全程未触碰；本文档本节追加后随本提交入库。
