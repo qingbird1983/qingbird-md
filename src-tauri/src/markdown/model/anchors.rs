@@ -66,7 +66,7 @@ fn line_of(md: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markdown::model::{parse_blocks, Block, Inline};
+    use crate::markdown::model::parse_blocks;
 
     // ---- 顶层块源行锚点（分栏同步用，2026-09-14）----
 
