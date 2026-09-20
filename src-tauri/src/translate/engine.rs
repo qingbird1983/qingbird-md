@@ -123,7 +123,9 @@ pub fn run(
         let unit = pending[slot];
         let doc_index = req.units[unit].0;
         {
-            let mut g = results_mutex.lock().expect("results mutex poisoned");
+            let mut g = results_mutex
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             g[unit] = Some(r.clone());
         }
         match &r {

@@ -83,156 +83,204 @@ pub(super) fn spawn_translation(
     creds: HashMap<String, String>,
     meta: &'static translate::providers_meta::ProviderMeta,
     st: WorkerState,
-    mut work_cache: Cache,
+    work_cache: Cache,
     content: String,
     bilingual: bool,
     windowed: bool,
     target: TargetLang,
 ) {
     std::thread::spawn(move || {
-        // RAII 复位（REL-1）：本闭包任何一步 panic，守卫在展开时把 running
-        // 打回 false；正常路径里它代替原来的手工 store(false) 收尾。
-        let _running = RunningGuard(Arc::clone(&st.running));
-        let http0 = translate::http::UreqClient::shared();
-        let http = translate::cancel::CancelableClient {
-            inner: http0,
-            cancel: &st.cancel,
-        };
-        let creds = translate::providers::Creds(creds);
-        let variant = translate::engine::cache_variant(
-            &provider,
-            creds.get("model").unwrap_or_default(),
+        let emitter = AppEmitter(&app);
+        worker_main(
+            &emitter,
+            r#gen,
+            texts,
+            indices,
+            provider,
+            creds,
+            meta,
+            &st,
+            work_cache,
+            content,
+            bilingual,
+            windowed,
             target,
         );
+    });
+}
 
-        let units: Vec<(usize, String)> =
-            indices.iter().copied().zip(texts.iter().cloned()).collect();
-        let config = translate::engine::EngineConfig::for_provider(
-            &provider,
-            meta.max_len,
-            meta.max_concurrency,
-        );
-        let req = translate::engine::EngineRequest {
-            provider: &provider,
-            creds: &creds,
-            units: &units,
-            http: &http,
-            config,
-            cache_variant: &variant,
-            target,
-        };
+/// worker 事件出口 seam：生产实现转发 `AppHandle#emit`（wire 名不变，发送
+/// 失败照旧丢弃）；测试实现可注入 panic——让 REL-1 挂接级回归在无 AppHandle
+/// 的单测环境驱动真实 worker 体（engine 的 `emit: &(dyn Fn + Sync)` 要求
+/// 本 trait 携带 Sync 上界）。
+trait WorkerEmit: Sync {
+    fn partial(&self, evt: TranslationPartialEvt);
+    fn progress(&self, evt: TranslationProgressEvt);
+    fn done(&self, evt: TranslationDoneEvt);
+}
 
-        let app_evt = app.clone();
-        let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-        let emit = |ev: translate::engine::EngineEvent| match ev {
-            translate::engine::EngineEvent::Unit { index, text, from_cache } => {
-                let _ = app_evt.emit(
-                    "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text, from_cache, streaming: false, failed: false },
-                );
-            }
-            translate::engine::EngineEvent::Streaming { index, text } => {
-                let _ = app_evt.emit(
-                    "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: true, failed: false },
-                );
-            }
-            translate::engine::EngineEvent::Progress { done, total } => {
-                let mut last = last_progress.lock().unwrap_or_else(|e| e.into_inner());
-                let due = last
-                    .map(|t| t.elapsed() >= PROGRESS_MIN_INTERVAL)
-                    .unwrap_or(true);
-                if due || done >= total {
-                    *last = Some(std::time::Instant::now());
-                    drop(last);
-                    let _ = app_evt.emit(
-                        "translation-progress",
-                        TranslationProgressEvt { r#gen, done, total },
-                    );
-                }
-            }
-            translate::engine::EngineEvent::Failed { index, .. } => {
-                // 失败单元照常转发（携带原文）：前端回退原文显示并跳过打字，
-                // 但必须推进打字机放行——否则该 run 缺失会让其后所有块
-                // 永久等位，出现"前几行打字→停住→done 一次性回填"。
-                let text = units
-                    .iter()
-                    .find(|(i, _)| *i == index)
-                    .map(|(_, t)| t.clone())
-                    .unwrap_or_default();
-                let _ = app_evt.emit(
-                    "translation-partial",
-                    TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: false, failed: true },
-                );
-            }
-        };
+struct AppEmitter<'a>(&'a AppHandle);
 
-        let results = translate::engine::run(&req, &mut work_cache, &emit);
+impl WorkerEmit for AppEmitter<'_> {
+    fn partial(&self, evt: TranslationPartialEvt) {
+        let _ = self.0.emit("translation-partial", evt);
+    }
+    fn progress(&self, evt: TranslationProgressEvt) {
+        let _ = self.0.emit("translation-progress", evt);
+    }
+    fn done(&self, evt: TranslationDoneEvt) {
+        let _ = self.0.emit("translation-done", evt);
+    }
+}
 
-        {
-            let mut shared = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-            for (i, r) in results.iter().enumerate() {
-                if let Ok(v) = r {
-                    shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
-                }
-            }
-            // 空闲收缩：worker 收尾时若距上次翻译活动已超过 IDLE_SHRINK_AFTER，
-            // 把内存 cache 砍到 SHRINK_TO 条并标记 dirty（save 一次性写回磁盘）。
-            // 收益：cache 上限 20000 条常驻 → 主动收紧后 ~2-3MB 起步。
-            let shrunk = shrink_if_idle(&mut shared);
-            if shared.is_dirty() {
-                if let Err(e) = shared.save(&storage::cache_path()) {
-                    eprintln!("[cache] save after shrink failed: {e}");
-                }
-                if shrunk {
-                    crate::trim::trim_working_set();
-                }
+/// spawn_translation 的线程体（可测内核）：除事件出口经 [`WorkerEmit`] 注入
+/// 外与生产路径一致。单元在 work_cache 全命中时 engine 走 cache pass 即返回、
+/// 不触网络，单测可离线驱动。
+fn worker_main(
+    emitter: &dyn WorkerEmit,
+    r#gen: u64,
+    texts: Vec<String>,
+    indices: Vec<usize>,
+    provider: String,
+    creds: HashMap<String, String>,
+    meta: &'static translate::providers_meta::ProviderMeta,
+    st: &WorkerState,
+    mut work_cache: Cache,
+    content: String,
+    bilingual: bool,
+    windowed: bool,
+    target: TargetLang,
+) {
+    // RAII 复位（REL-1）：worker 体任何一步 panic，守卫在展开时把 running
+    // 打回 false；正常路径里它代替原来的手工 store(false) 收尾。守卫必须
+    // 先于任何工作挂接——挂接级回归见 worker_panic_resets_running_via_hook。
+    let _running = RunningGuard(Arc::clone(&st.running));
+    let http0 = translate::http::UreqClient::shared();
+    let http = translate::cancel::CancelableClient {
+        inner: http0,
+        cancel: &st.cancel,
+    };
+    let creds = translate::providers::Creds(creds);
+    let variant = translate::engine::cache_variant(
+        &provider,
+        creds.get("model").unwrap_or_default(),
+        target,
+    );
+
+    let units: Vec<(usize, String)> =
+        indices.iter().copied().zip(texts.iter().cloned()).collect();
+    let config = translate::engine::EngineConfig::for_provider(
+        &provider,
+        meta.max_len,
+        meta.max_concurrency,
+    );
+    let req = translate::engine::EngineRequest {
+        provider: &provider,
+        creds: &creds,
+        units: &units,
+        http: &http,
+        config,
+        cache_variant: &variant,
+        target,
+    };
+
+    let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let emit = |ev: translate::engine::EngineEvent| match ev {
+        translate::engine::EngineEvent::Unit { index, text, from_cache } => {
+            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache, streaming: false, failed: false });
+        }
+        translate::engine::EngineEvent::Streaming { index, text } => {
+            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: true, failed: false });
+        }
+        translate::engine::EngineEvent::Progress { done, total } => {
+            let mut last = last_progress.lock().unwrap_or_else(|e| e.into_inner());
+            let due = last
+                .map(|t| t.elapsed() >= PROGRESS_MIN_INTERVAL)
+                .unwrap_or(true);
+            if due || done >= total {
+                *last = Some(std::time::Instant::now());
+                drop(last);
+                emitter.progress(TranslationProgressEvt { r#gen, done, total });
             }
         }
+        translate::engine::EngineEvent::Failed { index, .. } => {
+            // 失败单元照常转发（携带原文）：前端回退原文显示并跳过打字，
+            // 但必须推进打字机放行——否则该 run 缺失会让其后所有块
+            // 永久等位，出现"前几行打字→停住→done 一次性回填"。
+            let text = units
+                .iter()
+                .find(|(i, _)| *i == index)
+                .map(|(_, t)| t.clone())
+                .unwrap_or_default();
+            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: false, failed: true });
+        }
+    };
 
-        let (ok, pairs, err) = done_payload_parts(&indices, &results);
-        let payload = if ok {
-            let map: HashMap<usize, String> = pairs.iter().cloned().collect();
-            if windowed {
-                TranslationDoneEvt {
-                    r#gen,
-                    ok: true,
-                    translations: Some(pairs),
-                    error: None,
-                    html_original: None,
-                    html_translation: None,
-                    html_bilingual: None,
-                    outline: None,
-                }
-            } else {
-                let (html_original, html_translation, html_bilingual, outline) =
-                    html_payload_parts(&content, &map, bilingual, target);
-                TranslationDoneEvt {
-                    r#gen,
-                    ok: true,
-                    translations: Some(pairs),
-                    error: None,
-                    html_original: Some(html_original),
-                    html_translation,
-                    html_bilingual,
-                    outline: Some(outline),
-                }
+    let results = translate::engine::run(&req, &mut work_cache, &emit);
+
+    {
+        let mut shared = st.cache.lock().unwrap_or_else(|e| e.into_inner());
+        for (i, r) in results.iter().enumerate() {
+            if let Ok(v) = r {
+                shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
             }
-        } else {
+        }
+        // 空闲收缩：worker 收尾时若距上次翻译活动已超过 IDLE_SHRINK_AFTER，
+        // 把内存 cache 砍到 SHRINK_TO 条并标记 dirty（save 一次性写回磁盘）。
+        // 收益：cache 上限 20000 条常驻 → 主动收紧后 ~2-3MB 起步。
+        let shrunk = shrink_if_idle(&mut shared);
+        if shared.is_dirty() {
+            if let Err(e) = shared.save(&storage::cache_path()) {
+                eprintln!("[cache] save after shrink failed: {e}");
+            }
+            if shrunk {
+                crate::trim::trim_working_set();
+            }
+        }
+    }
+
+    let (ok, pairs, err) = done_payload_parts(&indices, &results);
+    let payload = if ok {
+        let map: HashMap<usize, String> = pairs.iter().cloned().collect();
+        if windowed {
             TranslationDoneEvt {
                 r#gen,
-                ok: false,
-                translations: None,
-                error: err,
+                ok: true,
+                translations: Some(pairs),
+                error: None,
                 html_original: None,
                 html_translation: None,
                 html_bilingual: None,
                 outline: None,
             }
-        };
-        // running 的复位由 _running 守卫的 Drop 负责（panic 也覆盖）。
-        let _ = app.emit("translation-done", payload);
-    });
+        } else {
+            let (html_original, html_translation, html_bilingual, outline) =
+                html_payload_parts(&content, &map, bilingual, target);
+            TranslationDoneEvt {
+                r#gen,
+                ok: true,
+                translations: Some(pairs),
+                error: None,
+                html_original: Some(html_original),
+                html_translation,
+                html_bilingual,
+                outline: Some(outline),
+            }
+        }
+    } else {
+        TranslationDoneEvt {
+            r#gen,
+            ok: false,
+            translations: None,
+            error: err,
+            html_original: None,
+            html_translation: None,
+            html_bilingual: None,
+            outline: None,
+        }
+    };
+    // running 的复位由 spawn 侧挂接的守卫 Drop 负责（panic 也覆盖）。
+    emitter.done(payload);
 }
 
 #[cfg(test)]
@@ -251,7 +299,7 @@ mod tests {
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _g = LAST_TRANSLATE_AT.lock().unwrap();
+            let _g = LAST_TRANSLATE_AT.lock().unwrap_or_else(|e| e.into_inner());
             panic!("intentional poison (REL-2 guard)");
         }));
         std::panic::set_hook(prev);
@@ -291,5 +339,77 @@ mod tests {
         std::panic::set_hook(prev);
         assert!(result.is_err(), "应捕获到 worker panic");
         assert!(!running.load(Ordering::SeqCst), "panic 展开必须复位 running");
+    }
+
+    /// REL-1 挂接级回归（P0-9 评审移交）：真实 worker 体（worker_main）必须
+    /// 先挂 RunningGuard 再开工——删掉守卫行后本测试必红（running 停在 true）。
+    /// 驱动方式：单元预埋进 work_cache，engine 走 cache pass 即返回、不触
+    /// 网络（engine 自身测试同款约束）；伪造 emitter 在首个 partial 事件处
+    /// panic，模拟 worker 中途崩溃。随后断言 running 已被守卫展开复位，且
+    /// 新一轮翻译的 CAS 抢占可以成功——否则一次 panic 就把「已有翻译在进行」
+    /// 留成永久态，只能重启应用。
+    struct PanicOnPartial;
+    impl WorkerEmit for PanicOnPartial {
+        fn partial(&self, _evt: TranslationPartialEvt) {
+            panic!("worker panic (REL-1 hook guard)");
+        }
+        fn progress(&self, _evt: TranslationProgressEvt) {}
+        fn done(&self, _evt: TranslationDoneEvt) {}
+    }
+
+    #[test]
+    fn worker_panic_resets_running_via_hook() {
+        static META: translate::providers_meta::ProviderMeta =
+            translate::providers_meta::ProviderMeta {
+                label: "test",
+                needs_key: false,
+                max_len: 500,
+                max_concurrency: 1,
+                fields: &[],
+                note: "",
+            };
+        let running = Arc::new(AtomicBool::new(true));
+        let st = WorkerState {
+            cache: Arc::new(Mutex::new(Cache::new())),
+            cancel: Arc::new(AtomicBool::new(false)),
+            running: Arc::clone(&running),
+        };
+        let mut work_cache = Cache::new();
+        let variant = translate::engine::cache_variant("p", "", TargetLang::Zh);
+        work_cache.set(Cache::key("p", &variant, "hello"), "你好".into());
+
+        // 静音钩子，别让预期内的 panic 刷屏。
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            worker_main(
+                &PanicOnPartial,
+                1,
+                vec!["hello".to_string()],
+                vec![0usize],
+                "p".to_string(),
+                HashMap::new(),
+                &META,
+                &st,
+                work_cache,
+                "# t".to_string(),
+                false,
+                false,
+                TargetLang::Zh,
+            );
+        }));
+        std::panic::set_hook(prev);
+
+        assert!(result.is_err(), "应捕获到 worker panic");
+        assert!(
+            !running.load(Ordering::SeqCst),
+            "panic 展开必须经挂接的守卫复位 running"
+        );
+        assert!(
+            running
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            "复位后新一轮翻译必须能重新抢占 running（否则误报已有翻译在进行）"
+        );
     }
 }
