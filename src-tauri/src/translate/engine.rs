@@ -407,9 +407,12 @@ mod tests {
 
     #[test]
     fn unit_events_carry_from_cache_flag() {
-        // 预置缓存 → 命中单元 from_cache=true；网络单元 false
+        // 预置缓存 → 命中单元 from_cache=true；网络单元 false。
+        // 脚本回复故意用无标记的普通文本：本测试只看 from_cache 旗标，不断言
+        // 网络单元恢复出的译文；旧式 <<<B0>>>/<<<END>>> 字面量（无 nonce）会被
+        // 解码器拒识，留在这里只会与现协议混淆（P0-4/P2-5）。
         let http = MockClient::new();
-        http.script_stream(sse("<<<B0>>>你好<<<END>>>"));
+        http.script_stream(sse("好的，这是普通文本回复。"));
         let mut cache = Cache::new();
         cache.set(Cache::key("llm", "m@v1", "Hello"), "你好缓存".into());
         let creds = llm_creds();

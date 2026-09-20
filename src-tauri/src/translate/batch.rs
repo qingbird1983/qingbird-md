@@ -91,69 +91,12 @@ fn clean_unit(s: &str) -> String {
         .to_string()
 }
 
-/// Map recovered `(slot, text)` pairs back onto the batch's unit order.
-///
-/// A returned `None` means that unit must be re-requested. Models are not
-/// reliable at counting: they may emit 1-based indices, repeat one, or drop
-/// one. This resolves the common cases (exact 0-based, exact 1-based) and
-/// otherwise trusts arrival order, but never invents content — unmatched slots
-/// stay `None` so the caller can retry them.
-///
-/// 预留 API：当前流式解码走 `BatchDecoder::push` 的增量回填，
-/// 此函数供"整批一次性解析"的降级/恢复路径使用（有测试锚定行为）。
-#[allow(dead_code)]
-pub fn map_slots(recovered: &[(usize, String)], expected: usize) -> Vec<Option<String>> {
-    let mut out: Vec<Option<String>> = vec![None; expected];
-    if expected == 0 || recovered.is_empty() {
-        return out;
-    }
-
-    // True if every recovered slot lands in `shift..shift+expected` exactly once.
-    let is_permutation = |shift: usize| -> bool {
-        let mut seen = vec![false; expected];
-        for (slot, _) in recovered {
-            if *slot < shift || *slot - shift >= expected {
-                return false;
-            }
-            let i = slot - shift;
-            if seen[i] {
-                return false;
-            }
-            seen[i] = true;
-        }
-        true
-    };
-
-    let shift = if is_permutation(0) {
-        Some(0)
-    } else if is_permutation(1) {
-        Some(1) // models frequently count from 1
-    } else {
-        None
-    };
-
-    match shift {
-        Some(s) => {
-            for (slot, text) in recovered {
-                out[slot - s] = Some(text.clone());
-            }
-        }
-        None => {
-            for (i, (_, text)) in recovered.iter().enumerate().take(expected) {
-                out[i] = Some(text.clone());
-            }
-        }
-    }
-    out
-}
-
 /// Incremental decoder for the [`instruction`] protocol of one batch —
 /// constructed with that batch's nonce.
 pub struct BatchDecoder {
     nonce: String,
     close: String,
     buf: String,
-    fed_len: usize,
     recovered: usize,
 }
 
@@ -161,12 +104,11 @@ impl BatchDecoder {
     pub fn new(nonce: impl Into<String>) -> Self {
         let nonce = nonce.into();
         let close = format!("{CLOSE_PREFIX}{nonce}{CLOSE_SUFFIX}");
-        BatchDecoder { nonce, close, buf: String::new(), fed_len: 0, recovered: 0 }
+        BatchDecoder { nonce, close, buf: String::new(), recovered: 0 }
     }
 
     /// Feed a stream delta; returns every unit that just became complete.
     pub fn push(&mut self, delta: &str) -> Vec<(usize, String)> {
-        self.fed_len += delta.len();
         self.buf.push_str(delta);
         self.drain(false)
     }
@@ -175,29 +117,6 @@ impl BatchDecoder {
     /// is recovered best-effort rather than thrown away.
     pub fn finish(&mut self) -> Vec<(usize, String)> {
         self.drain(true)
-    }
-
-    /// True when the model produced output that never resolved into a unit —
-    /// the signal that it ignored the protocol entirely.
-    ///
-    /// 预留 API：接上后可在"整批零回填"时改用整段译文，避免对
-    /// 忽略标记协议的模型徒劳地逐段重试（有测试锚定行为）。
-    #[allow(dead_code)]
-    pub fn ignored_protocol(&self) -> bool {
-        self.fed_len > 0 && self.recovered == 0
-    }
-
-    /// True when unconsumed text remains in the buffer (a partial unit, or
-    /// preamble the model emitted ahead of the markers).
-    #[allow(dead_code)]
-    pub fn has_leftover(&self) -> bool {
-        !self.buf.trim().is_empty()
-    }
-
-    /// How much raw text has been fed in, for diagnostics.
-    #[allow(dead_code)]
-    pub fn fed_len(&self) -> usize {
-        self.fed_len
     }
 
     fn drain(&mut self, flush: bool) -> Vec<(usize, String)> {
@@ -443,21 +362,10 @@ mod tests {
     }
 
     #[test]
-    fn ignored_protocol_is_detected_from_output_with_no_units() {
-        let mut d = BatchDecoder::new(NONCE);
-        assert!(d.push("Sure! Here is the translation.").is_empty());
-        assert!(d.ignored_protocol(), "prose with no markers = protocol ignored");
-        let mut ok = BatchDecoder::new(NONCE);
-        ok.push(&format!("<<<B0-{NONCE}>>>A<<<END-{NONCE}>>>"));
-        assert!(!ok.ignored_protocol(), "a recovered unit means it worked");
-    }
-
-    #[test]
     fn preamble_is_discarded_not_reported_as_content() {
         let mut d = BatchDecoder::new(NONCE);
         let out = d.push(&format!("以下是译文：\n<<<B0-{NONCE}>>>AAA<<<END-{NONCE}>>>\n"));
         assert_eq!(out, vec![(0usize, "AAA".into())]);
-        assert!(!d.has_leftover(), "preamble cleared, buffer clean");
     }
 
     /// 正文注入守卫（BUG-4 回归）：单元文本本身含 `<<<END>>>` / `<<<B1>>>`
@@ -497,41 +405,5 @@ mod tests {
             "含 B 字面量的单元不得被截断或串槽：\n{got:?}"
         );
         assert_eq!(got[2], (2usize, "平凡尾段".into()), "后续单元不受污染：\n{got:?}");
-    }
-
-    // ---- slot mapping ----
-
-    #[test]
-    fn map_slots_handles_zero_based_exact() {
-        let got = vec![(1usize, "B".into()), (0usize, "A".into())];
-        assert_eq!(map_slots(&got, 2), vec![Some("A".into()), Some("B".into())]);
-    }
-
-    #[test]
-    fn map_slots_handles_one_based_output() {
-        let got = vec![(1usize, "A".into()), (2usize, "B".into())];
-        assert_eq!(
-            map_slots(&got, 2),
-            vec![Some("A".into()), Some("B".into())],
-            "1-based indices are shifted down"
-        );
-    }
-
-    #[test]
-    fn map_slots_falls_back_to_arrival_order() {
-        let got = vec![(7usize, "A".into()), (9usize, "B".into())];
-        assert_eq!(map_slots(&got, 2), vec![Some("A".into()), Some("B".into())]);
-    }
-
-    #[test]
-    fn map_slots_leaves_missing_units_as_none() {
-        let got = vec![(0usize, "A".into())];
-        assert_eq!(map_slots(&got, 3), vec![Some("A".into()), None, None]);
-    }
-
-    #[test]
-    fn map_slots_handles_empty_and_zero() {
-        assert_eq!(map_slots(&[], 2), vec![None, None]);
-        assert!(map_slots(&[(0, "A".into())], 0).is_empty());
     }
 }
