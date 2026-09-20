@@ -808,4 +808,71 @@ mod tests {
     fn rgba_to_softbuffer_packs_rgb_and_drops_alpha() {
         assert_eq!(rgba_to_softbuffer(&[0x12, 0x34, 0x56, 0xAA]), vec![0x123456]);
     }
+
+    // ---- P2-7k: blit_pixels / draw_border 边界守卫（纯函数离线可测）----
+
+    #[test]
+    fn blit_pixels_honors_stride_and_source_offset() {
+        // src 4x2（stride=4），取 (1,0) 起的 2x2 贴到 dst 2x3 的 (0,1)：
+        // 行 0 不动；行 1 = src 行 0 偏移 1 起 [2,3]；行 2 = src 行 1 偏移 1 起 [6,7]
+        let src = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let mut dst = vec![0u32; 6];
+        blit_pixels(&mut dst, 2, &src, 4, 1, 0, 0, 1, 2, 2);
+        assert_eq!(dst, vec![0, 0, 2, 3, 6, 7]);
+    }
+
+    #[test]
+    fn blit_pixels_clips_rows_crossing_the_bottom_edge() {
+        // dst 2x2、dy=1 起贴 2x2：第一行落在 dst 第 2 行（界内），第二行
+        // 越过底边被行级护栏整行跳过——内容不回卷、不 panic
+        let src = vec![1, 2, 3, 4];
+        let mut dst = vec![0u32; 4];
+        blit_pixels(&mut dst, 2, &src, 2, 0, 0, 0, 1, 2, 2);
+        assert_eq!(dst, vec![0, 0, 1, 2]);
+    }
+
+    #[test]
+    fn blit_pixels_tolerates_empty_buffers_and_zero_size() {
+        // 全零尺寸：循环体不执行，空缓冲不 panic
+        let mut dst: Vec<u32> = vec![];
+        blit_pixels(&mut dst, 0, &[], 0, 0, 0, 0, 0, 0, 0);
+        assert!(dst.is_empty());
+        // 非零尺寸但 src 为空：行级护栏整段跳过，dst 原样
+        let mut dst2 = vec![7u32; 4];
+        blit_pixels(&mut dst2, 2, &[], 2, 0, 0, 0, 0, 2, 2);
+        assert_eq!(dst2, vec![7, 7, 7, 7]);
+    }
+
+    #[test]
+    fn draw_border_outlines_rect_and_interior_stays_clean() {
+        let mut buf = vec![0u32; 25]; // 5x5
+        draw_border(&mut buf, 5, 5, 1, 1, 3, 3, 0xFF, 1);
+        assert_eq!(buf[2 * 5 + 2], 0, "3x3 描边厚度 1：中心不得着色");
+        for (x, y) in [(1, 1), (2, 1), (3, 1), (1, 2), (3, 2), (1, 3), (2, 3), (3, 3)] {
+            assert_eq!(buf[y * 5 + x], 0xFF, "({x},{y}) 应着色");
+        }
+    }
+
+    #[test]
+    fn draw_border_thickness_beyond_rect_fills_without_panic() {
+        // 厚度 10 大于 3x3 矩形：bot==top / right==left 的互斥守卫防重复写，
+        // 整幅应被同一颜色填满且不 panic
+        let mut buf = vec![0u32; 9];
+        draw_border(&mut buf, 3, 3, 0, 0, 3, 3, 0xAB, 10);
+        assert!(buf.iter().all(|&p| p == 0xAB));
+    }
+
+    #[test]
+    fn draw_border_clips_to_buffer_and_skips_fully_outside() {
+        let mut buf = vec![0u32; 16]; // 4x4
+        // 右下越界的部分裁剪：只有落在缓冲内的 2x2 角着色
+        draw_border(&mut buf, 4, 4, 2, 2, 5, 5, 0xFF, 1);
+        assert_eq!(buf[2 * 4 + 2], 0xFF);
+        assert_eq!(buf[3 * 4 + 3], 0xFF);
+        assert_eq!(buf[0], 0);
+        assert_eq!(buf[4 + 1], 0);
+        // 完全在缓冲外（x 已超宽 → 列区间为空）：整体 no-op
+        draw_border(&mut buf, 4, 4, 10, 10, 3, 3, 0xFF00, 2);
+        assert!(buf.iter().all(|&p| p != 0xFF00));
+    }
 }
