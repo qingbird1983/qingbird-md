@@ -32,6 +32,7 @@ import { useDocStore } from "../stores/useDocStore";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
+import type { PanelSide } from "../stores/useUiStore";
 import { contentWidthPx, edgeDragWidth } from "../lib/contentWidth";
 import { codeTextFrom } from "../lib/codeText";
 import { startColDrag } from "../lib/colDrag";
@@ -319,7 +320,7 @@ export default function PreviewView() {
   // 边缘拖宽：起手锁基准（getState 快照，不吃闭包旧 state）；拖拽中直接写
   // wrap 的 --qb-content-w（绕过 React——大文档回流不进 setState），松手
   // onEnd 一次落库 setCustomWidth，重渲写回同值（幂等）。
-  const startEdgeDrag = (side: "left" | "right") => (e: ReactPointerEvent<HTMLDivElement>) => {
+  const startEdgeDrag = (side: PanelSide) => (e: ReactPointerEvent<HTMLDivElement>) => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     const st = useUiStore.getState();

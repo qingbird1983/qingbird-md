@@ -3,6 +3,7 @@ import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
+import type { PanelSide } from "./stores/useUiStore";
 import { useWorkspaceStore } from "./stores/useWorkspaceStore";
 import { useRecentStore } from "./stores/useRecentStore";
 import StatusBar from "./components/StatusBar";
@@ -193,7 +194,7 @@ function PanelHandle({
   onToggle,
   label,
 }: {
-  side: "left" | "right";
+  side: PanelSide;
   showPanel: boolean;
   onToggle: () => void;
   label: string;

@@ -28,9 +28,9 @@ export type ContentWidth = "compact" | "normal" | "wide" | "full";
  */
 export type IntroPhase = "idle" | "playing" | "skipped" | "done";
 
-/** 大纲栏停靠侧：right = 窗口右缘（默认）；left = 吸附在工作区左缘（侧栏与主区之间） */
-export type OutlineSide = "left" | "right";
-/** 侧栏槽位停靠侧（大纲与 AI 核查共用槽位抽象，各自独立记忆 side） */
+/** 侧栏槽位停靠侧（大纲与 AI 核查共用槽位抽象，各自独立记忆 side）：
+ * right = 窗口右缘（大纲默认）；left = 吸附在工作区左缘（侧栏与主区之间）。
+ * 原 OutlineSide 与此同形，已并入（P2-6/CQ-12）。 */
 export type PanelSide = "left" | "right";
 
 export const CONTENT_WIDTHS: ContentWidth[] = ["compact", "normal", "wide", "full"];
@@ -45,7 +45,7 @@ export const CONTENT_WIDTH_LABEL: Record<ContentWidth, string> = {
 interface UiState {
   showNav: boolean;
   showOutline: boolean;
-  outlineSide: OutlineSide;
+  outlineSide: PanelSide;
   sidebarWidth: number;
   outlineWidth: number;
   // AI 核查面板（§八）：与大纲栏共用两个侧栏槽（col3/col4 左、col6/col7 右）。
@@ -95,7 +95,7 @@ interface UiState {
   closeSettings(): void;
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
-  setOutlineSide(s: OutlineSide): void;
+  setOutlineSide(s: PanelSide): void;
   setReviewWidth(w: number): void;
   setReviewSide(s: PanelSide): void;
   setSplitRatio(r: number): void;
@@ -126,7 +126,7 @@ const REVIEW_SIDE_KEY = "qb.review-side";
 // 下面四个 load* 在 store 模块初始化时就会跑：localStorage 抛异常（隐私模式 /
 // 存储被禁）曾经直接炸掉模块加载 = 启动白屏。照 useWorkspaceStore/useRecentStore
 // 的逐点 try/catch 口径兜底：任何异常回默认值，只损失一次偏好记忆。
-function loadOutlineSide(): OutlineSide {
+function loadOutlineSide(): PanelSide {
   try {
     return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
   } catch {

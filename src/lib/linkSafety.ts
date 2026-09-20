@@ -12,6 +12,9 @@ export type PreviewHrefKind = "external" | "anchor" | "block";
  *  - anchor：  `#…` 或空 → 文档内定位，由 scrollToPreviewAnchor 手动接管
  *  - block：   其余（javascript:/data:/vbscript:/相对路径/无协议…）→ 拦截并忽略，
  *              WebView 永不导航或执行
+ *
+ * 本导出兼作测试入口（linkSafety.test.ts 直测分类表），勿因「外部无生产
+ * import」误删——文件内 classifyAnchorClick 生产使用（P2-6 红线标注）。
  */
 export function classifyPreviewHref(href: string): PreviewHrefKind {
   const t = href.trim();

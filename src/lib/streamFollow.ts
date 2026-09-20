@@ -54,6 +54,9 @@ export interface StreamFollowDeps {
   cancel?: (id: number) => void;
 }
 
+/** 流式跟随器（要点见 streamFollow.test.ts 头注）。
+ * 导出兼作测试入口（streamFollow.test.ts 直测状态机），勿因「外部无生产
+ * import」误删——文件内 useStreamFollow hook 生产使用（P2-6 红线标注）。 */
 export class StreamFollower {
   /** 要点 ③：锁存的中断标志。`reset()` 之外任何路径都不解除。 */
   private interruptedFlag = false;

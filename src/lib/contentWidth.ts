@@ -7,7 +7,7 @@
 // 上限动态：maxPx = 预览面板实时宽度（窗口越宽可拖越宽，分栏下为半栏宽），
 // 拖到留白归零即达上限。恢复旧值不回钳——存的自定义宽度大于当前面板时
 // 由 CSS max-width 自然填满面板，存值不动（面板变宽后原值生效）。
-import type { ContentWidth } from "../stores/useUiStore";
+import type { ContentWidth, PanelSide } from "../stores/useUiStore";
 
 /** 拖宽下限：再窄伤排版（代码块/表格挤压）。 */
 export const MIN_CONTENT_WIDTH = 480;
@@ -35,7 +35,7 @@ export function contentWidthPx(preset: ContentWidth, custom: number | null): num
  * 右缘向右拖（dx>0）拉宽；左缘向左拖（dx<0）拉宽——统一 base ± dx 后钳制。
  */
 export function edgeDragWidth(
-  side: "left" | "right",
+  side: PanelSide,
   basePx: number,
   dx: number,
   maxPx: number,
