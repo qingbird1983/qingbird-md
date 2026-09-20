@@ -56,6 +56,20 @@ Get-ChildItem -Path 'src-tauri\src' -Recurse -Filter *.rs | ForEach-Object {
 > 两树行数净增含 P0/P1/批次一/批次二的功能与测试增量，非拆分开销（拆分单元各自的
 > 纯提取审计见《审查与整改》执行记录）。
 
+**前端复测快照（2026-09-20，P2 批次三·前端拆分完成后）**
+
+> 工具：`powershell.exe -NoProfile` + `Get-Content -Encoding UTF8` 后取 `.Count`
+> （生产 = ts/tsx，测试 = `*.test.ts(x)` 独立文件，CSS 单列——规则同第一节）。
+> **⚠️ 工具口径修正（本批实测发现）**：Windows PowerShell 5.1 的 `Get-Content`
+> 默认按 ANSI 解码 UTF-8 无 BOM 的中文文件，中文注释的字节对会吞掉行尾换行，
+> 行数**系统性偏小**（同一文件默认口径 445 vs UTF8 口径 492，后者与 `wc -l` 一致）。
+> 前端复测自本批起一律加 `-Encoding UTF8`，其余口径不变。
+> **前端**：文件数 122 → **157**（批次三新增 37 个拆分产物 − 删除 paletteSeeds.ts 1，净 +36），
+> 生产（ts/tsx + css）17,654 → **18,864**（ts/tsx 13,407 + CSS 5,457），
+> 测试 4,752 → **4,999**，合计 22,406 → **23,863**。
+> 行数净增含功能与测试增量，非拆分开销；拆分产物的纯提取审计见《审查与整改》
+> 「执行记录（2026-09-20，P2 批次三：前端拆分）」。
+
 ---
 
 ## 二、阈值（拆分判定线）
@@ -117,19 +131,26 @@ P2-7h 拆后的 `hibernate/{state 136, session 125, window 72, handoff 50}`）�
 
 ### 3.2 前端
 
-| 行数 | 文件 | 超标项 |
-| --- | --- | --- |
-| **3590** | `src/styles/global.css` | CSS ✗✗（是 CSS 线的 4.5 倍） |
-| **1260** | `components/SettingsModal.tsx` | 组件/模块 ✗✗ |
-| **836** | `stores/useTranslationStore.ts` | 模块 ✗✗ |
-| **807** | `components/Sidebar.tsx` | ✗✗ |
-| **715** | `components/PreviewView.tsx` | ✗ |
-| **666** | `stores/useDocStore.ts` | ✗ |
-| **640** | `stores/useWorkspaceStore.ts` | ✗ |
-| **539** | `styles/markdown.css` | — |
-| **486** | `lib/paletteSeeds.ts` | ✗ |
+**复测表（2026-09-20，P2 批次三前端拆分后；口径与工具见第一节前端复测快照。
+原 2026-09-16 清单中七个超标文件的旧行数已随行标注；另收批次三新拆的 App.tsx）**
 
-其余 74 个文件均 < 400 行，健康。前端**内联测试为 0**（全是独立 `*.test.ts(x)`），这点比 Rust 侧好。
+| 现行数 | 原行数 | 文件 | 状态 |
+| --- | --- | --- | --- |
+| **59** | 3590 | `src/styles/global.css` | ✅ **P1-2 已达标**（manifest 59 行 + 13 个 ≤800 行域文件） |
+| 455 | 1260 | `components/SettingsModal.tsx` | ✅ **P2-8c 拆分完成**（壳留导航搜索与跨页持久状态；455 微超 400 55 行＝处方明令不改的 Bar/SwitchRow 63 行与逐字头注释，已报备。拆出 settings/ 五 Tab 45~373 + 三 hook 69~264，全部达标） |
+| 318 | 836 | `stores/useTranslationStore.ts` | ✅ **P2-8a 拆分完成**（壳 318 达标；translationStream.ts 492 微超 400＝处理器体+注释不可压缩、已报备；lookupStream.ts 147） |
+| 166 | 807 | `components/Sidebar.tsx` | ✅ **P2-8d 拆分完成**（sidebar/ 四件 71~179 + useTreeMenus.tsx 312 + clipboard.ts 25，全部达标） |
+| 188 | 715 | `components/PreviewView.tsx` | ✅ **P2-8e 拆分完成**（四 hook 83~216 + previewInject.ts 104，全部达标） |
+| 435 | 666 | `stores/useDocStore.ts` | ✅ **P2-8b 拆分完成**（docTabs.ts 205 + sessionRestore.ts 147 达标；壳 435 微超 400 35 行＝21 个动作编排体不可压缩，已报备） |
+| **640** | 640 | `stores/useWorkspaceStore.ts` | ✗ **未拆（遗留）**——批次三七个单元未含此项，留后续批次 |
+| 539 | 539 | `styles/markdown.css` | —（CSS 线 ≤800 内，未动） |
+| 已撤 | 486 | `lib/paletteSeeds.ts` | ✅ **P2-8g 拆分完成**（原文件删除，目录化为 paletteCss.ts 57 + paletteSeeds/{index 117, 六种子各 59}，全部达标；消费方经 `lib/paletteSeeds` 原路径零改动） |
+| 264 | —（原 520，未超标） | `src/App.tsx` | ✅ **P2-8f 顺带拆分**（未超标但接近线；hooks 三件 17~105 + Panel 两件 49~64，壳留 refs 接线与 JSX） |
+
+复测后生产（ts/tsx）超 400 的剩 4 个：`SettingsModal.tsx` 455 / `translationStream.ts` 492 /
+`useDocStore.ts` 435——三者均为批次三逐项报备的偏差（超限部分为处方明令不改的复用件、
+逐字头注释或不可压缩的编排体，拆分本体各自达标）；`useWorkspaceStore.ts` 640 为**唯一
+未拆遗留**。前端**内联测试仍为 0**（全是独立 `*.test.ts(x)`，36 文件 4,999 行）。
 
 ---
 
@@ -216,9 +237,13 @@ mod tests;
 | P0-2 | `markdown/html.rs` 测试外迁 | ✅ **已完成**（`55e0900`）· 1201 → **562**（生产 559 一行未动） |
 | P0-1 | `translate/engine.rs` 三分 | ✅ **已完成**（`a3dea26` + `eed0304`）· 1107 → **engine 678 / policy 244 / packing 226** |
 | P1-2 | `src/styles/global.css` 按域拆分 | ✅ **已完成**· 3636 → 13 个 ≤ 800 行文件 + 52 行 manifest。`tools/css-probe.py` 固化源码+构建两层等价核对 |
-| P1-1, P1-3..6 | 见上 | ☐ 待排期（前端拆分，留批次三） |
+| P1-1, P1-3, P1-4 | useTranslationStore / useDocStore / PreviewView | ✅ **已完成**（P2 批次三 2026-09-20，即《审查与整改》P2-8a / 8b / 8e）· 拆后壳 318 / 435 / 188，各自拆出流域/快照/四 hook 产物全部达标 |
+| P1-5, P1-6 | bridge.rs / html.rs 生产二次拆 | ✅ **已完成**（P2 批次二，即《审查与整改》P2-7a / 7f） |
 | P2-1..4 | `lib.rs` / `capture/window.rs` / `markdown/model.rs` / `hibernate.rs` | ✅ **已完成**（P2 批次二 2026-09-20，即《审查与整改》P2-7d / 7k1+7k2 / 7e / 7h）· 拆后全树生产 ≤ 371，Rust 生产超线清零 |
-| P2-5..8 | SettingsModal / Sidebar / useWorkspaceStore / paletteSeeds | ☐ 待排期（前端拆分，留批次三） |
+| P2-5 | SettingsModal | ✅ **已完成**（P2 批次三，即《审查与整改》P2-8c）· 1260 → 壳 455（报备偏差）+ settings/ 五 Tab + 三 hook |
+| P2-6 | Sidebar | ✅ **已完成**（P2 批次三，即《审查与整改》P2-8d）· 807 → 壳 166 + sidebar/ 四件 + useTreeMenus + clipboard |
+| P2-7 | useWorkspaceStore | ☐ **未拆（遗留）**——批次三未含此项，现 640 行仍超线，留后续批次 |
+| P2-8 | paletteSeeds | ✅ **已完成**（P2 批次三，即《审查与整改》P2-8g）· 486 → 六种子 + index + paletteCss，生成物逐字节零漂移 |
 
 > **P0 收尾事实（2026-09-16 晚）**
 > - 三步拆分全部是**纯提取**：`cargo test` 261 passed、三次逐位一致、零 warning。
@@ -279,3 +304,26 @@ mod tests;
 > - 复测（工具与口径见第一节快照）：全树 75 个文件生产 ≤ **371**（capture/window/mod.rs），
 >   **Rust 生产超线清零**；新发现存量债 `http.rs` 总量 748 / 测试块 378、`export.rs` 测试块 358
 >   （均为功能/加固批次增厚测试所致，非拆分引入），已入 §3.1 复测表待后续批次。
+
+> **P2 批次三收尾事实（2026-09-20）**
+> - 前端拆分七个执行单元（P2-8a..g）全部落地、七个提交逐项独立评审**全部一次通过**（0 轮返工）：
+>   useTranslationStore → translationStream/lookupStream + 薄 store（8a）；
+>   useDocStore → docTabs/sessionRestore + 薄 store（8b）；SettingsModal → settings/ 五 Tab +
+>   三 hook（8c）；Sidebar → sidebar/ 四件 + useTreeMenus + clipboard（8d）；
+>   PreviewView → 四 hook + previewInject（8e）；App.tsx → 三 hook + Panel 两件（8f）；
+>   paletteSeeds → 六种子 + index + paletteCss（8g）。逐单元明细见《审查与整改》
+>   「执行记录（2026-09-20，P2 批次三：前端拆分）」。
+> - 复测（工具与口径见第一节前端复测快照，**本批起 `-Encoding UTF8`**）：原七个超标文件中
+>   六个归位（global.css 59 / SettingsModal 455 / useTranslationStore 318 / Sidebar 166 /
+>   PreviewView 188 / useDocStore 435 / paletteSeeds 已目录化），全部 ≤ 400 的新文件 36 个；
+>   生产 > 400 的 ts/tsx 剩 4 个（SettingsModal 455 / translationStream 492 / useDocStore 435
+>   为逐项报备偏差，**useWorkspaceStore 640 为唯一未拆遗留**，见 §3.2 复测表）。
+> - 三项行为红线经逐单元逐字审计保持：P0-5 代际守卫（8a）、P0-3 savedContent 写盘快照与
+>   P0-6 discardChanges 收敛写路径（8b）、REL-12 关窗落盘（8c）、XSS 信任边界与 splitSync
+>   总线（8e）、热键注册与休眠握手时序（8f）、种子数据与生成物逐字节（8g——gen:palettes
+>   直跑输出「palettes.css 已是最新」）。公共 API 与消费方 import 面零改动（两处例外均为
+>   同步性改动：reviewWiring.test 扫描目标随 APP_ACTIONS 迁移、gen-palettes.mjs 显式 .ts
+>   路径随目录化）。
+> - 遗留：`useWorkspaceStore.ts` 640 未拆；`SettingsModal.tsx` 455 / `translationStream.ts`
+>   492 / `useDocStore.ts` 435 三处报备偏差；Rust 侧 `http.rs` / `export.rs` 内联测试块存量债
+>   沿袭批次二记录。
