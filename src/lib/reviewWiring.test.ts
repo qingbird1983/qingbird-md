@@ -1,8 +1,8 @@
 // S4 #14 接线守卫：**Ctrl+J 的入口必须走 `ensureReviewPanelOpen`**。
 //
-// 为什么读源码而不是跑行为：这张执行体表是 App.tsx 里的模块级常量，不导出，
-// 没有可断言的接缝；而"退化成直接 toggleReview()"这件事本身不会抛错 ——
-// 它只会让落点偏一截（面板开完才量布局）。
+// 为什么读源码而不是跑行为：这张执行体表是 hooks/useAppHotkeys.ts 里的模块级
+// 常量（P2-8f 自 App.tsx 迁入），不导出，没有可断言的接缝；而"退化成直接
+// toggleReview()"这件事本身不会抛错 —— 它只会让落点偏一截（面板开完才量布局）。
 // 与 hotkeyRegistry.test.ts 读 AppMenu.tsx 源码同款做法（项目惯例）。
 //
 // 本文件必须是 **node 环境**（默认）：happy-dom 下 `import.meta.url` 不是
@@ -13,9 +13,9 @@ import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf-8");
 
-/** 取 App.tsx 里那一项执行体的源码片段（从 `toggle_review:` 到下一个键 `bold:`）。 */
+/** 取 useAppHotkeys.ts 里那一项执行体的源码片段（从 `toggle_review:` 到下一个键 `bold:`）。 */
 function toggleReviewBlock(): string {
-  const src = read("../App.tsx");
+  const src = read("../hooks/useAppHotkeys.ts");
   const start = src.indexOf("toggle_review:");
   const end = src.indexOf("bold:", start);
   expect(start).toBeGreaterThan(-1);

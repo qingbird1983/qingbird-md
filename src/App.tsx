@@ -1,10 +1,8 @@
-import { type PointerEvent as ReactPointerEvent, type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect } from "react";
 import { useSettingsStore } from "./stores/useSettingsStore";
 import { useDocStore } from "./stores/useDocStore";
 import { useTranslationStore } from "./stores/useTranslationStore";
 import { useUiStore } from "./stores/useUiStore";
-import type { PanelSide } from "./stores/useUiStore";
-import { useWorkspaceStore } from "./stores/useWorkspaceStore";
 import { useRecentStore } from "./stores/useRecentStore";
 import StatusBar from "./components/StatusBar";
 import TitleBar from "./components/TitleBar";
@@ -18,215 +16,18 @@ import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
-import { openFile } from "./components/commands";
-import { exportActiveTranslation } from "./lib/exportTranslation";
-import { ensureReviewPanelOpen, revealReviewIssues } from "./lib/reviewPanel";
-import { comboMatches } from "./lib/hotkeys";
-import { HOTKEYS, effectiveHotkeys, type AppHotkeyId } from "./lib/hotkeyRegistry";
-import type { Mode } from "./types/ipc";
-import { startColDrag } from "./lib/colDrag";
-import { api } from "./lib/ipc";
-import { collectSnapshot } from "./lib/session";
+import { PanelResizer } from "./components/PanelResizer";
+import { PanelHandle } from "./components/PanelHandle";
 import { runBootIntro } from "./lib/bootIntro";
 import { INTRO_FROM_WIDTH, INTRO_ANIM_MS } from "./stores/useUiStore";
-
-/**
- * 应用内快捷键的**执行体**：键 = lib/hotkeyRegistry 的 id。
- *
- * 这里只回答「做什么」，「什么键触发」全在注册表里（含用户改键）。
- * 系统级的项（截图翻译、三个模式键）不出现在这张表：
- *   · capture → Rust 侧注册，触发截图流程，前端不参与；
- *   · 模式键 → 上面 onKey 里的 group === "mode" 分支统一处理。
- * 类型写成 `Record<AppHotkeyId, …>`：注册表加了 id 却忘了写执行体时
- * `tsc` 直接报错（漏项不会再变成「按了没反应」的静默故障）。
- */
-const APP_ACTIONS: Record<AppHotkeyId, () => void> = {
-  open_file: () => void openFile(),
-  open_folder: () => void useWorkspaceStore.getState().openWorkspace(),
-  new_file: () => {
-    // 新建文件落当前活动文件夹；没有文件夹时不静默吞键，给一句提示
-    const ws = useWorkspaceStore.getState();
-    if (!ws.activePath) {
-      useUiStore.getState().addToast("info", "先打开一个文件夹，再新建文件");
-      return;
-    }
-    const n = window.prompt("新文件名（创建于当前文件夹）：", "未命名.md");
-    if (n?.trim()) void ws.createFileIn(null, n.trim());
-  },
-  save: () => void useDocStore.getState().saveDoc(false),
-  // 不可导出时（无译文 / 双语模式 / 翻译中）与菜单同款：给一句说明的 toast，
-  // 而不是静默无动作——快捷键路径没有禁用态可看，不提示就等于"按了没反应"。
-  export_translation: () => void exportActiveTranslation(),
-  refresh_ws: () => {
-    if (useWorkspaceStore.getState().folders.length > 0) {
-      void useWorkspaceStore.getState().refresh();
-    }
-  },
-  toggle_view: () => {
-    const dd = useDocStore.getState();
-    dd.switchView(dd.view === "source" ? "preview" : "source");
-  },
-  split_view: () => useDocStore.getState().switchView("split"),
-  palette: () => useUiStore.getState().openPalette(),
-  // AI 核查面板开关（§八）：Ctrl+J 与 Guanmo 同键。
-  // 开着 → 收起；关着 → **先开面板、等布局落定再把 issue 清单滚进视野**。
-  // 顺序不能反：面板是条件挂载的，立刻 scrollIntoView 会按"主区还没变窄"的
-  // 旧布局算落点，滚完偏一截（见 lib/reviewPanel.ts 文件头）。
-  toggle_review: () => {
-    const ui = useUiStore.getState();
-    if (ui.showReview) {
-      ui.setReviewOpen(false);
-      return;
-    }
-    ensureReviewPanelOpen(() => {
-      revealReviewIssues();
-    });
-  },
-  bold: () => void useDocStore.getState().applyFormat("bold"),
-  italic: () => void useDocStore.getState().applyFormat("italic"),
-};
-
-// 面板宽度钳制：左右栏与主区之间拖宽条的取值范围（默认 240/200 落在其中）
-const PANEL_MIN = 160;
-const PANEL_MAX = 480;
+import { useAppHotkeys } from "./hooks/useAppHotkeys";
+import { listenHibernateOnce } from "./hooks/useHibernate";
+import { useSettled } from "./hooks/useSettled";
 
 // 面板收展过渡时长：与 global.css 的 --panel-anim 保持一致。--col-main 的
 // 切换必须等收起动画播完（否则主区提前跨列会盖住正在收缩的面板），所以
 // JS 侧比 CSS 略长 40ms 兜底。
 const PANEL_ANIM_MS = 340;
-
-/** 延迟确认：hidden 变 true 后等 ms 再返回 true（展开时立即 false）。
- *  用于把「主区跨列吸收空列」推迟到面板宽度过渡播完之后。 */
-function useSettled(hidden: boolean, ms: number) {
-  const [settled, setSettled] = useState(hidden);
-  useEffect(() => {
-    if (!hidden) {
-      setSettled(false);
-      return;
-    }
-    const t = window.setTimeout(() => setSettled(true), ms);
-    return () => window.clearTimeout(t);
-  }, [hidden, ms]);
-  return settled;
-}
-
-// 休眠握手（docs/webview-hibernate-plan.md 步骤 6）：关窗后空闲 5 分钟，Rust
-// 侧下发 session-hibernate，前端同步收集快照落盘再回 hibernateReady，随后
-// WebView 被销毁。Rust 只等 3s，超时就强杀（内存释放优先于草稿完整性），
-// 因此这里必须快：collectSnapshot 全同步，只有在等 IPC 返回。
-let hibernateRegistered = false;
-function listenHibernateOnce() {
-  if (hibernateRegistered) return; // 防 StrictMode 双跑重复注册
-  hibernateRegistered = true;
-  void api.listenHibernate(async () => {
-    try {
-      await api.saveSession(collectSnapshot());
-      await api.hibernateReady();
-    } catch (e) {
-      // 落盘失败也要回 ready：让 Rust 立刻销毁，别白等那 3 秒超时。
-      console.error("[hibernate] 保存会话快照失败:", e);
-      await api.hibernateReady().catch(() => {});
-    }
-  });
-}
-
-// 面板拖宽条：与主区 SplitBody 中缝共用 lib/colDrag 的纯 Pointer Events 拖拽。
-// place 决定「条贴在哪块面板的哪条边」，同时决定拖拽方向的符号：
-// - sidebar：贴文件栏右缘，右拖增宽（+dx）——独立网格列 col2；
-// - outline-right / review-right：贴右停靠面板左缘，左拖增宽（-dx）；
-// - outline-left / review-left：贴左停靠面板右缘，右拖增宽（+dx）。
-// 大纲/核查的条**内嵌在 .panel-slot 里**（2026-09-19 同侧共存重构：不再是
-// 独立网格列 col4/col6——两面板同侧时各槽自带一条，发丝线仍贴主区那侧）。
-// 宽度存 uiStore，跨视图切换保持。
-type ResizerPlace = "sidebar" | "outline-right" | "outline-left" | "review-right" | "review-left";
-
-function PanelResizer({ place, hidden }: { place: ResizerPlace; hidden: boolean }) {
-  // CSS 类映射：sidebar→res-left（独立 col2 网格条）；面板槽内的条共用 in-slot，
-  // 线的朝向（贴主区那侧）由 .panel-slot[data-side] 规则决定，不在这里分叉。
-  const cls = place === "sidebar" ? "res-left" : "in-slot";
-  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const st = useUiStore.getState();
-    const toSidebar = place === "sidebar";
-    const toReview = place.startsWith("review");
-    const startW = toSidebar ? st.sidebarWidth : toReview ? st.reviewWidth : st.outlineWidth;
-    // 左侧下限动态（标签条归位临界，TitleBar 实测写入 store，兜底 PANEL_MIN）；
-    // 大纲/核查面板无对齐诉求，保持静态下限。
-    const min = toSidebar ? Math.max(PANEL_MIN, st.minSidebarWidth) : PANEL_MIN;
-    startColDrag(e, (dx) => {
-      // 右停靠：左拖增宽（-dx）；左停靠：右拖增宽（+dx）
-      const isRightDock = place.endsWith("-right");
-      const w = isRightDock ? startW - dx : startW + dx;
-      const clamped = Math.min(PANEL_MAX, Math.max(min, w));
-      if (toSidebar) useUiStore.getState().setSidebarWidth(clamped);
-      else if (toReview) useUiStore.getState().setReviewWidth(clamped);
-      else useUiStore.getState().setOutlineWidth(clamped);
-    });
-  };
-  return (
-    <div
-      className={`resizer app-resizer ${cls}`}
-      style={hidden ? { width: 0, opacity: 0 } : undefined}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={
-        place === "sidebar"
-          ? "调整文件栏宽度"
-          : place.startsWith("review")
-            ? "调整 AI 核查栏宽度"
-            : "调整大纲栏宽度"
-      }
-      aria-hidden={hidden || undefined}
-      onPointerDown={hidden ? undefined : startDrag}
-    />
-  );
-}
-
-// 侧栏把手（"舌"）：钉在槽边缘垂直中点，48×20 高而窄，只圆内侧两角，
-// 底色透明（滚动条从下方穿过），无阴影（DESIGN.md 贴面零阴影）。
-// 箭头方向 = side × collapsed 两个布尔共同决定（§9.2 物理规则）：
-//   箭头 = 面板那条边「将要移动」的方向。
-//   右停靠 未展开 ‹ ／ 已展开 ›
-//   左停靠 未展开 › ／ 已展开 ‹
-// 只做「展开/收起」，不兼停靠切换（§9.2：两件事两个控件）。
-function PanelHandle({
-  side,
-  showPanel,
-  onToggle,
-  label,
-}: {
-  side: PanelSide;
-  showPanel: boolean;
-  onToggle: () => void;
-  label: string;
-}) {
-  // 箭头朝向：已展开时朝外（远离主区），未展开时朝内（指向主区）
-  const arrowRight = (side === "right" && showPanel) || (side === "left" && !showPanel);
-  const d = arrowRight ? "M9 18l6-6-6-6" : "M15 18l-6-6 6-6";
-  return (
-    <button
-      type="button"
-      className="panel-handle"
-      onClick={onToggle}
-      aria-label={label}
-      aria-expanded={showPanel}
-      title={label}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        width="12"
-        height="12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d={d} />
-      </svg>
-    </button>
-  );
-}
 
 function App() {
   useEffect(() => {
@@ -260,65 +61,8 @@ function App() {
     [],
   );
 
-  useEffect(() => {
-    // T29 快捷键收口：应用内全部组合键唯一入口。
-    // 2026-09-14 改成**表驱动**：键位清单一律查 lib/hotkeyRegistry.ts
-    // （settings.hotkeys 里录过就用用户的，没录过用出厂默认），这里只留
-    // 「按 id 做什么」的执行体——旧版每个键一个 if/switch 分支，加键要改两处。
-    // - 总闸：IME 组合期按键不是快捷键意图（T28 先例）；defaultPrevented =
-    //   编辑器/内层已处理（CM keymap 的 Mod+S/B/I 走 preventDefault），不重复
-    //   触发——防 CM 与本 handler 双发的唯一闸门。
-    // - requireModifier=false：F5 这类键天生没有修饰键（扩展白名单见
-    //   lib/hotkeys.ts allowsBare）。模式热键带修饰，两种取值结果一致。
-    // - global 项（截图翻译、模式键的系统级注册）由 Rust 侧负责，
-    //   这里 **先跳过再 preventDefault**，否则会把全局触发也吞掉。
-    const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
-      // WebView2 加速键 Ctrl+R 会整页重载（未保存文档全丢），无条件拦下。
-      // 同族的 F5 已收进注册表（默认仍是 F5），不再在这里特判。
-      if ((e.ctrlKey || e.metaKey) && e.code === "KeyR") {
-        e.preventDefault();
-        return;
-      }
-      const hk = effectiveHotkeys(useSettingsStore.getState().settings?.hotkeys);
-      for (const def of HOTKEYS) {
-        const combo = hk[def.id];
-        if (!combo || def.global) continue; // 空串=用户禁用；global 交给 Rust
-        if (!comboMatches(e, combo, false)) continue;
-        e.preventDefault();
-        if (def.group === "mode") {
-          useDocStore.getState().switchMode(def.id as Mode);
-          return;
-        }
-        // 非模式组必然是 AppHotkeyId（global 项上面已 continue）。
-        // 仍留 `?.` 兜一层：注册表若哪天多出个非 app 分组，宁可无动作也别崩。
-        APP_ACTIONS[def.id as AppHotkeyId]?.();
-        return;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  useEffect(() => {
-    // T29 全局热键（Rust 侧注册，程序未聚焦也可换模式）：回调 emit `hotkey-mode`
-    // （payload = 模式字符串）→ switchMode。StrictMode 双跑安全：listen promise
-    // 晚到且已卸载时由 alive 闩立刻解绑。
-    let un: (() => void) | undefined;
-    let alive = true;
-    void api.listenHotkeyMode((m) => {
-      if (m === "original" || m === "translation" || m === "bilingual") {
-        useDocStore.getState().switchMode(m);
-      }
-    }).then((f) => {
-      if (alive) un = f;
-      else f();
-    });
-    return () => {
-      alive = false;
-      un?.();
-    };
-  }, []);
+  // T29 快捷键收口：应用内组合键 + Rust 系统热键回调（接线见 hooks/useAppHotkeys）。
+  useAppHotkeys();
 
   const showNav = useUiStore((s) => s.showNav);
   const showOutline = useUiStore((s) => s.showOutline);
