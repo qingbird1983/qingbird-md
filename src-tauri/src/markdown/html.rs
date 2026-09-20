@@ -1,4 +1,4 @@
-﻿//! Render the Block model to standalone HTML for the webview preview,
+//! Render the Block model to standalone HTML for the webview preview,
 //! mirroring the deleted egui renderer's traversal orders exactly.
 //!
 //! Modes:
@@ -11,14 +11,25 @@
 //!   `<div class="tr-box">译文</div>` appended after each translatable
 //!   heading/paragraph/table-cell. Index space is that of
 //!   `units::collect_translatable` (block-level plain text).
+//!
+//! P2-7f 拆分布局（按「给谁 write」）：inline = 行内绘制与转义；code =
+//! 代码块卡片；footnote = 脚注编号预扫与定义聚合。遍历核（render_blocks /
+//! render_top_blocks / render_block / bi_advance / maybe_tr_box）留在本文件
+//! ——sub/bi/ref 三个计数器在**单次**遍历内同轮推进，绝不拆成多轮，否则
+//! 索引空间错位（译文贴错块）。
+
+mod code;
+mod footnote;
+mod inline;
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use syntect::highlighting::Color;
+use code::align_style;
+use footnote::collect_fn_labels;
+use inline::escape_html;
 
-use super::model::{Block, Inline};
-use super::syntax::highlight_spans;
+use super::model::Block;
 use super::units::inline_plain_text;
 use crate::translate::engine::TargetLang;
 
@@ -33,23 +44,6 @@ pub struct OutlineItem {
 pub struct ParseResult {
     pub html: String,
     pub outline: Vec<OutlineItem>,
-}
-
-/// Escape all user-visible text and attribute values so no markdown or file
-/// content can ever inject markup into the preview DOM.
-fn escape_html(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 /// Single-pass rendering context. Keeping substituted (inline-run) and
@@ -111,28 +105,6 @@ pub fn render_html(
         html.push_str("</ol></section>");
     }
     ParseResult { html, outline: std::mem::take(&mut ctx.outline) }
-}
-
-/// 递归收集脚注定义 label（文档顺序），编号 1 起。
-fn collect_fn_labels(blocks: &[Block], nums: &mut HashMap<String, usize>) {
-    for b in blocks {
-        match b {
-            Block::FootnoteDef { label, blocks } => {
-                if !nums.contains_key(label) {
-                    let next = nums.len() + 1;
-                    nums.insert(label.clone(), next);
-                }
-                collect_fn_labels(blocks, nums);
-            }
-            Block::Quote { blocks } => collect_fn_labels(blocks, nums),
-            Block::List { items, .. } => {
-                for it in items {
-                    collect_fn_labels(&it.blocks, nums);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 impl<'t> Ctx<'t> {
@@ -287,25 +259,9 @@ impl<'t> Ctx<'t> {
                     escape_html(tex)
                 );
             }
-            Block::FootnoteDef { label, blocks } => {
-                // 定义不原地渲染——聚合进 fn_html，主流程走完后统一包
-                // `<section class="footnotes">` 追加到文末。内容照常过
-                // render_blocks 推进 bi/sub 计数，walk 顺序与 units 收集器
-                // 一致，索引空间不受搬运影响。
-                let num = self.fn_nums.get(label).copied().unwrap_or(0);
-                let esc = escape_html(label);
-                let mut buf = std::mem::take(&mut self.fn_html);
-                let _ = write!(
-                    buf,
-                    "<li id=\"fn-{esc}\"><span class=\"fn-num\">{num}</span>"
-                );
-                self.render_blocks(&mut buf, blocks);
-                let _ = write!(
-                    buf,
-                    "<a class=\"fn-back\" href=\"#fnref-{esc}\" aria-label=\"返回正文\">↩</a></li>"
-                );
-                self.fn_html = buf;
-            }
+            // 定义不原地渲染：委托 footnote::render_footnote_def 聚合进
+            // fn_html（仍在本次遍历内执行，bi/sub 计数照常推进）。
+            Block::FootnoteDef { label, blocks } => self.render_footnote_def(label, blocks),
         }
     }
 
@@ -334,226 +290,6 @@ impl<'t> Ctx<'t> {
         if let Some(tr) = map.get(&idx) {
             let _ = write!(out, r#"<div class="tr-box">{}</div>"#, escape_html(tr));
         }
-    }
-
-    /// Shared inline painter for original + substituted modes. Every
-    /// `Inline::Text` advances `sub_counter`, matching
-    /// `units::collect_text_runs`' walk run-for-run.
-    fn push_inlines(&mut self, out: &mut String, ils: &[Inline]) {
-        for il in ils {
-            match il {
-                Inline::Text(t) => {
-                    let idx = self.sub_counter;
-                    self.sub_counter += 1;
-                    let tr = self.sub.and_then(|m| m.get(&idx)).map(String::as_str);
-                    let _ = write!(out, r#"<span data-ri="{}">"#, idx);
-                    match tr {
-                        Some(tr) => out.push_str(&escape_html(tr)),
-                        None => out.push_str(&escape_html(t)),
-                    }
-                    out.push_str("</span>");
-                }
-                Inline::Strong(x) => {
-                    out.push_str("<strong>");
-                    self.push_inlines(out, x);
-                    out.push_str("</strong>");
-                }
-                Inline::Emph(x) => {
-                    out.push_str("<em>");
-                    self.push_inlines(out, x);
-                    out.push_str("</em>");
-                }
-                Inline::Del(x) => {
-                    out.push_str("<del>");
-                    self.push_inlines(out, x);
-                    out.push_str("</del>");
-                }
-                Inline::Mark(x) => {
-                    out.push_str("<mark>");
-                    self.push_inlines(out, x);
-                    out.push_str("</mark>");
-                }
-                Inline::FootnoteRef(label) => {
-                    // 上标编号跳到文末定义；无定义的悬空引用退回字面 [^label]
-                    let esc = escape_html(label);
-                    match self.fn_nums.get(label).copied() {
-                        Some(n) => {
-                            // 多次引用同一脚注只给首个锚点 id（重复 id 非法）
-                            if self.fn_refs.insert(label.clone()) {
-                                let _ = write!(
-                                    out,
-                                    r##"<sup class="fn-ref" id="fnref-{esc}"><a href="#fn-{esc}">{n}</a></sup>"##
-                                );
-                            } else {
-                                let _ = write!(
-                                    out,
-                                    r##"<sup class="fn-ref"><a href="#fn-{esc}">{n}</a></sup>"##
-                                );
-                            }
-                        }
-                        None => {
-                            let _ = write!(out, r#"<sup class="fn-ref">[^{esc}]</sup>"#);
-                        }
-                    }
-                }
-                Inline::Code(c) => {
-                    let _ = write!(out, "<code>{}</code>", escape_html(c));
-                }
-                Inline::Link { text, href } => {
-                    // T25：target=_blank 是第一道属性级防线——即使点击漏过前端
-                    // 拦截，WebView2 也只会尝试新窗请求，绝不会把主窗口整窗导航
-                    // 到外部站点（此前无 target 时点一下 = 整个阅读器被网站顶掉，
-                    // 标题栏/快捷键全失，只能强杀）。实际点击由前端 capture 拦截
-                    // 走 open_external（系统浏览器），rel=noopener 防新窗反向劫持。
-                    let _ = write!(
-                        out,
-                        r#"<a href="{}" target="_blank" rel="noopener noreferrer">"#,
-                        escape_html(href)
-                    );
-                    self.push_inlines(out, text);
-                    out.push_str("</a>");
-                }
-                Inline::Image { alt, src } => {
-                    let _ =
-                        write!(out, r#"<img src="{}" alt="{}">"#, escape_html(src), escape_html(alt));
-                }
-                Inline::LineBreak => out.push_str("<br>"),
-                Inline::Math(tex) => {
-                    let _ = write!(
-                        out,
-                        r#"<span class="math inline" data-source="{}"></span>"#,
-                        escape_html(tex)
-                    );
-                }
-                // 行文中段出现的 $$...$$：行内 span（<div> 不能嵌 <p>）；
-                // 独立成段的已由 model 层升级为 Block::Math{display:true}。
-                Inline::DisplayMath(tex) => {
-                    let _ = write!(
-                        out,
-                        r#"<span class="math inline" data-source="{}"></span>"#,
-                        escape_html(tex)
-                    );
-                }
-            }
-        }
-    }
-
-    /// 卡片结构（对齐 openchamber 的代码块布局划分）：
-    /// `<div class="code-card"><div class="code-head"><span
-    /// class="code-lang">{lang}</span></div><pre class="code-block"><code
-    /// style="--ln-digits:{n}">{flex 行}</code></pre></div>`。
-    ///
-    /// 每行一个 `<span class="cl"><span class="ln">{n}</span><span
-    /// class="lc">{tokens}</span></span>`（CSS flex：行号 gutter 列 + 内容
-    /// 列两段划分，长行折行对齐内容列、不再顶到 gutter 下面）。gutter 列宽
-    /// 由 --ln-digits（总行数的十进制位数）统一决定——若按 2ch 逐行
-    /// min-width，行号进到三位数时列宽突变，行号列分隔线会在 9→10、
-    /// 99→100 等位数进位处断开/错位。行内不渲染游离 '\n' 文本节点
-    /// （white-space 下会多出空行）；除末行外每个 .lc 以 '\n' 结尾。
-    /// 注意 .ln 与 .lc 同在 <code> 子树内，`code.textContent` 是
-    /// 「行号+内容」交替的串——前端取纯代码必须走 `src/lib/codeText.ts`
-    /// 的 `codeTextFrom`（只收 .lc 列），不能直接读 code.textContent。
-    /// Unknown/absent lang 以 "text" 标签渲染整块 monochrome-escaped。
-    fn push_code_block(&self, out: &mut String, lang: Option<&str>, code: &str) {
-        match highlight_spans(code, lang) {
-            Some(spans) => {
-                // Regroup spans into per-line token lists. Spans may carry
-                // trailing "\n" (LinesWithEndings), close/reopen around it.
-                let mut lines: Vec<Vec<(Color, Color, String)>> = vec![Vec::new()];
-                for (c, d, t) in spans {
-                    let mut rest = t.as_str();
-                    while let Some(p) = rest.find('\n') {
-                        push_tok(&mut lines, (c, d), &rest[..p]);
-                        lines.push(Vec::new());
-                        rest = &rest[p + 1..];
-                    }
-                    push_tok(&mut lines, (c, d), rest);
-                }
-                // Drop only the trailing artifact of a final "\n".
-                while lines.len() > 1 && lines.last().unwrap().is_empty() {
-                    lines.pop();
-                }
-                let n = lines.len();
-                self.emit_code_open(out, lang, n);
-                for (i, toks) in lines.iter().enumerate() {
-                    let _ = write!(
-                        out,
-                        "<span class=\"cl\"><span class=\"ln\">{}</span><span class=\"lc\">",
-                        i + 1
-                    );
-                    for (cl, cd, piece) in toks {
-                        // 双主题颜色对烘进 CSS 变量：亮色取 --cl，暗色取 --cd
-                        // （选择逻辑在 markdown.css，按 body[data-theme] 切换）。
-                        let _ = write!(
-                            out,
-                            "<span style=\"--cl:#{:02x}{:02x}{:02x};--cd:#{:02x}{:02x}{:02x}\">{}</span>",
-                            cl.r, cl.g, cl.b, cd.r, cd.g, cd.b,
-                            escape_html(piece)
-                        );
-                    }
-                    // 行分隔 '\n' 收进 .lc 尾部（非游离节点）：textContent
-                    // 逐行带换行，复制与划选语义与源码一致。
-                    if i + 1 < n {
-                        out.push('\n');
-                    }
-                    out.push_str("</span></span>");
-                }
-            }
-            None => {
-                // 与高亮路径同构：mono 行也是 .cl/.ln/.lc flex 行，行尾 '\n'
-                // 收进 .lc（末行除外），textContent 与源码一致。
-                let mut ls: Vec<&str> = code.split('\n').collect();
-                if ls.len() > 1 && ls.last() == Some(&"") {
-                    ls.pop();
-                }
-                let n = ls.len();
-                self.emit_code_open(out, lang, n);
-                for (i, l) in ls.iter().enumerate() {
-                    let _ = write!(
-                        out,
-                        "<span class=\"cl\"><span class=\"ln\">{}</span><span class=\"lc\">{}",
-                        i + 1,
-                        escape_html(l)
-                    );
-                    if i + 1 < n {
-                        out.push('\n');
-                    }
-                    out.push_str("</span></span>");
-                }
-            }
-        }
-        out.push_str("</code></pre></div>");
-    }
-
-    /// 卡片与头栏开标签 + 带行号位数变量的 code 开标签（两条渲染路径共用，
-    /// n 必须在产出任何行之前已知）。`--ln-digits` 是**总行数的十进制位数**
-    /// （不是行数本身——行数直接烘进 calc(var*1ch) 会把 gutter 撑到天上去）。
-    fn emit_code_open(&self, out: &mut String, lang: Option<&str>, lines: usize) {
-        out.push_str(
-            "<div class=\"code-card\"><div class=\"code-head\"><span class=\"code-lang\">",
-        );
-        out.push_str(&escape_html(lang.unwrap_or("text")));
-        let digits = lines.to_string().len();
-        let _ = write!(
-            out,
-            "</span></div><pre class=\"code-block\"><code style=\"--ln-digits:{}\">",
-            digits
-        );
-    }
-}
-
-fn push_tok(lines: &mut Vec<Vec<(Color, Color, String)>>, c: (Color, Color), piece: &str) {
-    if !piece.is_empty() {
-        lines.last_mut().unwrap().push((c.0, c.1, piece.to_string()));
-    }
-}
-
-/// 列对齐 → th/td 的 style 属性片段（0=default/left 不发样式）。
-fn align_style(a: u8) -> &'static str {
-    match a {
-        1 => " style=\"text-align:center\"",
-        2 => " style=\"text-align:right\"",
-        _ => "",
     }
 }
 
