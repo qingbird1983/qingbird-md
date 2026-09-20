@@ -1,60 +1,11 @@
-//! 译文另存为：把 Block 树重新序列化为 Markdown，可译 run 换成译文。
-//!
-//! # 为什么是「重新序列化」而不是「在原文上做字符串替换」
-//!
-//! 译文只活在 `translations: Map<run 索引, 译文>` 里（**从不写回 content**），
-//! 所以导出必须自己把译文落到 Markdown 上。两条路：
-//!
-//! - **源码 span 替换**：拿 `Parser::into_offset_iter` 的 `Event::Text` 范围
-//!   直接改写原文。已实测（0.13.4）：范围确实精确覆盖源片段（含 `&amp;`、
-//!   `\*` 这类转义/实体会把整个片段包住）。**但不能用**——`==高亮==` 落在
-//!   一个 `Event::Text` 内，`model::fold_marks` 会在**节点内部**二次切分成
-//!   `Mark(Text)` 等多个 `Inline::Text`，于是一个事件范围对应多个 run；整段
-//!   替换会把 `==` 标记一起吃掉（破格式），按 run 切分又要重写一遍 fold 的
-//!   切分规则（两份实现必然漂移）。
-//! - **重新序列化**（本文件）← 采用。只在 Block 树上走一遍，结构由模型给，
-//!   不需要任何源码偏移。
-//!
-//! # 索引空间：与收集侧逐位一致是**唯一的正确性条件**
-//!
-//! `translations` 的 key 是 `units::collect_text_runs` 的 run 号，所以本文件
-//! 的遍历顺序与计数规则必须与它（以及 `html.rs::push_inlines`）**完全一致**：
-//!
-//! - 块的递归顺序：`walk_run_collect_blocks` 的镜像
-//!   （Quote/List/FootnoteDef 递归；Table 先 headers 后 rows）。
-//! - **只有 `Inline::Text` 推进 run 计数**，`Code`/`Image`/`Math`/`DisplayMath`/
-//!   `LineBreak`/`FootnoteRef` 都不占号——任一侧改动都会让 run 号指向别的文本。
-//!
-//! 本文件**不做**「这个 run 该不该译」的判定：译文表就是收集时的产物，
-//! 表里有就替换、没有就保留原文。不可译块（如参考文献区段）内的 run 当时
-//! 就没进表，天然回落到原文。这比重新判定更稳——少一处会漂的判据。
-//! （因此本文件也不需要 `block_translatable`，方向已隐含在表里。）
-//!
-//! # 已知天花板（都是格式规范化，不是内容丢失——唯一的例外已就地处理）
-//!
-//! - **front matter**：`parse_blocks` 刻意丢弃 MetadataBlock，导出会连
-//!   title/author 一起丢——已由 `front_matter()` 单独切回并拼在文首。
-//! - **块级 HTML**：在 `parse_blocks` 里落进 `_ =>` 兜底成空段落（未建模），
-//!   导出随之不输出。预览本就不渲染它，两边同口径。
-//! - **行内 HTML**（`<b>` 等）：不在 `Inline` 模型里，`parse_blocks` 已丢弃，
-//!   只留下其中的文本。同上，与预览一致。
-//! - **软/硬换行不分**：`Inline::LineBreak` 是 SoftBreak 与 HardBreak 折成的
-//!   同一个变体，一律输出软换行。原文的 `  \n` 导出后渲染从 `<br>` 变空格。
-//! - **Setext 标题**（`Title\n=====`）统一输出 ATX（`# Title`）。
-//! - **无序列表标记统一成 `-`**：`model::Block::List` 只留 `ordered`，没有记录
-//!   原文用的是 `*` 还是 `+`。三者渲染完全等价，但源码会变。
-//! - **表格分隔行补齐空格**（`|---|---|` → `| --- | --- |`），同样等价。
-//! - **文末补一个换行**（原文没有时），符合 POSIX 惯例。
-//! - **紧凑列表会变松散**：列表项内有多个块时，块之间按 Markdown 惯例插空行
-//!   （不插的话相邻段落会被并成一段）。语义与渲染等价，run 顺序也不受影响，
-//!   只是源码里多了空行。
-//!
-//! 实测口径：拿 165 行的 `README.md` 跑空表导出，26 行有差异、全部属于上面
-//! 几条，无一处内容增减。
+//! 导出入口与 Md 序列化器：front matter 切回、单块导出、译文另存为主流程。
+//! **红线**：`Md::inlines` 的 data-ri run 计数只有 `Inline::Text` 推进，
+//! 与 `html.rs::push_inlines` 逐位一致——此逻辑一行不动。
 
 use std::collections::HashMap;
 
-use super::model::{Block, Inline};
+use super::escape::{block_start, code_span, escape_md, fence_for, prefix_lines};
+use crate::markdown::model::{Block, Inline};
 
 /// 文首 YAML front matter 的**源码切片**（含首尾 `---` 行）。
 ///
@@ -63,7 +14,7 @@ use super::model::{Block, Inline};
 /// 属于内容损失，不是格式规范化。这里用同一套解析开关把那一块切出来原样拼回。
 pub fn front_matter(content: &str) -> Option<&str> {
     use pulldown_cmark::{Event, Parser, Tag};
-    let mut it = Parser::new_ext(content, super::model::options()).into_offset_iter();
+    let mut it = Parser::new_ext(content, crate::markdown::model::options()).into_offset_iter();
     match it.next() {
         Some((Event::Start(Tag::MetadataBlock(_)), r)) => Some(&content[r]),
         _ => None,
@@ -91,7 +42,7 @@ pub fn render_block_for_export(b: &Block) -> String {
 /// 未在表里的 run 保留原文；`translations` 为空时输出与原文**语义等价**的
 /// 规范化 Markdown（块级重排，不保证逐字节相同）。
 pub fn export_translation(content: &str, translations: &HashMap<usize, String>) -> String {
-    let blocks = super::model::parse_blocks(content);
+    let blocks = crate::markdown::model::parse_blocks(content);
     let mut md = Md {
         sub: translations,
         sub_counter: 0,
@@ -335,95 +286,6 @@ impl Md<'_> {
     }
 }
 
-/// 段落类内容（段落/标题/列表项/表格单元格）**行首**的块级前缀转义。
-///
-/// `escape_md` 不转义 `-`/`+`/`=`/数字——它们在正文中间极常见（`well-known`、
-/// `1.5`），全转义会让源码很脏。但落在行首就会变成列表/分割线/setext 标题，
-/// 把结构改掉，所以只在这一处补。
-fn block_start(s: &str) -> String {
-    match s.chars().next() {
-        Some('-') | Some('+') | Some('=') => format!("\\{s}"),
-        Some(c) if c.is_ascii_digit() => {
-            let rest = &s[1..];
-            let nd = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
-            let after = &rest[nd..];
-            let ordered = (after.starts_with('.') || after.starts_with(')'))
-                && matches!(after[1..].chars().next(), Some(' ') | Some('\t'));
-            if !ordered {
-                return s.to_string();
-            }
-            let at = 1 + nd;
-            let mut out = String::with_capacity(s.len() + 1);
-            out.push_str(&s[..at]);
-            out.push('\\');
-            out.push_str(&s[at..]);
-            out
-        }
-        _ => s.to_string(),
-    }
-}
-
-/// Markdown 文本转义。`in_table` 时额外带上 `|`（单元格里的裸 `|` 会多切一列）。
-fn escape_md(s: &str, in_table: bool) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if matches!(c, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '~' | '#')
-            || (in_table && c == '|')
-        {
-            out.push('\\');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// 行内代码围串：内容里的连续反引号若 ≥3 个，围串要比它长（且首尾带空格）。
-fn code_span(c: &str) -> String {
-    let mut longest = 0usize;
-    let mut run = 0usize;
-    for ch in c.chars() {
-        if ch == '`' {
-            run += 1;
-            longest = longest.max(run);
-        } else {
-            run = 0;
-        }
-    }
-    let fence = "`".repeat((longest + 1).max(1));
-    if c.starts_with('`') || c.ends_with('`') || longest > 0 {
-        format!("{fence} {c} {fence}")
-    } else {
-        format!("{fence}{c}{fence}")
-    }
-}
-
-/// 围栏长度：代码里若已有 ≥3 个连续反引号的行，围栏要比它长。
-fn fence_for(code: &str) -> String {
-    let mut n = 3usize;
-    for line in code.lines() {
-        let t = line.trim_start();
-        if t.starts_with("```") {
-            n = n.max(t.chars().take_while(|&c| c == '`').count() + 1);
-        }
-    }
-    "`".repeat(n)
-}
-
-/// 给每行加前缀；空行只留前缀的裁剪形态（引用块的 `>`、列表缩进的空）。
-fn prefix_lines(text: &str, prefix: &str) -> String {
-    let bare = prefix.trim_end();
-    text.split('\n')
-        .map(|line| {
-            if line.is_empty() {
-                bare.to_string()
-            } else {
-                format!("{prefix}{line}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,31 +439,6 @@ Footnote ref[^n] here.
         ] {
             assert!(out.contains(needle), "缺 {needle:?}:\n{out}");
         }
-    }
-
-    /// 译文里的 Markdown 特殊字符必须被转义，否则用户拿到的文件结构会破。
-    #[test]
-    fn translation_metachars_are_escaped() {
-        let md = "Hello world";
-        let map = HashMap::from([(0usize, "a*b_c[d]e#f".to_string())]);
-        let out = export_translation(md, &map);
-        assert!(out.contains(r"a\*b\_c\[d\]e\#f"), "特殊字符需转义: {out}");
-        // 表格单元格里的 `|` 会多切一列，必须转义
-        let md2 = "| a |\n| --- |\n| x |";
-        let cell_run = collect_text_runs(&parse_blocks(md2), ZH)[0].0;
-        let out2 = export_translation(md2, &HashMap::from([(cell_run, "p|q".to_string())]));
-        assert!(out2.contains(r"p\|q"), "单元格竖线需转义: {out2}");
-    }
-
-    /// 行首危险前缀（会被误认成列表/分割线/setext 标题）要转义。
-    #[test]
-    fn block_start_prefixes_are_escaped() {
-        let map = HashMap::from([(0usize, "- dash led".to_string())]);
-        let out = export_translation("Hello", &map);
-        assert!(out.starts_with(r"\- dash led"), "{out}");
-        let map2 = HashMap::from([(0usize, "1. ordered led".to_string())]);
-        let out2 = export_translation("Hello", &map2);
-        assert!(out2.starts_with(r"1\. ordered led"), "{out2}");
     }
 
     /// front matter 不能被丢掉——导出是交付物，title/author 属于内容，
