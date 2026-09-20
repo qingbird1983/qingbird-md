@@ -69,7 +69,7 @@ pub fn provider(
 ///
 /// 各家用字不同（`zh` / `zh-CN` / `zh-CHS`），所以只统一**方向**，不强行统一
 /// 字面量——按 provider 各写一张两行表比再包一层映射更好读。
-pub(super) fn codes(
+fn codes(
     target: TargetLang,
     zh: (&'static str, &'static str),
 ) -> (&'static str, &'static str) {
@@ -84,7 +84,7 @@ fn parse_json(body: &str) -> Result<Value, String> {
 }
 
 #[cfg(test)]
-pub(super) fn creds(pairs: &[(&str, &str)]) -> Creds {
+fn creds(pairs: &[(&str, &str)]) -> Creds {
     let m = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     Creds(m)
 }
