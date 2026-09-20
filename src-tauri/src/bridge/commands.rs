@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter};
 
 use crate::AppTxn;
+use crate::translate::cache::Cache;
 use crate::{dto, markdown, storage, translate};
 
 use super::events::{LookupDeltaEvt, TranslateStart};
@@ -119,7 +120,7 @@ pub fn stop_translation(state: tauri::State<AppTxn>) {
     state.cancel.store(true, Ordering::SeqCst);
 }
 
-// async（PERF-2）：本命令里有 parse_blocks + 整缓存快照 clone + 收口时的
+// async（PERF-2）：本命令里有 parse_blocks + 整篇可译单元收集 + 收口时的
 // 最多 3 次整树渲染，同步命令在主线程执行会冻结窗口——与 open_file /
 // parse_markdown 刻意 async 的口径一致。
 #[tauri::command(async)]
@@ -153,7 +154,6 @@ pub fn translate_document(
         }
         other => return Err(format!("不支持的模式：{other}")),
     };
-    let snapshot = state.cache.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let (indices, texts): (Vec<usize>, Vec<String>) = units.into_iter().unzip();
     let bilingual = mode == "bilingual";
     let variant = translate::engine::cache_variant(
@@ -161,10 +161,25 @@ pub fn translate_document(
         creds.get("model").map(|s| s.as_str()).unwrap_or_default(),
         target,
     );
+    // PERF-2 移交半项（P0-8+9 评审）：整缓存快照 clone() 降为 O(本轮单元) 的
+    // 定向播种。precheck 与 worker scratch 都只按本轮单元的 key 查缓存
+    // （engine 对 cache 仅 get/set 本轮键），无需整份 HashMap+String 深拷贝，
+    // 窗口滚动的全命中第二击从此零整缓存拷贝。共享 cache 的语义（版本化
+    // variant、FIFO 淘汰、磁盘持久化）不经此路径，分毫未动。
+    let work_cache = {
+        let shared = state.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut seeded = Cache::new();
+        for t in &texts {
+            if let Some(v) = shared.get(&Cache::key(&provider, &variant, t)) {
+                seeded.set(Cache::key(&provider, &variant, t), v.to_string());
+            }
+        }
+        seeded
+    };
     if let Some(mut done) = cached_done_evt(
         &provider,
         &variant,
-        &snapshot,
+        &work_cache,
         &indices,
         &texts,
         &content,
@@ -175,9 +190,12 @@ pub fn translate_document(
         // 窗口化缓存全命中：窗口 pairs 之外，把整篇缓存命中单元一并扫荡
         // 回带（见 sweep_cached_pairs 注释）——前端凭完整表整屏瞬时替换，
         // 不必滚到哪补到哪。全文（window=None）路径本就带全部 pairs，不扫。
+        // 扫荡要覆盖整篇可译单元（超出本轮 key 集合），故直查共享 cache：
+        // 纯 map 读，短临界区。
         if window.is_some() {
+            let shared = state.cache.lock().unwrap_or_else(|e| e.into_inner());
             done.translations =
-                Some(sweep_cached_pairs(&snapshot, &provider, &variant, &blocks, bilingual, target));
+                Some(sweep_cached_pairs(&shared, &provider, &variant, &blocks, bilingual, target));
         }
         return Ok(TranslateStart::Cached { done });
     }
@@ -203,7 +221,7 @@ pub fn translate_document(
         creds,
         meta,
         st,
-        snapshot,
+        work_cache,
         content,
         bilingual,
         window.is_some(),
