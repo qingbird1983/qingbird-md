@@ -31,11 +31,14 @@ body {
    列 = 文件栏 auto / 其拖宽条 auto / 大纲栏(左停靠) auto / 其拖宽条 auto /
         主区 1fr / 大纲栏(右停靠)拖宽条 auto / 大纲栏(右停靠) auto
    未使用的空列（auto 且无在流项）恒为 0 宽：左停靠时 col6/col7 归零，
-   右停靠时 col3/col4 归零。 */
+   右停靠时 col3/col4 归零。
+   中部行必须 minmax(0, 1fr) 而非裸 1fr：1fr 的隐式最小值是 auto（内容
+   最小高度），长大纲的 .panel-slot（overflow:visible，自动最小不归零）
+   会把行撑高、把 StatusBar 挤出视口且大纲自身失去滚动。 */
 #app-shell {
   display: grid;
   height: 100%;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-columns: auto auto auto auto 1fr auto auto;
   /* 启动仪式感动画时长（useUiStore INTRO_ANIM_MS 同值，改动两处同步）：
      playing 时 JS 再把 --panel-anim 内联覆盖成同值，两栏收缩 / 标签条滑动 /

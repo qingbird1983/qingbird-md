@@ -19,6 +19,10 @@
   /* KEY: 把手（.panel-handle）必须能被画出——槽不能被 overflow:hidden 裁掉。
      面板本身的 overflow:hidden 在内层 aside 上，不在这层。 */
   overflow: visible;
+  /* KEY: overflow:visible 让网格子项的自动最小尺寸 = 内容最小高度，长大纲
+     会把中部行撑高（状态栏被挤出视口、大纲失去滚动）。min-height:0 归零
+     该最小值，槽高恒等于轨道高（#app-shell 行已改 minmax(0,1fr) 双保险）。 */
+  min-height: 0;
 }
 .panel-slot[data-side="right"] {
   grid-column: 7;
