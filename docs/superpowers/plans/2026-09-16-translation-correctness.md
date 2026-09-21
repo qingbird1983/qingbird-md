@@ -54,12 +54,14 @@
 | | 14 `ensureReviewPanelOpen()` + `Ctrl+J` | ✅ | 2026-09-19 S4：`lib/reviewPanel.ts` = `afterLayoutStable()`（**两帧**：第 1 帧槽位可能还没被 React 提交进 DOM）+ `ensureReviewPanelOpen(then?)`（已开则同步执行，不空等）+ `revealReviewIssues()`（落点优先计数条，使「多少条」与「哪几条」同时可见）。`Ctrl+J` 已在注册表，本项补的是**执行体**：`App.tsx` 的 `toggle_review` 改为「开着→收起；关着→`ensureReviewPanelOpen` 开面板 + 布局稳定后落清单」。`reviewPanel.test.ts` 9 用例 + `reviewWiring.test.ts` 3 条源码守卫（读 `App.tsx` 钉住不得退回直接 `toggleReview()`） |
 | | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ✅ | commit `49167c7`：`translate/check.rs`（357 行，5 检查 + 5 测试）、`bridge::check_translation`、前端 `lib/checkTranslation.ts` + 守卫测试 |
 | | 16 `ReviewIssueCard` | ✅ | 2026-09-19 S4：`components/ReviewIssueCard.tsx`（**含非 actionable 态**：跳不动时**禁用跳转并写明原因，而不是隐藏**——隐藏会让「N 处问题」与「列出 M 条」对不上、看着像漏报）+ 跳转收敛成**唯一实现点** `lib/reviewJump.ts`（`probeIssueAnchor` 让**渲染期与点击期判定同源**，杜绝"画着能点、点了没反应"；`jumpToIssue` 内部封装「`lockSplitSide("preview")` → `scrollIntoView({behavior:"auto"})` → `emitSplitSync("preview", src_line)`」，`behavior` 不用 `smooth` 是因为它跑 300ms 会冲出 180ms 锁窗）+ `lib/issueKind.ts`（类别标签穷尽表，`satisfies Record<IssueKind, string>`）+ 样式独立成域 `styles/13-review.css`。`reviewJump.test.ts` 10 用例、`ReviewIssueCard.test.tsx` 7 用例 |
-| **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | ❌ 未做 | 无 `review_model` 字段 |
+| **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | 🔨 代码完成（2026-09-21，`a40c1cc`+`57a9436`）| 待真机验收（条目见 regression-checklist S5 节）|
 | **第 5 步** 重排版规则集 | 22–23 | ❌ 未做 | — |
 
 **结论（2026-09-19 S4 更新）**：**第 2 步已全部完成**（第 9 项双语导出随 v0.2.3 发布并真机验收）；**第 3 步 UI 部分已收口**——11 / 13 / 14 / 16 四项 ✅ 落地并**真机验收通过**（S4，提交 `eedc6d4`），**12 `ReviewComposer` 并入第 4 步**（它的数据源在语义核查）。第 4、5 步未做。
 
-> **下一项 = 第 4 步 AI 语义核查（17–21）**，约 2 天，**本项目产品分水岭**（翻译从"能看"到"可信交付"）。工单见 `2026-09-18-sqlite-translation-cache.md` 附 5 的 S5；面板骨架已就绪，S5 只需往 `ReviewTimeline` 的 `steps` 追加步骤 + 渲染 AI 追问（`ReviewComposer`）。
+"> **下一项 = 第 4 步 AI 语义核查（17–21）**，约 2 天，**本项目产品分水岭**（翻译从"能看"到"可信交付"）。工单见 `2026-09-18-sqlite-translation-cache.md` 附 5 的 S5；面板骨架已就绪，S5 只需往 `ReviewTimeline` 的 `steps` 追加步骤 + 渲染 AI 追问（`ReviewComposer`）。
+>
+> **（2026-09-21 更新）第 4 步代码完成**：执行工单 `2026-09-21-s5-ai-review.md` 三批次落地（提交 `a40c1cc` + `57a9436`），四道门禁全绿，待真机验收。
 
 **另外一项计划外的技术债（两项均已清）**：
 `src/styles/global.css` 的 **3590 行拆分已完成**（`49167c7`：52 行 manifest + 13 个域文件）。2026-09-19 S4 又补了**第二次拆分**：核查面板样式从 `05-panels.css`（当时已 701 行，顶到 800 阈值）抽成第 14 个域文件 `13-review.css`，新卡片/时间线/滚动跟随样式才落得下。**`patchPartial.ts` 锚点缺失打日志也已随 S4 第 0 步完成**（三处静默 `return` 统一走 `warnMissingAnchor`，带 `mode` / `index` / 选择器坐标；`patchPartial.test.ts` 10 用例）。
