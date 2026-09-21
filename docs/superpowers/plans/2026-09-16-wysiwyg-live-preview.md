@@ -241,7 +241,7 @@
 1. **写者争抢**：翻译流式 patch 直接改 `[data-ri]` 的 `textContent`；用户正在同一块里打字时，**刚敲的字会被译文覆盖**（或反之）。
 2. **双语模式下更危险**：预览里显示的是译文，用户若在译文上编辑并回写，回写的将是**译文本身** → **直接污染源文件**。
 3. **回写必然清空译文**：编辑都走 `applyEdit` → 全串替换 content → `resetDisplayIfStale` 判定 `runContent !== content` → **`clearTranslations()`，译文全丢**。
-4. **锚点失效**：编辑态下 DOM 结构被改，`data-bi`/`data-ri` 索引对不上 → `patchPartial` **静默跳过**（连报错都没有）。
+4. **锚点失效**：编辑态下 DOM 结构被改，`data-bi`/`data-ri` 索引对不上 → `patchPartial` 跳过该块（**2026-09-19 起已打日志** `warnMissingAnchor`，不再是"连报错都没有"——见 `2026-09-18-sqlite-translation-cache.md` 附 1 P0-2）。
 
 若坚持要做 B，前置条件至少包括：编辑态下对该块加**互斥锁**禁止 patch 写入、**双语模式禁止就地编辑**（只允许在原文侧编辑）、编辑提交时把"整篇译文失效"改为"**按块增量失效**"。成本远高于收益。
 
@@ -257,7 +257,7 @@
 
 实现上是 `useUiStore` 的视图状态联动，几十行的事，不是抽象层。**原先设想的 `TranslationSurface` 抽象因此不必做。**
 
-**建议顺手修一个既有隐患**：`patchPartial.ts` 目前"锚点缺失**静默跳过**"，导致翻译"看起来没反应"且无迹可查 → 改为打日志（低成本，高排障收益）。
+**建议顺手修一个既有隐患**：`patchPartial.ts` 锚点缺失曾"**静默跳过**"，导致翻译"看起来没反应"且无迹可查 → 改为打日志（低成本，高排障收益）。**→ ✅ 已完成**（2026-09-19 S4 第 0 步：三处静默 `return` 统一走 `warnMissingAnchor`，带 `mode` / `index` / 选择器坐标，`patchPartial.test.ts` 10 用例）。
 
 ---
 
@@ -293,7 +293,7 @@
 | 装饰全量重建（InkNote 未做视口裁剪） | 长文档掉帧 | `statics`/`visible` 分层 + **viewport 裁剪** |
 | `lineBlockAtHeight` 像素反查在 widget 下失效（依赖"块高≈行高"） | 分栏滚动对齐跳错 | 改为**行号→offset 直接映射**（`doc.line(n).from` + `coordsAtPos`）——这是改进 |
 | 单栏 Live Preview 下预览未挂载 | 翻译无宿主、静默不显示 | §六 视图约束：翻译前确保预览可见 |
-| `patchPartial` 锚点缺失静默跳过 | 翻译"没反应"且无报错 | 改为打日志 |
+| ~~`patchPartial` 锚点缺失静默跳过~~ | 翻译"没反应"且无报错 | 改为打日志 **— ✅ 已做**（2026-09-19，`warnMissingAnchor`；**该项风险已解除**） |
 | 渲染侧内存（记忆：Syntect OnceLock 是常驻大户） | 叠加装饰后内存上升 | L2 做代码块 widget 时评估 |
 | 表格 widget 复杂度 | 工期失控 | 允许降级为"只做 Tab 导航" |
 | 无障碍：`Decoration.replace` 让标记不可见 | 朗读行为变化 | 实测确认；我们不分块虚拟化文档，风险低于 Guanmo |
