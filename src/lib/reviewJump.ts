@@ -19,10 +19,16 @@
  * 否则会出现"画着可点、点了没反应"的静默态。
  */
 import { lockSplitSide } from "./splitSync";
-import type { Issue } from "../types/ipc";
 
 /** 跳不了的原因。**必须让用户看见**（非 actionable 态），不许静默。 */
 export type JumpBlockReason = "preview-hidden" | "anchor-missing";
+
+/**
+ * 跳转锚点的最小形状：只用 `run` 一个字段（run 空间优先、回退块空间）。
+ * 确定性 `Issue` 与 S5 的 `ReviewIssue` 都天然满足——跳转实现不关心问题
+ * 是谁报的。
+ */
+export type JumpAnchor = { run: number };
 
 export type JumpResult =
   | { ok: true; target: HTMLElement }
@@ -56,17 +62,17 @@ export function findIssueAnchor(scroll: ParentNode, run: number): HTMLElement | 
  * 能不能跳 / 跳到哪。**纯读**，无副作用 —— 面板渲染期可以放心调用来决定卡片态，
  * 运行时点击前再调一次（DOM 可能在两次之间变了：面板收起、重解析、切模式）。
  */
-export function probeIssueAnchor(issue: Issue, doc: Document = document): JumpProbe {
+export function probeIssueAnchor(anchor: JumpAnchor, doc: Document = document): JumpProbe {
   const scroll = previewScrollEl(doc);
   if (!scroll) return { ok: false, reason: "preview-hidden" };
-  const target = findIssueAnchor(scroll, issue.run);
+  const target = findIssueAnchor(scroll, anchor.run);
   if (!target) return { ok: false, reason: "anchor-missing" };
   return { ok: true, scroll, target };
 }
 
 /** 面板渲染期用：跳不了则返回原因，能跳返回 null。 */
-export function jumpBlockReason(issue: Issue, doc: Document = document): JumpBlockReason | null {
-  const probe = probeIssueAnchor(issue, doc);
+export function jumpBlockReason(anchor: JumpAnchor, doc: Document = document): JumpBlockReason | null {
+  const probe = probeIssueAnchor(anchor, doc);
   return probe.ok ? null : probe.reason;
 }
 
@@ -84,8 +90,8 @@ export function jumpBlockReason(issue: Issue, doc: Document = document): JumpBlo
  * 字段已随 CQ-8 删除。锁窗仍要先行——scrollIntoView 引发的滚动事件同样
  * 会被联动总线听到。）
  */
-export function jumpToIssue(issue: Issue, opts: { flash?: boolean; doc?: Document } = {}): JumpResult {
-  const probe = probeIssueAnchor(issue, opts.doc ?? document);
+export function jumpToIssue(anchor: JumpAnchor, opts: { flash?: boolean; doc?: Document } = {}): JumpResult {
+  const probe = probeIssueAnchor(anchor, opts.doc ?? document);
   if (!probe.ok) return { ok: false, reason: probe.reason };
 
   lockSplitSide("preview");

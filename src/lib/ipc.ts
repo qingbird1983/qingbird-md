@@ -21,7 +21,14 @@ import type {
   TranslateStart,
   SessionSnapshot,
   Issue,
+  ReviewOutcome,
 } from "../types/ipc";
+
+/** S5：语义核查分批进度（done/total 是批数，bridge/events.rs ReviewProgressEvt 镜像）。 */
+export interface ReviewProgress {
+  done: number;
+  total: number;
+}
 
 /** Step 2 导出模式：单语译文 vs 双语对照。键空间完全不同（见 ExportMode 说明）。 */
 export type ExportMode = "translation" | "bilingual";
@@ -111,6 +118,29 @@ export const api = {
       targetLang,
     }),
   stopTranslation: () => invoke<void>("stop_translation"),
+  /**
+   * S5：AI 语义核查（锁 llm：creds 必须是 providers["llm"] 那份；后端
+   * 不收 provider 参数——不给他源留口子）。instruction = ReviewComposer
+   * 的追问（可为 null）。进度走 listenReviewProgress；结果不进 Cache。
+   */
+  reviewSemantic: (
+    c: string,
+    translations: Array<[number, string]>,
+    mode: "translation" | "bilingual",
+    targetLang: TargetLang,
+    instruction: string | null,
+    creds: Record<string, string>,
+  ) =>
+    invoke<ReviewOutcome>("review_semantic", {
+      content: c,
+      translations,
+      mode,
+      targetLang,
+      instruction,
+      creds,
+    }),
+  listenReviewProgress: (cb: (p: ReviewProgress) => void) =>
+    listen<ReviewProgress>("review-progress", (e) => cb(e.payload)),
   /**
    * 译文另存为（Step 2）：`mode` 决定 `translations` 的 key 索引空间——
    * - `"translation"`（默认、单语）：key = `data-ri` run 空间，方向无关，

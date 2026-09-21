@@ -457,3 +457,188 @@
   border-color: var(--accent);
   color: var(--fg);
 }
+
+/* ============ S5：AI 语义核查（语义条目 / 追问输入 / 处置动作） ============ */
+
+/* 语义问题计数条：与确定性 warn 条同构，计数用 accent（它是建议，不是结构损伤） */
+.review-checks-bar.ai .count {
+  color: var(--accent);
+}
+
+/* 漂移守卫提示：文档在核查后变过，open 条目暂不可应用 */
+.review-stale-note {
+  font-size: 10.5px;
+  color: var(--warning);
+}
+
+/* severity 徽标：高=朱、中=赭黄、低=灰 */
+.review-issue-sev {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  line-height: 15px;
+  background: var(--bg3);
+  color: var(--fg3);
+}
+
+.review-issue-sev[data-severity="high"] {
+  background: var(--zhu-wash);
+  color: var(--zhu);
+}
+
+.review-issue-sev[data-severity="medium"] {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+.review-issue.ai .review-issue-kind {
+  color: var(--accent);
+}
+
+.review-issue-reason {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg2);
+  word-break: break-word;
+}
+
+.review-issue-suggested {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--accent-strong);
+  font-family: var(--font-serif);
+}
+
+/* 已处置：接受= accent 描边留痕；拒绝= 整卡降透明。条目**不消失**——
+   处置可追溯是 §L2 的形态，「N 处」与列出的条数必须对得上。 */
+.review-issue.ai.accepted .review-issue-hit {
+  border-color: var(--accent-border);
+}
+
+.review-issue.ai.rejected {
+  opacity: 0.55;
+}
+
+.review-issue-done {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted-fg);
+}
+
+/* 漂移守卫命中：open 条目冻结（视觉与 blocked 同路：降透明，不隐藏） */
+.review-issue.ai.stale .review-issue-hit {
+  opacity: 0.62;
+}
+
+.review-issue-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.review-issue-btn {
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    border-color 0.14s var(--ease, ease),
+    background 0.14s var(--ease, ease),
+    color 0.14s var(--ease, ease);
+}
+
+.review-issue-btn.accept:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--accent-strong);
+}
+
+.review-issue-btn.accept:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.review-issue-btn.reject:hover {
+  border-color: var(--zhu);
+  color: var(--zhu);
+}
+
+/* 追问输入（工单 #12）：贴动作区顶部，单行起、随内容增高 */
+.review-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.review-composer-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+}
+
+.review-composer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.review-composer-input:disabled {
+  color: var(--muted-fg);
+}
+
+.review-composer-input::placeholder {
+  color: var(--fg3);
+}
+
+.review-composer-send {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  color: var(--fg2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.14s var(--ease, ease),
+    background 0.14s var(--ease, ease),
+    color 0.14s var(--ease, ease);
+}
+
+.review-composer-send:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.review-composer-send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.review-composer-send.cancel {
+  border-color: var(--zhu);
+  color: var(--zhu);
+}

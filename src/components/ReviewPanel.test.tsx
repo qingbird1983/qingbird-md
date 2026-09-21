@@ -35,6 +35,9 @@ vi.mock("../lib/ipc", async (importOriginal) => {
         if (h.gate) await h.gate;
         return h.issues;
       },
+      // S5：useSemanticReview 挂载期订阅分批进度；测试里没有 Tauri 事件层，
+      // 给一个立即注销的 noop，避免打到真 listen（happy-dom 无 __TAURI_INTERNALS__）。
+      listenReviewProgress: async () => () => {},
     },
   };
 });

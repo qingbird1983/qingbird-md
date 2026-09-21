@@ -7,20 +7,25 @@
 // 语义核查（AI，锁定 llm 大模型）是另一条路径，依赖 LLM 凭据齐全
 // （baseUrl + model），未配置则按钮禁用 + 明示原因（§七.1 R2），**不静默降级**。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AiIssueCard from "./AiIssueCard";
+import ReviewComposer from "./ReviewComposer";
 import ReviewIssueCard from "./ReviewIssueCard";
 import ReviewTimeline, { type ReviewStep } from "./ReviewTimeline";
 import { useDocStore } from "../stores/useDocStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useTranslationStore } from "../stores/useTranslationStore";
 import { useUiStore } from "../stores/useUiStore";
+import { useSemanticReview, type AiIssueView } from "../hooks/useSemanticReview";
 import { checkTranslation, countByKind } from "../lib/checkTranslation";
-import { issueKindLabel } from "../lib/issueKind";
+import { aiKindLabel, countByAiKind, issueKindLabel } from "../lib/issueKind";
 import { type JumpBlockReason, jumpBlockReason } from "../lib/reviewJump";
+import { buildReviewSteps } from "../lib/reviewSteps";
 import { useStreamFollow } from "../lib/streamFollow";
 import type { Issue } from "../types/ipc";
 
 /** 稳定空表：翻译进行中拿它顶替清单，避免每次渲染都造新数组触发无谓重渲。 */
 const EMPTY_ISSUES: Issue[] = [];
+const EMPTY_AI_ISSUES: AiIssueView[] = [];
 
 /** 防抖窗口（PERF-1）：内容/mode/target 停变这么久后才真正发查词 IPC。 */
 const CHECK_DEBOUNCE_MS = 250;
@@ -57,6 +62,30 @@ export default function ReviewPanel() {
   const [blockReasons, setBlockReasons] = useState<Record<number, JumpBlockReason>>({});
 
   const checkable = mode !== "original" && translations.size > 0 && docContent !== null;
+
+  // S5：语义核查状态机（见 hooks/useSemanticReview.ts）。panel 只消费。
+  const ai = useSemanticReview({
+    docContent,
+    translations,
+    mode,
+    target,
+    creds,
+    llmReady,
+    translating,
+  });
+  /** 渲染期探测 AI 条目「能不能跳」，与确定性列表同一套 rAF 手法。 */
+  const [aiBlockReasons, setAiBlockReasons] = useState<Record<number, JumpBlockReason>>({});
+  const aiVisible = ai.phase === "running" || translating ? EMPTY_AI_ISSUES : ai.issues;
+  const aiOpen = ai.issues.filter((i) => i.status === "open");
+  const aiIssueCount = aiVisible.filter((i) => i.status === "open").length;
+  const aiBreakdown = useMemo(
+    () =>
+      Object.entries(countByAiKind(aiOpen))
+        .filter(([, n]) => n > 0)
+        .map(([kind, n]) => `${n} 处${aiKindLabel(kind)}`)
+        .join(" · "),
+    [aiOpen],
+  );
 
   // 面板打开 + 有译文 + 翻译模式 + **翻译已停** → 跑确定性检查。
   //
@@ -127,31 +156,44 @@ export default function ReviewPanel() {
     [counts],
   );
 
-  // 确定性检查这一步的进度（S5 的语义核查步骤往同一个数组里追加）。
-  const steps: ReviewStep[] = useMemo(() => {
-    if (mode === "original")
-      return [{ type: "deterministic", status: "skipped", summary: "确定性检查 · 未运行", detail: "当前为原文模式" }];
-    if (translating)
-      return [
-        {
-          type: "deterministic",
-          status: "running",
-          summary: "确定性检查 · 等翻译停",
-          detail: "流式期查会把还没轮到的段落全报成漏译",
-        },
-      ];
-    if (translations.size === 0)
-      return [{ type: "deterministic", status: "pending", summary: "确定性检查 · 待翻译", detail: "先翻译文档" }];
-    if (checking) return [{ type: "deterministic", status: "running", summary: "确定性检查 · 进行中" }];
-    return [
-      {
-        type: "deterministic",
-        status: "done",
-        summary: hasIssues ? `确定性检查 · ${totalIssues} 处` : "确定性检查 · 通过",
-        detail: hasIssues ? breakdown : "未发现结构性问题",
-      },
-    ];
-  }, [mode, translating, translations, checking, hasIssues, totalIssues, breakdown]);
+  // 确定性检查这一步的进度 + S5 追加的语义核查步骤（派生逻辑在 lib/reviewSteps.ts）。
+  const steps: ReviewStep[] = useMemo(
+    () =>
+      buildReviewSteps({
+        mode,
+        translating,
+        hasTranslations: translations.size > 0,
+        checking,
+        hasIssues,
+        totalIssues,
+        breakdown,
+        llmReady,
+        aiPhase: ai.phase,
+        aiProgress: ai.progress,
+        aiError: ai.error,
+        aiIssueCount: ai.issues.filter((i) => i.status !== "rejected").length,
+        aiSummary: ai.summary,
+        aiBreakdown,
+      }),
+    [mode, translating, translations, checking, hasIssues, totalIssues, breakdown, llmReady, ai, aiBreakdown],
+  );
+
+  // AI 条目的不可跳探测：与确定性列表同一渲染期 rAF 手法（等预览落 DOM）。
+  useEffect(() => {
+    if (aiVisible.length === 0) {
+      setAiBlockReasons({});
+      return;
+    }
+    const raf = requestAnimationFrame(() => {
+      const next: Record<number, JumpBlockReason> = {};
+      aiVisible.forEach((issue) => {
+        const reason = jumpBlockReason(issue);
+        if (reason) next[issue.seq] = reason;
+      });
+      setAiBlockReasons(next);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [aiVisible, mode]);
 
   // 渲染期探测「这条能不能跳」。必须等一帧：issue 由 IPC 异步返回时，
   // 预览的重解析可能还没落 DOM，立刻探测会把可跳的全判成不可跳。
@@ -210,7 +252,7 @@ export default function ReviewPanel() {
       <div className="review-body" ref={scrollRef}>
         <ReviewTimeline steps={steps} />
 
-        {hasIssues ? (
+        {hasIssues && (
           <>
             <div className="review-checks-bar warn">
               <span>
@@ -228,7 +270,30 @@ export default function ReviewPanel() {
               ))}
             </ul>
           </>
-        ) : (
+        )}
+        {aiVisible.length > 0 && (
+          <>
+            <div className="review-checks-bar ai">
+              <span>
+                <span className="count">{aiIssueCount}</span> 处语义问题：{aiBreakdown}
+              </span>
+              {ai.stale && <span className="review-stale-note">文档已变更，建议需重新核查后应用</span>}
+            </div>
+            <ul className="review-issues" aria-label="语义问题清单">
+              {aiVisible.map((issue) => (
+                <AiIssueCard
+                  key={issue.seq}
+                  issue={issue}
+                  stale={ai.stale}
+                  blockReason={aiBlockReasons[issue.seq] ?? null}
+                  onAccept={(seq) => void ai.accept(seq)}
+                  onReject={ai.reject}
+                />
+              ))}
+            </ul>
+          </>
+        )}
+        {!hasIssues && aiVisible.length === 0 && (
           <div className="review-empty">
             <h3 className="review-empty-title">将检查什么</h3>
             <ul className="review-empty-checks">
@@ -245,8 +310,18 @@ export default function ReviewPanel() {
         )}
       </div>
 
-      {/* 动作区（不随内容滚动）：确定性计数条 + 语义核查入口 */}
+      {/* 动作区（不随内容滚动）：追问输入 + 确定性计数条 + 语义核查入口 */}
       <div className="review-actions">
+        {/* S5 #12：AI 追问输入（发送 = 以追问为 instruction 重跑核查） */}
+        {llmReady && (
+          <ReviewComposer
+            disabled={ai.phase === "running" || !checkable}
+            running={ai.phase === "running"}
+            placeholder={ai.phase === "idle" ? "让核查重点关注…（Enter 发送）" : "继续追问…"}
+            onSend={(t) => ai.start(t)}
+            onCancel={ai.cancel}
+          />
+        )}
         {/* 只在"用户已滚离"时出现——正常跟随状态下它是个纯噪声按钮 */}
         {interrupted && (
           <button type="button" className="review-follow-btn" onClick={jumpToBottom}>
@@ -256,11 +331,20 @@ export default function ReviewPanel() {
         <button
           type="button"
           className="review-start-btn"
-          disabled={!llmReady}
-          title={llmReady ? "开始语义核查（需大模型）" : "核查需要配置大模型 → 设置 · LLM"}
+          disabled={!llmReady || ai.phase === "running" || !checkable}
+          title={
+            !llmReady
+              ? "核查需要配置大模型 → 设置 · LLM"
+              : ai.phase === "running"
+                ? "核查进行中…"
+                : !checkable
+                  ? "先翻译文档再核查"
+                  : "开始语义核查（需大模型）"
+          }
           aria-label={llmReady ? "开始语义核查" : "开始语义核查（需配置大模型）"}
+          onClick={() => ai.start()}
         >
-          开始核查
+          {ai.phase === "running" ? "核查中…" : "开始核查"}
         </button>
         {!llmReady && (
           <p className="review-start-hint">

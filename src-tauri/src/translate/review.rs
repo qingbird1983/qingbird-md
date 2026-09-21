@@ -58,7 +58,8 @@ const SYSTEM: &str = r#"你是译文的语义核查员。输入 JSON 含 dir（�
 2. kind 只能取：term_inconsistency（同一概念前后译法不一）/ pronoun_reference（指代不清或有误）/ register（语域语气与文档不符）/ number_propernoun（数字、专名、单位译错）/ syntax_breakdown（译文句法崩坏读不通）。
 3. severity：high=错误必须改；medium=明显瑕疵；low=可改进。
 4. current 摘自 dst 原文（≤60 字）；suggested 给最小修改，不要重写整句（≤120 字）；reason 用一句中文（≤60 字）。
-5. 只报有把握的问题；没有问题输出 {"issues":[]}。"#;
+5. 只报有把握的问题；没有问题输出 {"issues":[]}。
+6. 若输入含 followup（用户追问），围绕追问重点复查相关单元，但只报符合上述规则的问题。"#;
 
 /// 一条语义问题。线上形状由前端 `src/types/ipc.ts` 的 `ReviewIssue` 镜像，
 /// 两侧同形（与 `check::Issue` 同规矩）。
@@ -98,6 +99,7 @@ pub fn review_semantic(
     translations: &HashMap<usize, String>,
     mode: &str,
     target_lang: &str,
+    instruction: Option<&str>,
     creds: &Creds,
     http: &(dyn HttpClient + Sync),
     cancel: &AtomicBool,
@@ -142,7 +144,7 @@ pub fn review_semantic(
                 .iter()
                 .map(|b| {
                     let ids: HashSet<usize> = b.iter().map(|(i, _, _)| *i).collect();
-                    let payload = build_payload(b, target_lang);
+                    let payload = build_payload(b, target_lang, instruction);
                     s.spawn(move || {
                         run_batch(base_ref, key_ref, model_ref, &payload, &ids, http, cancel)
                     })
@@ -242,8 +244,14 @@ fn pack_items(
     batches
 }
 
-/// 一批的请求体：方向 + 单元表。JSON 由 serde 组装，转义不手写。
-fn build_payload(batch: &[(usize, String, String)], target_lang: &str) -> String {
+/// 一批的请求体：方向 + （可选的用户追问）+ 单元表。JSON 由 serde 组装，
+/// 转义不手写；followup 只在有追问时出现（缺键 ≠ 空串，模型不至于把
+/// 「没有追问」误解成「追问为空」）。
+fn build_payload(
+    batch: &[(usize, String, String)],
+    target_lang: &str,
+    instruction: Option<&str>,
+) -> String {
     let dir = match TargetLang::from_tag(target_lang) {
         TargetLang::Zh => "英译中",
         TargetLang::En => "中译英",
@@ -252,7 +260,14 @@ fn build_payload(batch: &[(usize, String, String)], target_lang: &str) -> String
         .iter()
         .map(|(id, src, dst)| json!({"id": id, "src": src, "dst": dst}))
         .collect();
-    json!({"dir": dir, "units": units}).to_string()
+    let mut root = json!({"dir": dir, "units": units});
+    if let Some(q) = instruction {
+        let q = q.trim();
+        if !q.is_empty() {
+            root["followup"] = Value::String(q.to_string());
+        }
+    }
+    root.to_string()
 }
 
 /// 跑一批：请求 → 严格解码。批内 id 集合是解码的「合法 run」边界——
@@ -477,9 +492,19 @@ mod tests {
 
     #[test]
     fn build_payload_carries_direction_and_units() {
-        let payload = build_payload(&[(3, "Hi".into(), "你好".into())], "zh");
+        let payload = build_payload(&[(3, "Hi".into(), "你好".into())], "zh", None);
         assert!(payload.contains(r#""dir":"英译中""#));
         assert!(payload.contains(r#""id":3"#) && payload.contains(r#""src":"Hi""#));
-        assert!(build_payload(&[(0, "Hola".into(), "你好".into())], "en").contains("中译英"));
+        assert!(build_payload(&[(0, "Hola".into(), "你好".into())], "en", None).contains("中译英"));
+    }
+
+    #[test]
+    fn build_payload_carries_followup_only_when_present() {
+        let with = build_payload(&[(1, "a".into(), "b".into())], "zh", Some(" 语气再正式一点 "));
+        assert!(with.contains(r#""followup":"语气再正式一点""#));
+        // 空白追问 = 没有追问：缺键，而不是空串
+        let blank = build_payload(&[(1, "a".into(), "b".into())], "zh", Some("   "));
+        assert!(!blank.contains("followup"));
+        assert!(!build_payload(&[(1, "a".into(), "b".into())], "zh", None).contains("followup"));
     }
 }

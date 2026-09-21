@@ -306,3 +306,38 @@ export interface Issue {
   src_excerpt: string;
   dst_excerpt: string;
 }
+
+/**
+ * S5：AI 语义核查问题（translate/review.rs `AiIssue` 镜像，两侧同形）。
+ * kind/severity 的合法值由 Rust 端白名单强校验；前端类型只作展示与分组，
+ * 后端将来扩枚举时这里落下窗口期由 `aiKindLabel` 的 `||` 兜底。
+ */
+export type ReviewIssueKind =
+  | "term_inconsistency"
+  | "pronoun_reference"
+  | "register"
+  | "number_propernoun"
+  | "syntax_breakdown";
+
+export type ReviewSeverity = "high" | "medium" | "low";
+
+export interface ReviewIssue {
+  /** 与 translations 同键空间的单元索引（可跳转锚点，同 Issue.run）。 */
+  run: number;
+  kind: ReviewIssueKind;
+  severity: ReviewSeverity;
+  /** 译文现状摘句（AI 引用，仅展示）。 */
+  current: string;
+  /** 建议改法：用户「接受」时写回翻译表的内容。 */
+  suggested: string;
+  reason: string;
+}
+
+/** translate/review.rs `ReviewOutcome` 镜像。 */
+export interface ReviewOutcome {
+  issues: ReviewIssue[];
+  fingerprint: string;
+  batch_total: number;
+  batch_failed: number;
+  model: string;
+}
