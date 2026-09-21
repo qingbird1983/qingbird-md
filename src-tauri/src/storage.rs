@@ -44,6 +44,10 @@ pub struct LlmProfile {
     pub model: String,
     #[serde(default)]
     pub lookup_model: String,
+    /// 语义核查模型（S5）：留空回落 `model`。核查要质量不敏感于延迟，
+    /// 与划词的 `lookup_model` 取舍相反——可选字段，不催配置。
+    #[serde(default)]
+    pub review_model: String,
     /// 上次从 `/models` 拉到的模型清单：持久化后重启仍可下拉选用，
     /// 不必每次打开设置都重新拉一遍。
     #[serde(default)]
@@ -426,6 +430,7 @@ mod tests {
                 api_key: "sk-a".into(),
                 model: "deepseek-v4-flash".into(),
                 lookup_model: String::new(),
+                review_model: String::new(),
                 models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
             },
             LlmProfile {
@@ -447,6 +452,7 @@ mod tests {
         assert!(json.contains("\"llm_profiles\""));
         assert!(json.contains("\"base_url\""));
         assert!(json.contains("\"lookup_model\""));
+        assert!(json.contains("\"review_model\""));
     }
 
     /// SEC-3 回归钉：`settings-updated` 的广播 payload 不得携带任何凭据，

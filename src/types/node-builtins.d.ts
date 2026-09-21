@@ -12,8 +12,21 @@ declare module "node:fs" {
   // 滚动条守卫要把 src/styles 下的 CSS 全量扫一遍，得先列目录（2026-09-19）：
   // 硬编码文件名 = 又造一份要人工维护的名单，正是该守卫要消灭的东西。
   export function readdirSync(path: string): string[];
+  // 行数预算守卫要递归遍历 src 与 src-tauri/src（2026-09-21）：Dirent 形态
+  // 一次拿「名字 + 是否目录」，避免对每个条目再 stat 一轮。
+  export interface Dirent {
+    name: string;
+    isDirectory(): boolean;
+  }
+  export function readdirSync(path: string, opts: { withFileTypes: true }): Dirent[];
 }
 
 declare module "node:url" {
   export function fileURLToPath(url: string | URL): string;
+}
+
+// 行数预算守卫的文件收集（2026-09-21）：路径拼接与「仓库根 → 正斜杠相对路径」。
+declare module "node:path" {
+  export function join(...segments: string[]): string;
+  export function relative(from: string, to: string): string;
 }

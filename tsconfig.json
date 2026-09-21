@@ -2,7 +2,9 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // ES2021：String.replaceAll（codeSizeBudget.test.ts 路径归一化用）。
+    // target 仍 ES2020——lib 是类型视野，运行时由现代 webview/node 兜底。
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
 

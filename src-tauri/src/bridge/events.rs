@@ -51,6 +51,14 @@ pub struct LookupDeltaEvt {
     pub content: String,
 }
 
+/// S5：语义核查分批进度（done/total 是**批**数——一批 ≈ max_len 字符的
+/// 原文+译文，不是单元数）。前端时间线的 semantic 步骤据此显 running。
+#[derive(Clone, serde::Serialize)]
+pub struct ReviewProgressEvt {
+    pub done: usize,
+    pub total: usize,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TranslateStart {

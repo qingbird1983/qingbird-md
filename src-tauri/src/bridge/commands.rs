@@ -308,6 +308,52 @@ pub fn check_translation(
     translate::check::check_translation(&content, &map, &mode, &target_lang)
 }
 
+/// S5 #17–20：AI 语义核查。**锁定 llm**：凭据固定取前端 llmReady 门放行的
+/// `providers["llm"]` 那份，命令不设 provider 入参——不给他源留任何口子
+/// （correctness §七.1 R2：绝不静默降级）。结果**不进 Cache**（红线 7）。
+/// 取消与查词同规矩（REL-7）：共享翻译取消旗标，翻译空闲时清陈旧旗标；
+/// 停止核查 = 前端调 stop_translation。分批进度经 `review-progress` 事件。
+#[tauri::command(async)]
+pub fn review_semantic(
+    content: String,
+    translations: Vec<(usize, String)>,
+    mode: String,
+    target_lang: String,
+    creds: HashMap<String, String>,
+    app: AppHandle,
+    st: tauri::State<AppTxn>,
+) -> Result<translate::review::ReviewOutcome, String> {
+    note_translate_activity();
+    let creds = translate::providers::Creds(creds);
+    let map: HashMap<usize, String> = translations.into_iter().collect();
+    let cancel = Arc::clone(&st.cancel);
+    if !st.running.load(Ordering::SeqCst) {
+        st.cancel.store(false, Ordering::SeqCst);
+    }
+    std::thread::spawn(move || {
+        let http = translate::cancel::CancelableClient {
+            inner: translate::http::UreqClient::shared(),
+            cancel: &cancel,
+        };
+        let mut on_progress = |done: usize, total: usize| {
+            let _ = app.emit("review-progress", super::events::ReviewProgressEvt { done, total });
+        };
+        translate::review::review_semantic(
+            &content,
+            &map,
+            &mode,
+            &target_lang,
+            &creds,
+            &http,
+            cancel.as_ref(),
+            &mut on_progress,
+        )
+    })
+    .join()
+    .map_err(|_| "核查线程崩溃".to_string())
+    .and_then(|r| r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

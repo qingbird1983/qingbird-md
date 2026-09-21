@@ -7,7 +7,7 @@ import type { LlmProfile, Settings } from "../types/ipc";
 import { errText } from "../stores/useUiStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 
-const LLM_CRED_KEYS = ["baseUrl", "apiKey", "model", "lookup_model"] as const;
+const LLM_CRED_KEYS = ["baseUrl", "apiKey", "model", "lookup_model", "review_model"] as const;
 
 /** LLM 厂商预设：**只用来「新建配置」时填初值**，不再是一个并行的下拉。
  *  （改版前它是个「厂商预设」下拉，选中即覆盖 baseUrl 那一份凭据——于是
@@ -33,6 +33,7 @@ function profileFromCreds(id: string, name: string, creds: Record<string, string
     api_key: creds.apiKey ?? "",
     model: creds.model ?? "",
     lookup_model: creds.lookup_model ?? "",
+    review_model: creds.review_model ?? "",
     models: [],
   };
 }
@@ -44,6 +45,7 @@ function credsFromProfile(p: LlmProfile): Record<string, string> {
     apiKey: p.api_key,
     model: p.model,
     lookup_model: p.lookup_model,
+    review_model: p.review_model,
   };
 }
 
@@ -57,6 +59,7 @@ export function withCredsInProfile(list: LlmProfile[], id: string, creds: Record
           api_key: creds.apiKey ?? "",
           model: creds.model ?? "",
           lookup_model: creds.lookup_model ?? "",
+          review_model: creds.review_model ?? "",
         }
       : p,
   );
@@ -130,6 +133,7 @@ export function useLlmProfiles(ctx: LlmProfilesCtx) {
       api_key: "",
       model: preset?.models[0] ?? "",
       lookup_model: "",
+      review_model: "",
       models: [],
     };
     setDraft((d) => (d ? { ...d, llm_profiles: [...d.llm_profiles, profile], llm_active: id } : d));

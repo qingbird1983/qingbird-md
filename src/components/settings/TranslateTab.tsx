@@ -296,7 +296,8 @@ export default function TranslateTab({
             )}
           </div>
           {meta.fields.map((f) => {
-            const isModelField = isLlm && (f.key === "model" || f.key === "lookup_model");
+            const isModelField =
+              isLlm && (f.key === "model" || f.key === "lookup_model" || f.key === "review_model");
             return (
               <div className="set-field" key={f.key}>
                 <label htmlFor={`set-f-${f.key}`}>{f.label}</label>

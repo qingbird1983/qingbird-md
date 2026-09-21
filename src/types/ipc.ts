@@ -84,6 +84,8 @@ export interface LlmProfile {
   api_key: string;
   model: string;
   lookup_model: string;
+  /** 语义核查模型（S5），留空回落 model */
+  review_model: string;
   /** 上次 /models 拉到的清单，持久化后重启仍可下拉选用 */
   models: string[];
 }

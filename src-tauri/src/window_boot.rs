@@ -222,6 +222,8 @@ pub fn run() {
             bridge::export_translation,
             // Step 3 #15: 确定性检查（漏译 / 标记丢失 / 结构不对等 / 代码被侵入）。
             bridge::check_translation,
+            // S5 #17-20: AI 语义核查（锁 llm、不进 Cache，进度走 review-progress）。
+            bridge::review_semantic,
             // Task 9: 对话框
             commands::dialogs::pick_file,
             commands::dialogs::pick_folder,

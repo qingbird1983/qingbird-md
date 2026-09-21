@@ -98,6 +98,12 @@ const LLM_FIELDS: &[FieldDef] = &[
         secret: false,
         placeholder: "如 deepseek-v4-flash；划词查词走这个模型",
     },
+    FieldDef {
+        key: "review_model",
+        label: "核查模型（可选，留空同翻译模型）",
+        secret: false,
+        placeholder: "AI 语义核查走这个模型，可另配更强的",
+    },
 ];
 
 const LLM: ProviderMeta = ProviderMeta {
@@ -201,7 +207,8 @@ mod tests {
         // 平铺序 = REGISTRY 序；字段转换无损（label/fields 完整搬出）
         assert_eq!(v[0].key, "mymemory");
         let llm = v.iter().find(|p| p.key == "llm").unwrap();
-        assert_eq!(llm.fields.len(), 4);
+        // S5 加 review_model 后 5 个字段（S3 前 3 个，S3 加 lookup_model 第 4 个）
+        assert_eq!(llm.fields.len(), 5);
         assert!(get("nope").is_none());
     }
 }
