@@ -17,7 +17,7 @@ pub(super) const MAX_NESTING_DEPTH: usize = 256;
 
 /// 解析开关的唯一出处——`parse_blocks` 与 [`top_level_block_lines`] 必须同源，
 /// 否则两者的顶层事件序列会分叉，源行锚点与块一一对应的前提就没了。
-/// `cmark::front_matter` 也用它，理由同上：换个开关可能让文首那三行
+/// [`front_matter_raw`] 也用它，理由同上：换个开关可能让文首那三行
 /// `---` 从 MetadataBlock 变成别的结构，切出来的 front matter 就错了。
 pub(crate) fn options() -> Options {
     let mut opts = Options::empty();
@@ -35,16 +35,40 @@ pub(crate) fn options() -> Options {
     opts
 }
 
+/// 文首 YAML front matter 的**源码切片**（含首尾 `---` 行），无则 `None`。
+///
+/// **单点实现**：`parse_blocks` 用它产出 [`Block::Metadata`]，导出侧
+/// `cmark::front_matter` 委托到这里。三处（解析 / 锚点 / 导出）必须共用同一套
+/// [`options`]，否则文首那几行 `---` 会从 MetadataBlock 变成别的结构，切出来的
+/// 切片与块的边界就错开了。
+///
+/// 只看第一个事件就够——pulldown 仅在**文档最开头**识别 metadata block。这也是
+/// 能把切片放在解析主循环之外的前提：否则得为拿 offset 把 `parse_blocks` 与
+/// `consume_block` 的事件类型全改成 `(Event, Range)`，波及整个块级 walker。
+pub(crate) fn front_matter_raw(content: &str) -> Option<&str> {
+    let mut it = Parser::new_ext(content, options()).into_offset_iter();
+    match it.next() {
+        // `.get()` 而非切片索引：offset 落在字符边界外时返回 None 而非 panic。
+        Some((Event::Start(Tag::MetadataBlock(_)), r)) => content.get(r),
+        _ => None,
+    }
+}
+
 /// Parse Markdown into a list of top-level block elements.
 pub fn parse_blocks(md: &str) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    // 文首 front matter 成为**独立块**（阅读器要显示它，见 Block::Metadata
+    // 的注释）。它只可能出现在最前，故前置即可，块序仍是文档序。
+    if let Some(raw) = front_matter_raw(md) {
+        blocks.push(Block::Metadata { raw: raw.to_string() });
+    }
     let parser = Parser::new_ext(md, options());
     let mut it = parser;
-    let mut blocks = Vec::new();
     while let Some(ev) = it.next() {
         match ev {
-            // front matter 元数据不进正文模型（阅读器/翻译器都不消费），
-            // 整块跳过——元数据行里的 Text 事件随之丢弃。此分支必须排在
-            // Start(tag) 兜底之前，否则落入 consume_block 变成空段落。
+            // 已由 `front_matter_raw` 前置成了 Block::Metadata，这里只负责把
+            // 事件流吃掉，别落进 Start(tag) 兜底变成空段落。**本分支必须排在
+            // Start(tag) 兜底之前**，否则元数据会多出一个空块。
             Event::Start(Tag::MetadataBlock(_)) => skip_metadata(&mut it),
             Event::Start(tag) => blocks.push(consume_block(&tag, &mut it, 1)),
             Event::End(_) => {}
@@ -131,6 +155,11 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>, de
             label: label.to_string(),
             blocks: collect_blocks(it, |e| matches!(e, TagEnd::FootnoteDefinition), depth + 1),
         },
+        // 块级 HTML：**必须显式建块**。落进下面的 `_ =>` 兜底会得到一个空段落，
+        // 而块里的事件已被 consume_block「认领」却没消费——后续 Event::Html 行
+        // 在 parse_blocks 主循环里被当 stray 丢掉，整块内容静默消失（tiptap 表格
+        // 就是这么丢的）。这里把原文抓进 Block::Html，渲染/导出各自决定怎么用。
+        Tag::HtmlBlock => Block::Html { raw: collect_html(it) },
         _ => Block::Paragraph { text: Vec::new() },
     }
 }
@@ -167,6 +196,24 @@ fn collect_code<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> String {
         match ev {
             Event::End(TagEnd::CodeBlock) => break,
             Event::Text(t) | Event::Code(t) => s.push_str(&t),
+            Event::SoftBreak | Event::HardBreak => s.push('\n'),
+            _ => {}
+        }
+    }
+    s
+}
+
+/// Collect the raw source of an HTML block (until its `End`).
+///
+/// pulldown 把块内每个源码行发成一个 `Event::Html`（**含行尾换行**），原样拼接
+/// 即还原源片段——`Block::Html` 只认这段原文，渲染侧净化、导出侧原样回写。
+/// 只在 `End(HtmlBlock)` 收手：HTML 块内部不存在配对嵌套，别的 `End` 不吃。
+fn collect_html<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> String {
+    let mut s = String::new();
+    while let Some(ev) = it.next() {
+        match ev {
+            Event::End(TagEnd::HtmlBlock) => break,
+            Event::Html(t) | Event::InlineHtml(t) | Event::Text(t) => s.push_str(&t),
             Event::SoftBreak | Event::HardBreak => s.push('\n'),
             _ => {}
         }
@@ -231,6 +278,7 @@ fn collect_item<'a>(it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> L
                         | Tag::BlockQuote(_)
                         | Tag::List(_)
                         | Tag::Table(_)
+                        | Tag::HtmlBlock
                 ) =>
             {
                 flush_stray(&mut stray, &mut blocks);
@@ -393,12 +441,80 @@ mod tests {
         ));
     }
 
+    // ---- 块级 HTML（2026-09-21，UI 设计师.md 内容丢失回归）----
+
+    #[test]
+    fn leading_rule_then_html_table_is_kept() {
+        // 真实病历（`UI 设计师.md` 前 5 行）：第 1 行是**单个** `---`，后面紧跟
+        // 空行——所以它既不是 front matter（pulldown 的 metadata 扫描要求紧跟的
+        // 首行非空，见 `scanners::scan_metadata_block`），也不是伪标题，而是
+        // Rule；第 3 行的 tiptap 表格是 HTML 块。修复前该表落进 `consume_block`
+        // 的 `_ =>` 兜底成空段落，字符卡（名称/描述/颜色/表情符号/氛围）在预览里
+        // 整块消失——用户看到的就是「前面的被丢弃了」。
+        let table = r#"<table class="tiptap-table"><tbody><tr><th><p><strong>名称</strong></p></th><td><p>UI设计师</p></td></tr></tbody></table>"#;
+        let md = format!("---\n\n{table}\n\n# 标题\n");
+        let blocks = parse_blocks(&md);
+
+        assert!(matches!(blocks[0], Block::Rule), "首行 `---` 仍是分割线: {blocks:?}");
+        assert!(
+            matches!(&blocks[1], Block::Html { raw } if raw.trim() == table),
+            "HTML 块须**逐字**保留原文（class/colgroup 都在）: {blocks:?}"
+        );
+        assert!(
+            !blocks
+                .iter()
+                .any(|b| matches!(b, Block::Paragraph { text } if text.is_empty())),
+            "不得再落成空段落: {blocks:?}"
+        );
+        // 块数与行号锚点仍逐项对齐：HtmlBlock 在 anchors 里同样占一位
+        let lines = super::super::top_level_block_lines(&md);
+        assert_eq!(lines, vec![1, 3, 5], "行号必须与块序对应: {blocks:?}");
+    }
+
+    #[test]
+    fn multi_line_div_block_is_an_html_block() {
+        // CommonMark HTML block type 6：`div` 之类的块级标签开头，一直到空行。
+        // 此前同样被吞成空段落（连标签里的文字都没了），现在整段进 Block::Html。
+        // 注意 `raw` 是**源码原文**，净化只发生在渲染侧。
+        let blocks = parse_blocks("<div class=\"card\">\n甲\n</div>\n\n正文");
+        assert!(
+            matches!(&blocks[0], Block::Html { raw } if raw.contains("card") && raw.contains("甲")),
+            "{blocks:?}"
+        );
+        assert!(matches!(blocks[1], Block::Paragraph { .. }), "{blocks:?}");
+    }
+
+    #[test]
+    fn html_block_inside_a_list_item_is_a_block_not_stray_inline() {
+        // collect_item 的块级 Start 白名单必须含 HtmlBlock，否则它会走 stray
+        // 行内缓冲（push_inline 对未知 Start 恒 true），标签连同文字一起消失。
+        let blocks = parse_blocks("- 列表项\n\n  <div>卡内内容</div>\n");
+        let inner = match &blocks[0] {
+            Block::List { items, .. } => &items[0].blocks,
+            other => panic!("应为列表: {other:?}"),
+        };
+        assert!(
+            inner.iter().any(|b| matches!(b, Block::Html { raw } if raw.contains("卡内内容"))),
+            "列表项里的 HTML 块不得被吞: {inner:?}"
+        );
+    }
+
     // ---- 语法全覆盖测试.md 补齐项（2026-09-11）----
 
     #[test]
-    fn front_matter_is_dropped() {
-        // 无 YAML 开关时文首 `---` 会成伪 Rule/伪 Setext H2 + 乱段落
-        let blocks = parse_blocks("---\ntitle: T\nauthor: A\n---\n\nHello world");
+    fn front_matter_becomes_metadata_block() {
+        // 文首 YAML front matter 是**可见的独立块**（阅读器要显示它），不再被
+        // 整块丢掉；同时也不能泄漏成伪 Rule / 伪 Setext H2 + 乱段落。
+        let md = "---\ntitle: T\nauthor: A\n---\n\nHello world";
+        let blocks = parse_blocks(md);
+        match &blocks[0] {
+            Block::Metadata { raw } => assert_eq!(
+                raw.trim_end_matches('\n'),
+                "---\ntitle: T\nauthor: A\n---",
+                "源码切片须含首尾 --- 行且逐字保留: {raw:?}"
+            ),
+            other => panic!("文首应是 Metadata 块，实得 {other:?}"),
+        }
         assert_eq!(
             blocks.iter().filter(|b| matches!(b, Block::Paragraph { text }
                 if text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("Hello"))))).count(),
@@ -409,9 +525,14 @@ mod tests {
             !blocks.iter().any(|b| matches!(b, Block::Rule | Block::Heading { .. })),
             "front matter 不得泄漏成 Rule/伪标题: {blocks:?}"
         );
-        // 文中后置的独立 `---` 不受影响，仍是 Rule
+        // 元数据块不携带 Inline → 既不占 run/bi 号也不进翻译空间
+        assert!(
+            matches!(blocks[0], Block::Metadata { .. }),
+            "元数据不得退化成段落: {blocks:?}"
+        );
+        // 文中后置的独立 `---` 不受影响，仍是 Rule（整体索引因多出元数据块 +1）
         let blocks = parse_blocks("---\ntitle: T\n---\n\nA\n\n---\n\nB");
-        assert!(matches!(blocks[1], Block::Rule), "正文中的 --- 仍是分割线: {blocks:?}");
+        assert!(matches!(blocks[2], Block::Rule), "正文中的 --- 仍是分割线: {blocks:?}");
     }
 
     #[test]

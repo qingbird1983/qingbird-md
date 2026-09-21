@@ -4,7 +4,15 @@ import { type CSSProperties } from "react";
 import { Check, Info } from "lucide-react";
 import type { Theme } from "../../stores/useSettingsStore";
 import { PALETTES, PALETTE_IDS, paletteSwatch, type PaletteId } from "../../lib/paletteSeeds";
-import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, type ContentWidth } from "../../stores/useUiStore";
+import {
+  CONTENT_WIDTHS,
+  CONTENT_WIDTH_LABEL,
+  useUiStore,
+  type ContentWidth,
+} from "../../stores/useUiStore";
+// 与 TranslateTab 同路（那边也用这一件）：SettingsModal 是唯一出处，环形 import
+// 早已存在且工作正常。
+import { SwitchRow } from "../SettingsModal";
 
 const THEME_OPTIONS: Array<[Theme, string]> = [
   ["light", "浅色"],
@@ -35,6 +43,12 @@ export default function LookTab({
   customWidth,
   setContentWidth,
 }: LookTabProps) {
+  // 层级引线是**纯外观偏好**，与正文宽度同类（点即生效 + localStorage 记忆）。
+  // 直接订阅 store、不从 SettingsModal 透传：那份文件的**生产行数已冻结**在
+  // codeSizeBudget 的 GRANDFATHERED 快照（455 行）上，多一行就判红。
+  const listGuide = useUiStore((s) => s.listGuide);
+  const setListGuide = useUiStore((s) => s.setListGuide);
+
   return (
     <>
       <section className="set-sec">
@@ -162,6 +176,15 @@ export default function LookTab({
             </span>
           </div>
         )}
+      </section>
+      <section className="set-sec">
+        <h3 className="set-sec-title">列表</h3>
+        <SwitchRow
+          label="层级引线"
+          desc="给多级列表画出层级竖线，同级圆点串成一根发丝细的线，嵌套关系一眼可见。关掉即恢复无竖线的列表。"
+          checked={listGuide}
+          onChange={setListGuide}
+        />
       </section>
     </>
   );

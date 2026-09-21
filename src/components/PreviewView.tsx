@@ -49,6 +49,10 @@ export default function PreviewView() {
   const ensureParsed = useDocStore((s) => s.ensureParsed);
   const contentWidth = useUiStore((s) => s.contentWidth);
   const customWidth = useUiStore((s) => s.customWidth);
+  // 层级引线（设置 → 外观）：关掉时给 .markdown-body 挂 .no-list-guide，
+  // markdown.css 里整段规则不生成。**只改 class**——innerHTML 重建的依赖数组
+  // 里没有它，切换开关不会重跑注入管线（撤销/锚点表都不受扰）。
+  const listGuide = useUiStore((s) => s.listGuide);
 
   // ── 正文栏边缘拖宽把手（DSH 式）────────────────────────────
   // preview-wrap 是定位基准：把手贴 --qb-content-w 算出的栏边缘，
@@ -159,7 +163,7 @@ export default function PreviewView() {
       onContextMenu={onCtxMenu}
     >
       <div className="preview-scroll" ref={scrollerRef}>
-        <div className="markdown-body" ref={ref} />
+        <div className={listGuide ? "markdown-body" : "markdown-body no-list-guide"} ref={ref} />
       </div>
       {showHandles && (
         <>

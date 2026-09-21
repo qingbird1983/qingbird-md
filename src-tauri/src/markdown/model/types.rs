@@ -49,4 +49,24 @@ pub enum Block {
     Math { display: bool, tex: String },
     /// `[^label]: 定义正文`（渲染时统一移到文末脚注区，编号与 FootnoteRef 对应）
     FootnoteDef { label: String, blocks: Vec<Block> },
+    /// 文首 YAML front matter 的**源码原文**（含首尾 `---` 行）。
+    ///
+    /// 刻意只存字符串、**不带 `Inline`**：元数据里的 YAML key 是代码而非自然
+    /// 语言，不该被翻译，也绝不能进 `content`（译文红线）。不装 Inline 就
+    /// 意味着 `html.rs` 不会对它调 `push_inlines`，Run 号与 data-ri 空间
+    /// 天然不受影响——这是本变体唯一的形状约束，改回 `Vec<Inline>` 会
+    /// 直接错位整篇译文。
+    Metadata { raw: String },
+    /// 块级 HTML（CommonMark HTML block，type 1–7）的**源码原文**。
+    ///
+    /// 什么时候会出现：一行以 `<` 开头且命中块级标签/完整标签（`<table …>`、
+    /// `<div>`、`<b>x</b>` 独占一行的 type 7……）。富文本编辑器（tiptap / Notion /
+    /// Word 导出）粘进 Markdown 的表格、卡片就是这种形态——此前它落进
+    /// `consume_block` 的 `_ =>` 兜底成**空段落**，整块内容静默消失。
+    ///
+    /// 与 [`Block::Metadata`] 同形约束：刻意只存字符串、**不带 `Inline`**。
+    /// HTML 标签不是自然语言，既不该进 run 空间（`data-ri`）也不该占块号
+    /// （`data-bi`）——一旦挂了 `Inline`，`html.rs::push_inlines` 就会推进
+    /// `sub_counter`，整篇译文立刻错位。这是本变体唯一的形状约束。
+    Html { raw: String },
 }

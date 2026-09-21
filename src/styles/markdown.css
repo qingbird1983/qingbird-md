@@ -24,6 +24,11 @@
   --md-task-bg: var(--surface);
   --md-check-fg: var(--on-accent); /* task ✓ 落在彩头底上：跟随「彩底字色」，
                                       暗档 on-accent 是深墨，原先恒白会糊成一片 */
+  /* 列表「标记列」中线（相对 li 内容盒左缘）：圆点、勾选框、层级引线三者共线的那一条。
+     用 em 而非 px——随所在上下文字号缩放，嵌套列表 / 0.88em 的脚注区里自动跟随。
+     值 -0.763em = 原生 disc 中线实测位置（headless Chromium=WebView2 同引擎，
+     见 2026-09-21 提交说明）。**这是引擎常量**：源码里看不出对错，改动前请重跑测量。 */
+  --md-marker-x: -0.763em;
   --md-ok-fg: var(--success); /* 复制成功态 / code-lang 药丸 */
   /* 双主题 span 配色：后端把 InspiredGitHub（浅）/base16-ocean.dark（暗）
      两套前景色按 token 一一配对，烘进 span 内联 style 的 --cl/--cd；
@@ -191,7 +196,14 @@ body[data-theme="dark"] .markdown-body {
   background: none;
 }
 
-/* ---- 列表 / 任务勾选框 ---- */
+/* ---- 列表 / 任务勾选框 ----
+   缩进槽里只有一列「标记」：圆点、勾选框、层级引线共用 `--md-marker-x` 这条中线。
+
+   为什么圆点要自绘（2026-09-21）：原生 `disc` 的中线由引擎的 marker 排布算法决定，
+   CSS 无从约束。实测它落在 li 内容盒左缘 -0.763em，而引线原先是照勾选框中心
+   （-1.075em）画的 —— 于是线一直**浮在圆点左侧 4.8px 处、根本碰不到圆点**，
+   而且不报任何错。改成自绘圆点后，「线过圆点」从「引擎常量对上了」变成一条
+   CSS 恒等式，源码里就能断言（见 src/lib/listGuide.test.ts）。 */
 
 .markdown-body ul,
 .markdown-body ol {
@@ -203,16 +215,38 @@ body[data-theme="dark"] .markdown-body {
   margin-top: 0.25em;
 }
 
+/* 圆点：中心恒在 --md-marker-x（与引线同一条中线）。
+   尺寸/取色刻意对齐原生的 disc：0.387em 直径、currentColor —— 视觉上换不掉。 */
+.markdown-body ul > li:not(.task) {
+  position: relative;
+  list-style: none;
+}
+
+.markdown-body ul > li:not(.task)::before {
+  content: "";
+  position: absolute;
+  left: var(--md-marker-x);
+  top: 1em; /* 首行行盒中心（line-height 无单位 2，任何字号下都成立） */
+  width: 0.387em;
+  height: 0.387em;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%); /* 把「点」而不是「盒左上角」放到中线上 */
+  pointer-events: none;
+}
+
 .markdown-body li.task {
   position: relative;
   list-style: none;
 }
 
-/* 圆角勾选框：浮在缩进槽内；done 叠加 ✓ 并填充主色 */
+/* 圆角勾选框：浮在缩进槽内，盒心同样落在中线上（1.05em 的盒子故左移半个）。
+   注意这里的 1.05em 以**自身/li 的字号**为基准 —— 本层不得写 font-size
+   （旧版把字形调小的 font-size:12px 写在这里，把盒子连累缩成 12.6px）。 */
 .markdown-body li.task::before {
   content: "";
   position: absolute;
-  left: -1.6em;
+  left: calc(var(--md-marker-x) - 0.525em);
   top: 0.3em;
   box-sizing: border-box;
   width: 1.05em;
@@ -223,15 +257,63 @@ body[data-theme="dark"] .markdown-body {
 }
 
 .markdown-body li.task.done::before {
+  border-color: var(--md-link);
+  background: var(--md-link);
+}
+
+/* 勾号另起 ::after（`.task` 不参与引线规则，这一层是空的）。
+   挪出来的唯一原因就是上面那条：字形要小一号，而 ::before 上任何 font-size 都会
+   改掉 1.05em 的基准，把完成态的盒子缩掉一圈（比未完成态小 3.7px、还高 1px）。
+   这里字号保持继承（= li 字号），字形靠 scale 缩小；盒子透明，跟着缩也看不见。 */
+.markdown-body li.task.done::after {
   content: "✓";
-  font-size: 12px;
-  line-height: 1;
+  position: absolute;
+  left: calc(var(--md-marker-x) - 0.525em);
+  top: 0.3em;
+  box-sizing: border-box;
+  width: 1.05em;
+  height: 1.05em;
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   color: var(--md-check-fg);
-  border-color: var(--md-link);
-  background: var(--md-link);
+  transform: scale(0.774); /* 15.5px × 0.774 ≈ 12px，与旧版字号同 */
+  pointer-events: none;
+}
+
+/* ---- 层级引线（设置 → 外观 → 层级引线，默认开；`.no-list-guide` 关）----
+   一根发丝细的竖线把同级圆点串起来，嵌套列表各自在**自己的缩进槽**里再画一条——
+   嵌套关系于是一眼可见（参照阅读器的同款开关）。
+
+   实现要点：
+   ① 画在 `li::after` 而不是 `ul::before`：竖线要止于**最后一个圆点**而不是列表
+      底部，只有按项画才能逐项定端点。
+   ② `bottom: -1em` 桥过「本项盒子底 → 下一项盒子顶」之间的空白。注意这段空白不止
+      `li + li` 的 0.25em：末位块的下边距会**从 li 里逃逸**（li 无 padding/border），
+      于是嵌套 `ul`（0.9em）、代码卡（1.2em）之后都会多空出一段。实测嵌套列表后
+      level-1 的线断 10px（= 0.9em 逃逸 − 0.25em 已桥）。1em 能覆盖到 1.25em 的
+      逃逸量——即现有样式中最大的那档代码卡，再大就该重算这个值了。
+      非末项多探出的一段与下一项自己的线**同 x 同色**，天然无缝。
+   ③ 末项 `height` 只到自己的圆点：否则列表尾巴会垂一根多余的线头。
+   ④ 线心落在圆点中线上：与圆点同取 `--md-marker-x`。引线定位的是**左缘**，
+      故再左移半个线宽（0.5px，DPR 3 下正好 1.5 设备像素）让线心压到中线上。
+   ⑤ 任务项不画（`.task`）：勾选框自带边框与底色，穿线收益低；要串的是圆点。
+   ⑥ 关掉时整段不生成——不是 `opacity: 0`，避免留一层可命中的透明靶子。 */
+.markdown-body:not(.no-list-guide) ul > li:not(.task)::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--md-marker-x) - 0.5px);
+  top: 0;
+  bottom: -1em;
+  width: 1px;
+  background: var(--md-border);
+  pointer-events: none;
+}
+
+.markdown-body:not(.no-list-guide) ul > li:not(.task):last-child::after {
+  bottom: auto;
+  height: 1em;
 }
 
 /* ---- 引用块：青花灰左标细线 + 无底色（纸面引文，DESIGN.md mockup-v2 观感） ---- */
@@ -525,4 +607,79 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   margin: 1em 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* ---- 文首 YAML front matter（只读键值表）----
+   后端把 metadata block 渲染成
+   `<table class="front-matter"><tbody><tr><th>key</th><td>value</td></tr>…`。
+   分隔符 `---` 是语法、不进表格，但**每行元数据都要看得见**——曾经整块被吞，
+   靠 name/description 承载语义的文档（SKILL.md / Jekyll / Hugo）读起来是残缺的。
+
+   三处刻意的选择：
+   ① 不参与斑马纹与悬停高亮：元数据只有两三行，隔行换色看起来像"样式没定好"。
+      通用规则 `.markdown-body tbody tr:nth-child(2n)` 声明在本段之前，故这里
+      用更高特异性显式压回 transparent。
+   ② 键列窄、值列宽：`width: 1%` + 默认 auto 布局把余量全留给值列；键列
+      `nowrap` 让 `disable-model-invocation` 这类长键不被从中间折断。
+   ③ 值列 `white-space: pre-wrap`：续行/多行块标量里的换行是有意义的，得留住；
+      再配 `overflow-wrap: anywhere` 让超长 URL 在格内折行——这样整块不会产生
+      横向溢出，也就不必过问全局滚动条真源（11-toast-command.css）。 */
+.markdown-body .front-matter {
+  width: 100%;
+  margin: 1.1em 0;
+  border-collapse: collapse;
+}
+
+.markdown-body .front-matter th,
+.markdown-body .front-matter td {
+  padding: 7px 14px;
+  border: 1px solid var(--md-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-body .front-matter th {
+  width: 1%;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 94%;
+  font-weight: 600;
+  color: var(--md-muted);
+  background: var(--md-th-bg);
+}
+
+.markdown-body .front-matter td {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 元数据表不吃斑马纹/悬停高亮（见上方 ①） */
+.markdown-body .front-matter tbody tr,
+.markdown-body .front-matter tbody tr:nth-child(2n),
+.markdown-body .front-matter tbody tr:hover {
+  background: transparent;
+}
+
+/* ---- 块级 HTML（后端 `html/html_block.rs` 的 `.html-block` 外壳）----
+   富文本编辑器（tiptap / Notion / Word 导出）粘进 Markdown 的表格、卡片会走
+   `Block::Html`，后端净化后套一层 `<div class="html-block">` 再上屏。
+
+   ① 外壳本身不设 margin：里面的表格/段落自带 `1.1em` 上下边距，再叠一层会
+      与相邻块的节奏不一致。首末子元素的内边距一并收平（`.markdown-body >
+      :first-child` 那条够不到壳里面）。
+   ② 这类表格常把**首列写成 tbody 里的 `th`**（没有 thead），浏览器默认会把
+      `th` 居中——这里按「标签列」处理：加底色、左对齐、字重 600，与参照阅读器
+      一致。GFM 表格的表头在 thead 里，不受这条影响。 */
+.markdown-body .html-block > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body .html-block > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body tbody th {
+  font-weight: 600;
+  text-align: left;
+  background: var(--md-th-bg);
 }

@@ -32,8 +32,10 @@
 //!
 //! # 已知天花板（都是格式规范化，不是内容丢失——唯一的例外已就地处理）
 //!
-//! - **front matter**：`parse_blocks` 刻意丢弃 MetadataBlock，导出会连
-//!   title/author 一起丢——已由 `front_matter()` 单独切回并拼在文首。
+//! - **front matter**：`parse_blocks` 会把它建模成 `Block::Metadata`（预览侧渲染
+//!   成只读原文块），但导出时本文件跳过该块、改由 `front_matter()` 把源码切片
+//!   原样拼回文首。两条路径共用 `model::front_matter_raw`，边界恒等——若改成
+//!   让 `Block::Metadata` 自己输出，导出会出两份 front matter。
 //! - **块级 HTML**：在 `parse_blocks` 里落进 `_ =>` 兜底成空段落（未建模），
 //!   导出随之不输出。预览本就不渲染它，两边同口径。
 //! - **行内 HTML**（`<b>` 等）：不在 `Inline` 模型里，`parse_blocks` 已丢弃，

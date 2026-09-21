@@ -176,6 +176,13 @@ fn walk_run_collect_blocks(
                 }
             }
             Block::Math { .. } => {}
+            // front matter 元数据：**不译、不占号**。YAML 的 key 是代码而非
+            // 自然语言，渲染侧也只出只读原文块——译文无处可贴。显式列出而不
+            // 靠 `_` 兜底，是为了让它成为一个"被想过"的决定：动这里会错位译文。
+            Block::Metadata { .. } => {}
+            // 块级 HTML 同口径：**不译、不占号**。标签是标记不是自然语言，且该
+            // 变体不装 Inline——渲染侧不会推进 sub_counter，两边天然一致。
+            Block::Html { .. } => {}
             // 脚注定义的内容照常参与 bi/run 占号（渲染时移到文末但 walk
             // 顺序不变，索引与 html.rs 渲染保持逐位一致）
             Block::FootnoteDef { blocks, .. } => {
@@ -297,6 +304,10 @@ fn walk_collect(
                 }
             }
             Block::Math { .. } => {}
+            // 与 walk_run_collect_blocks 同口径：front matter 不译、不占 bi 号。
+            Block::Metadata { .. } => {}
+            // 同上：块级 HTML 不占 bi 号（渲染侧不产 data-bi、无译文可贴）。
+            Block::Html { .. } => {}
             Block::FootnoteDef { blocks, .. } => walk_collect(blocks, counter, st, window, out, target),
             _ => {}
         }
@@ -463,6 +474,27 @@ mod tests {
         assert_eq!(
             collect_translatable(&blocks, EN),
             vec![(0usize, "纯中文段".into()), (1usize, "又一段中文".into())]
+        );
+    }
+
+    // ---- 块级 HTML 不占号（2026-09-21）----
+
+    #[test]
+    fn html_block_takes_no_run_or_bi_index() {
+        // 标签是标记不是自然语言：两条 walk 都不占号，也不影响后续块的编号。
+        // 反向守卫——若给块级 HTML 也占号，后面每块的译文都会贴到上一块上。
+        let md = "<table><tr><td>甲</td></tr></table>\n\nHello world\n\n第二段";
+        let blocks = parse_blocks(md);
+        assert!(matches!(blocks[0], Block::Html { .. }), "{blocks:?}");
+        assert_eq!(
+            collect_translatable(&blocks, ZH),
+            vec![(0usize, "Hello world".into())],
+            "块级 HTML 不占 bi 号"
+        );
+        assert_eq!(
+            collect_text_runs(&blocks, ZH),
+            vec![(0usize, "Hello world".into())],
+            "块级 HTML 不占 run 号"
         );
     }
 

@@ -427,10 +427,72 @@ fn table_alignment_styles() {
 }
 
 #[test]
-fn front_matter_absent_from_html() {
-    let r = render_html("---\ntitle: T\n---\n\nBody", &HashMap::new(), false);
-    assert!(!r.html.contains("title:"), "{}", r.html);
+fn front_matter_renders_as_key_value_table() {
+    // front matter 不再是被吞掉的内容：预览里以**只读键值表**出现（对齐主流
+    // Markdown 站点的读法）。SKILL.md 这类靠 name/description 承载语义的文档
+    // 才读得全——这正是当初"整块丢掉"的代价。
+    let md = "---\nname: ask-matt\ndescription: Router over skills.\n\
+              disable-model-invocation: true\n---\n\nBody";
+    let r = render_html(md, &HashMap::new(), false);
+    assert!(r.html.contains("<table class=\"front-matter\"><tbody>"), "{}", r.html);
+    assert!(r.html.contains("<tr><th>name</th><td>ask-matt</td></tr>"), "{}", r.html);
+    assert!(
+        r.html.contains("<tr><th>description</th><td>Router over skills.</td></tr>"),
+        "{}",
+        r.html
+    );
+    assert!(
+        r.html.contains("<tr><th>disable-model-invocation</th><td>true</td></tr>"),
+        "{}",
+        r.html
+    );
+    assert!(!r.html.contains("---"), "分隔符是语法，不进渲染: {}", r.html);
     assert!(r.html.contains("Body"));
+}
+
+#[test]
+fn front_matter_occupies_a_source_line_anchor() {
+    // 元数据块与正文段各占一个源行锚点：1 = 文首 `---`，5 = 正文段。
+    // 锚点数 = 顶层块数——front matter 也是块，漏掉它后续行号会整体前移，
+    // 分栏同步就按错行号找块了。
+    let md = "---\ntitle: T\n---\n\nBody";
+    let r = render_html(md, &HashMap::new(), false);
+    assert!(r.html.contains("<!--sl:1--><table class=\"front-matter\">"), "{}", r.html);
+    // 正文段是可译块，故带 data-bi（恒占号）；这里只关心锚点行号落在 5
+    assert!(r.html.contains("<!--sl:5--><p "), "{}", r.html);
+    assert_eq!(
+        r.html.matches("<!--sl:").count(),
+        crate::markdown::parse_blocks(md).len(),
+        "{}",
+        r.html
+    );
+}
+
+#[test]
+fn front_matter_html_is_escaped() {
+    // YAML 值里的尖括号/与号必须转义：否则 `desc: <b>x</b>` 会被当标签解析，
+    // 元数据块能把后面的正文整段吃掉。
+    let r = render_html("---\ndesc: <b>&</b>\n---\n\nBody", &HashMap::new(), false);
+    assert!(r.html.contains("&lt;b&gt;&amp;&lt;/b&gt;"), "{}", r.html);
+    assert!(!r.html.contains("<b>&</b>"), "{}", r.html);
+    assert!(r.html.contains("Body"), "{}", r.html);
+}
+
+#[test]
+fn front_matter_takes_no_run_or_block_index() {
+    // 元数据不装 Inline ⇒ 既不出 data-ri 也不出 data-bi，更不出 tr-box：
+    // 译文无处可贴，YAML 的 key 也不该被翻译。守住「译文绝不进 content」。
+    let md = "---\ntitle: T\n---\n\nHello world";
+    let trans = HashMap::from([(0usize, "你好世界".to_string())]);
+    let r = render_html(md, &trans, false);
+    // 正文段仍是 bi=0（元数据没把块号占走）
+    assert!(r.html.contains("<p data-bi=\"0\">"), "{}", r.html);
+    assert!(r.html.contains("你好世界"), "{}", r.html);
+    // front matter 区域内不得出现任何计数器锚点
+    let fm = r.html.split("</table>").next().unwrap_or("");
+    assert!(!fm.contains("data-ri"), "元数据不得占 run 号: {fm}");
+    assert!(!fm.contains("data-bi"), "元数据不得占块号: {fm}");
+    assert!(!fm.contains("tr-box"), "元数据不得挂译文框: {fm}");
 }
 
 // ---- 顶层块源行锚点（分栏同步用，2026-09-14）----

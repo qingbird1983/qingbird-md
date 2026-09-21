@@ -108,6 +108,12 @@ fn walk_bilingual(
     out: &mut String,
 ) {
     for b in blocks {
+        // front matter 元数据块：本函数末尾的拼回逻辑（`cmark::front_matter`）
+        // 已把它整体放在文首，这里必须**连源带分隔一起跳过**——否则会出两份，
+        // 且在文首留下多余空行。
+        if matches!(b, Block::Metadata { .. }) {
+            continue;
+        }
         // 1) 整块源（含所有容器嵌套）由 cmark 一次性渲染，**末尾跟 `\n\n`**
         //    形成"块间一空行"的分隔
         let src_md = cmark::render_block_for_export(b);

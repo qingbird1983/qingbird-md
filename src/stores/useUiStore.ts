@@ -65,6 +65,9 @@ interface UiState {
   splitRatio: number; // split 视图左栏占比（Task 22；存 store 跨视图切换保持）
   contentWidth: ContentWidth; // 正文宽度档（markdown.css .markdown-body.w-*）
   customWidth: number | null; // 拖宽产物（null = 跟随四档档位）
+  /** 层级引线：给预览里的 `ul` 列表画一圈发丝细竖线把同级圆点串起来（嵌套可见）。
+   *  false 时给 `.markdown-body` 挂 `.no-list-guide`，CSS 整段不生成。 */
+  listGuide: boolean;
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
@@ -86,6 +89,7 @@ interface UiState {
   setReviewOpen(open: boolean): void;
   setContentWidth(w: ContentWidth): void;
   setCustomWidth(px: number): void;
+  setListGuide(v: boolean): void;
   cycleContentWidth(): void;
   addToast(kind: ToastKind, text: string): void;
   removeToast(id: number): void;
@@ -118,10 +122,11 @@ const WIDTH_KEY = "qb.content-width";
 const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
 // 大纲栏停靠侧：纯 UI 偏好，走 localStorage（不进 Rust 会话快照，避免动契约）
-const OUTLINE_SIDE_KEY = "qb.outline-side";
-// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立
+const OUTLINE_SIDE_KEY = "qb.outline-side";// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立
 // 记忆 side、互不干涉——同侧时由渲染层「外一级高栏 + 大纲让位」化解（App.tsx）。
 const REVIEW_SIDE_KEY = "qb.review-side";
+// 层级引线开关（列表竖线）：纯外观偏好，与正文宽度同口径走 localStorage。
+const LIST_GUIDE_KEY = "qb.list-guide";
 
 // 下面四个 load* 在 store 模块初始化时就会跑：localStorage 抛异常（隐私模式 /
 // 存储被禁）曾经直接炸掉模块加载 = 启动白屏。照 useWorkspaceStore/useRecentStore
@@ -165,6 +170,16 @@ function loadCustomWidth(): number | null {
   }
 }
 
+// 层级引线默认**开**：只有显式存过 "0" 才算关。未存过 / 存储不可用一律开——
+// 与上面 load* 的「异常只损失一次偏好记忆」同口径。
+function loadListGuide(): boolean {
+  try {
+    return localStorage.getItem(LIST_GUIDE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export const useUiStore = create<UiState>()((set) => ({
   showNav: true,
   // 大纲默认收起：全新安装的首屏是空白欢迎页（没有文档，大纲本来就是空的），
@@ -185,6 +200,7 @@ export const useUiStore = create<UiState>()((set) => ({
   splitRatio: 0.5,
   contentWidth: loadContentWidth(),
   customWidth: loadCustomWidth(),
+  listGuide: loadListGuide(),
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
@@ -281,5 +297,15 @@ export const useUiStore = create<UiState>()((set) => ({
       /* ignore */
     }
     set({ customWidth: w });
+  },
+
+  // 层级引线：写 localStorage + 改 state（与正文宽度同口径，点即生效）。
+  setListGuide: (v) => {
+    try {
+      localStorage.setItem(LIST_GUIDE_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    return set({ listGuide: v });
   },
 }));

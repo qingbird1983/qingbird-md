@@ -9,6 +9,7 @@ const reset = () => {
   useUiStore.setState({
     contentWidth: "normal",
     customWidth: null,
+    listGuide: true,
     sidebarWidth: 240,
     bootWidthPending: true,
     introPhase: "idle",
@@ -55,6 +56,24 @@ describe("useUiStore 正文宽度（自定义拖宽档）", () => {
     useUiStore.getState().setCustomWidth(1000);
     const s1 = useUiStore.getState();
     expect(contentWidthPx(s1.contentWidth, s1.customWidth)).toBe(1000);
+  });
+});
+
+// 层级引线（设置 → 外观 → 列表）：纯外观偏好，默认**开**，关掉要记得住。
+describe("useUiStore 层级引线开关", () => {
+  beforeEach(reset);
+
+  it("默认开（新装用户开箱就有层级竖线）", () => {
+    expect(useUiStore.getState().listGuide).toBe(true);
+  });
+
+  it("setListGuide：落 store + localStorage（存 \"0\" 表示关）", () => {
+    useUiStore.getState().setListGuide(false);
+    expect(useUiStore.getState().listGuide).toBe(false);
+    expect(localStorage.getItem("qb.list-guide")).toBe("0");
+    useUiStore.getState().setListGuide(true);
+    expect(useUiStore.getState().listGuide).toBe(true);
+    expect(localStorage.getItem("qb.list-guide")).toBe("1");
   });
 });
 
@@ -200,6 +219,7 @@ describe("useUiStore localStorage 异常兜底（隐私模式不白屏）", () =
     expect(s.customWidth).toBeNull();
     expect(s.outlineSide).toBe("right");
     expect(s.reviewSide).toBe("right");
+    expect(s.listGuide).toBe(true); // 读不出来 → 回默认开，不炸模块
   });
 
   it("写入抛异常：动作不抛、内存态照常切换", async () => {
@@ -217,5 +237,7 @@ describe("useUiStore localStorage 异常兜底（隐私模式不白屏）", () =
     expect(fresh.useUiStore.getState().reviewSide).toBe("left");
     expect(() => store.setCustomWidth(900)).not.toThrow();
     expect(fresh.useUiStore.getState().customWidth).toBe(900);
+    expect(() => store.setListGuide(false)).not.toThrow();
+    expect(fresh.useUiStore.getState().listGuide).toBe(false);
   });
 });

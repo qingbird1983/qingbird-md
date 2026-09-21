@@ -9,16 +9,15 @@ use crate::markdown::model::{Block, Inline};
 
 /// 文首 YAML front matter 的**源码切片**（含首尾 `---` 行）。
 ///
-/// `parse_blocks` 刻意丢弃 MetadataBlock（元数据不进正文模型，阅读器与翻译器
-/// 都不消费它），但「译文另存为」产出的是**交付物**——把 title/author 丢掉
-/// 属于内容损失，不是格式规范化。这里用同一套解析开关把那一块切出来原样拼回。
+/// 这是**委托**：唯一实现是 `model::front_matter_raw`（`parse_blocks` 造
+/// `Block::Metadata` 用的也是它），保证「切出来的切片」与「模型里的块」永远
+/// 是同一段字节。
+///
+/// 导出侧单独切回的理由：`Block::Metadata` 在导出时会跳过（免得和这里的拼回
+/// 逻辑打架），而「译文另存为」产出的是**交付物**——把 title/author 丢掉属于
+/// 内容损失，不是格式规范化。
 pub fn front_matter(content: &str) -> Option<&str> {
-    use pulldown_cmark::{Event, Parser, Tag};
-    let mut it = Parser::new_ext(content, crate::markdown::model::options()).into_offset_iter();
-    match it.next() {
-        Some((Event::Start(Tag::MetadataBlock(_)), r)) => Some(&content[r]),
-        _ => None,
-    }
+    crate::markdown::model::front_matter_raw(content)
 }
 
 /// 渲染**单个** Block 为 Markdown（不带任何译文替换）。
@@ -82,10 +81,19 @@ impl Md<'_> {
     }
 
     fn blocks(&mut self, blocks: &[Block]) {
-        for (i, b) in blocks.iter().enumerate() {
-            if i > 0 {
+        // `emit` 只对**有源码表示**的块计数：front matter 元数据块整块跳过
+        // （导出里它由 `front_matter()` 单独拼在文首），若照旧占块间空行，
+        // 导出文首会平白多出两行空行。无 front matter 的文档走路径与改前
+        // 逐字节相同。
+        let mut emit = 0usize;
+        for b in blocks {
+            if matches!(b, Block::Metadata { .. }) {
+                continue;
+            }
+            if emit > 0 {
                 self.out.push('\n'); // 块间空行（块自身已在上一轮收尾换行）
             }
+            emit += 1;
             let t = self.block(b);
             self.out.push_str(&t);
             self.out.push('\n');
@@ -177,6 +185,15 @@ impl Md<'_> {
                 }
                 out
             }
+            // 导出里 front matter 由 `front_matter()` 单独拼在文首，`Md::blocks`
+            // 也已整块跳过它，所以这里恒为空串。**不能**输出 raw——否则与那段
+            // 拼回逻辑重复，导出会出两份 front matter。
+            Block::Metadata { .. } => String::new(),
+            // 块级 HTML：**原样回写**。它承载的是用户文档的实体内容（富文本粘进来
+            // 的表格、卡片），丢掉它等于把交付物改瘦——与预览同口径。
+            // `raw` 是源码切片（每行自带行尾换行），去掉尾部换行即可：本函数
+            // 的调用方 `Md::blocks` 会自己补一个。
+            Block::Html { raw } => raw.trim_end_matches('\n').to_string(),
         }
     }
 
@@ -454,5 +471,59 @@ Footnote ref[^n] here.
             "front matter 应原样居于文首: {out}"
         );
         assert!(out.contains("Torun0"), "正文照常替换: {out}");
+    }
+
+    /// front matter 必须**恰好出一份**——两条导出路径都要守：`export_translation`
+    /// 走 `Md::blocks`，`export_bilingual` 走 `walk_bilingual`，两边都是
+    /// 「跳过 `Block::Metadata` + 文首拼回源码切片」。都输出 → 正文前多一份重复
+    /// 元数据；都不输出 → 交付物丢 title；跳过时若顺手占掉块间空行 → 文首多空行。
+    ///
+    /// 为何放 writer.rs 而非 `translate/export.rs`：后者的内联测试块已顶到 400 行
+    /// 冻结上限（codeSizeBudget 的 GRANDFATHERED，只剩 1 行余量），而 `front_matter()`
+    /// 这个不变式的所有者本来就是本文件。
+    #[test]
+    fn export_emits_front_matter_exactly_once() {
+        let md = "---\ntitle: T\nauthor: A\n---\n\nHello world";
+        let (map, _) = tagged_map(md);
+        let out = export_translation(md, &map);
+        assert_eq!(out.matches("title: T").count(), 1, "元数据只许出现一次:\n{out}");
+        assert_eq!(out.matches("author: A").count(), 1, "元数据只许出现一次:\n{out}");
+        assert_eq!(out.matches("\n---\n").count(), 1, "只许有收尾那一行 `---`:\n{out}");
+        // 跳过元数据块时也不能顺带占掉「块间空行」——否则文首多一行空白
+        assert!(out.starts_with("---\ntitle: T\nauthor: A\n---\n\n"), "文首格式:\n{out}");
+        // 无 front matter 的文档走同一入口，行为与改前一致
+        let out2 = export_translation("Hello world", &tagged_map("Hello world").0);
+        assert_eq!(out2, "Torun0\n", "无 front matter 时不得多出空行: {out2:?}");
+
+        // 双语对照路径：同一条不变式（双语是最容易被肉眼忽略重复的形态）
+        let zh = HashMap::from([(0usize, "你好世界。".to_string())]);
+        let bi =
+            crate::translate::export::export_bilingual("---\ntitle: T\n---\n\nHello world.", &zh, ZH);
+        assert_eq!(bi.matches("title: T").count(), 1, "元数据只许出现一次:\n{bi}");
+        assert_eq!(bi.matches("---\n").count(), 2, "恰好首尾两行 `---`:\n{bi}");
+        assert!(bi.starts_with("---\ntitle: T\n---\n\n"), "文首格式:\n{bi}");
+        assert!(bi.contains("Hello world.\n\n你好世界。"), "正文对照丢失:\n{bi}");
+    }
+
+    /// 块级 HTML 是**内容**，不是格式：导出必须原样带回、且恰好一份。
+    /// 修复前它落成空段落、导出随之整块不输出——富文本粘进来的表格（tiptap 卡片，
+    /// 见 `UI 设计师.md`）会在交付物里静默消失。两条导出路径共用
+    /// `render_block_for_export`，所以这里一并钉住。
+    #[test]
+    fn html_block_is_exported_verbatim_exactly_once() {
+        let table = r#"<table class="tiptap-table"><tr><td>甲</td></tr></table>"#;
+        let md = format!("---\n\n{table}\n\nHello world.");
+        let (map, runs) = tagged_map(&md);
+        assert_eq!(runs.len(), 1, "块级 HTML 不该产生可译 run: {runs:?}");
+
+        let out = export_translation(&md, &map);
+        assert!(out.contains(table), "原文须逐字保留:\n{out}");
+        assert_eq!(out.matches("tiptap-table").count(), 1, "恰一份:\n{out}");
+        assert!(out.contains("Torun0"), "正文照常替换:\n{out}");
+
+        // 双语对照路径：同一条不变式
+        let bi = crate::translate::export::export_bilingual(&md, &map, ZH);
+        assert!(bi.contains("甲"), "{bi}");
+        assert_eq!(bi.matches("tiptap-table").count(), 1, "双语里也恰一份:\n{bi}");
     }
 }

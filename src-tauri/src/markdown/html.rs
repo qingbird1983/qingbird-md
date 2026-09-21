@@ -20,6 +20,8 @@
 
 mod code;
 mod footnote;
+mod front_matter;
+mod html_block;
 mod inline;
 
 use std::collections::HashMap;
@@ -259,6 +261,16 @@ impl<'t> Ctx<'t> {
                     escape_html(tex)
                 );
             }
+            // front matter：渲染成**只读键值表**（`name | ask-matt` 两列），
+            // 与主流 Markdown 站点一致——分隔符 `---` 是语法、不进表格，但每
+            // 一行元数据都要看得见。三个计数器一律不动：元数据在模型里就不带
+            // Inline，既没有 sub/bi 可分配，YAML 的 key 也不该被翻译。
+            Block::Metadata { raw } => front_matter::render(out, raw),
+            // 块级 HTML：**净化后**上屏（白名单标签 + 数字型 colspan/rowspan，
+            // 详见 `html/html_block.rs` 的模块头）。修复前它落进 `_ =>` 兜底成
+            // 空段落，整块内容（tiptap 字符卡表格）消失。同样不动计数器：
+            // `Block::Html` 不装 Inline，sub/bi 都无号可占。
+            Block::Html { raw } => html_block::render(out, raw),
             // 定义不原地渲染：委托 footnote::render_footnote_def 聚合进
             // fn_html（仍在本次遍历内执行，bi/sub 计数照常推进）。
             Block::FootnoteDef { label, blocks } => self.render_footnote_def(label, blocks),
