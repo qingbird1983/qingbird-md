@@ -55,10 +55,10 @@
 | | 15 **确定性检查断言**（漏译/标记/结构/侵入） | ✅ | commit `49167c7`：`translate/check.rs`（357 行，5 检查 + 5 测试）、`bridge::check_translation`、前端 `lib/checkTranslation.ts` + 守卫测试 |
 | | 16 `ReviewIssueCard` | ✅ | 2026-09-19 S4：`components/ReviewIssueCard.tsx`（**含非 actionable 态**：跳不动时**禁用跳转并写明原因，而不是隐藏**——隐藏会让「N 处问题」与「列出 M 条」对不上、看着像漏报）+ 跳转收敛成**唯一实现点** `lib/reviewJump.ts`（`probeIssueAnchor` 让**渲染期与点击期判定同源**，杜绝"画着能点、点了没反应"；`jumpToIssue` 内部封装「`lockSplitSide("preview")` → `scrollIntoView({behavior:"auto"})` → `emitSplitSync("preview", src_line)`」，`behavior` 不用 `smooth` 是因为它跑 300ms 会冲出 180ms 锁窗）+ `lib/issueKind.ts`（类别标签穷尽表，`satisfies Record<IssueKind, string>`）+ 样式独立成域 `styles/13-review.css`。`reviewJump.test.ts` 10 用例、`ReviewIssueCard.test.tsx` 7 用例 |
 | **第 4 步** AI 语义核查 | 17–21（入口门 / prompt / 逐条接受 / 分批 / `review_model`） | ✅ **完成（真机验收通过，2026-09-21）** | 提交 `a40c1cc`+`57a9436`；验收条目见 regression-checklist S5 节 |
-| **第 5 步** 重排版规则集 | 22（确定性规则集） | ✅ **代码完成（2026-09-22，分支 `feat/s6-relayout`），真机验收待勾** | `translate/relayout.rs`（4 规则 + 15 测试）、`export_translation` 加 `relayout` 入参（纯 value 级、不动 key，红线 8）、设置 `relayout_on_export`（默认开）+「导出时重排版」开关；仅导出施加，不碰预览/Cache。工单 `2026-09-22-s6-relayout-rules.md` |
+| **第 5 步** 重排版规则集 | 22（确定性规则集） | ✅ **完成 + 真机验收通过（2026-09-22，分支 `feat/s6-relayout`）** | `translate/relayout.rs`（4 规则 + 15 测试）、`export_translation` 加 `relayout` 入参（纯 value 级、不动 key，红线 8）、设置 `relayout_on_export`（默认开）+「导出时重排版」开关；仅导出施加，不碰预览/Cache。工单 `2026-09-22-s6-relayout-rules.md` |
 | | 23（拆合段 + 结构标记 + 对照降级） | ❌ 未做 | **另立工单** |
 
-**结论（2026-09-22 更新）**：**第 2 步已全部完成**（第 9 项双语导出随 v0.2.3 发布并真机验收）；**第 3 步 UI 部分已收口**——11 / 13 / 14 / 16 四项 ✅ 落地并**真机验收通过**（S4，提交 `eedc6d4`），**12 `ReviewComposer` 已在第 4 步落地**（其数据源在语义核查）。**第 4 步 AI 语义核查已完成并真机验收通过**（S5，提交 `a40c1cc` + `57a9436`）。**第 5 步 22（确定性重排版规则集，仅导出施加 + 开关）代码完成**（S6，2026-09-22 分支 `feat/s6-relayout`，四道门禁全绿，真机验收待勾）；**仅剩第 5 步 23（拆合段 + 结构标记 + 对照降级）未做，另立工单。**
+**结论（2026-09-22 更新）**：**第 2 步已全部完成**（第 9 项双语导出随 v0.2.3 发布并真机验收）；**第 3 步 UI 部分已收口**——11 / 13 / 14 / 16 四项 ✅ 落地并**真机验收通过**（S4，提交 `eedc6d4`），**12 `ReviewComposer` 已在第 4 步落地**（其数据源在语义核查）。**第 4 步 AI 语义核查已完成并真机验收通过**（S5，提交 `a40c1cc` + `57a9436`）。**第 5 步 22（确定性重排版规则集，仅导出施加 + 开关）完成并真机验收通过**（S6，2026-09-22 分支 `feat/s6-relayout`，四道门禁全绿）；**仅剩第 5 步 23（拆合段 + 结构标记 + 对照降级）未做，另立工单。**
 
 > **下一项 = 第 5 步 23**（约 0.5 天，做完即 A 计划收尾）；整体进度表的下一项已推进到 **S7（B 计划排版）**。工单见 `2026-09-22-s6-relayout-rules.md`（22，本轮）；23 待开工时另落。
 >
@@ -551,7 +551,7 @@ pub fn key(provider: &str, variant: &str, text: &str) -> String {
     > 入参，对每个译文 value 走规则、**绝不动 key** → 块数不变量（红线 8）天然成立；开关落设置
     > `relayout_on_export`（`storage.rs` 默认开）→ `TranslateTab` 的「导出时重排版」。不碰预览
     > /store/Cache。守卫：15 条 Rust 测试（每规则各向 + 幂等 + 「relayout=true == 手动规范化 value
-    > 后 false 导出」逐字相等，证纯 value 级）。**真机验收待用户肉眼过**（regression-checklist「S6」节）。
+    > 后 false 导出」逐字相等，证纯 value 级）。**真机验收已通过（2026-09-22）**（regression-checklist「S6」节 10 条全勾）。
     > 工单：`2026-09-22-s6-relayout-rules.md`。
 23. ❌ **拆段/合段的显式操作 + "结构已变"标记 + 对照导出降级策略。** → **另立工单，未做。**
 
