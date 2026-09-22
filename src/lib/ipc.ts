@@ -159,12 +159,14 @@ export const api = {
     translations: Array<[number, string]>,
     mode: ExportMode,
     targetLang: TargetLang,
+    relayout: boolean,
   ) =>
     invoke<string>("export_translation", {
       content: c,
       translations,
       mode,
       targetLang,
+      relayout,
     }),
 
   /**

@@ -100,6 +100,12 @@ pub struct Settings {
     /// 未知值在两处解析口都被收成 zh，多一处白名单只会多一处漂移。
     #[serde(default)]
     pub translate_target: String,
+    /// 导出时重排版（S6 / A 计划第 5 步 22）。`#[serde(default = "default_true")]`
+    /// = 老配置文件读出来即「开」，与中英间距/标点体例作为交付可读性默认收益一致；
+    /// 关掉即回到改动前的逐字导出。仅在「另存为」导出时对译文 value 施加，
+    /// **不改实时预览、不改译文表、不进 Cache**。
+    #[serde(default = "default_true")]
+    pub relayout_on_export: bool,
 }
 
 impl Default for Settings {
@@ -122,6 +128,7 @@ impl Default for Settings {
             llm_profiles: Vec::new(),
             llm_active: String::new(),
             translate_target: String::new(),
+            relayout_on_export: true,
         }
     }
 }

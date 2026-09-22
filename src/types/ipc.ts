@@ -124,6 +124,11 @@ export interface Settings {
    * 被静默丢成默认值——必须列在类型里。
    */
   translate_target: string;
+  /**
+   * 导出时重排版（S6）。整包 save 走 serde，字段没登记会被静默丢，故必须列。
+   * 默认开；关掉即回到逐字导出。仅「另存为」时对译文施加。
+   */
+  relayout_on_export: boolean;
 }
 
 /**

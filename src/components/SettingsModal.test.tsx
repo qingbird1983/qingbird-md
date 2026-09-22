@@ -84,6 +84,7 @@ const SEED: Settings = {
   llm_active: "",
   autostart: false,
   translate_target: "zh",
+  relayout_on_export: true,
 };
 
 let host: HTMLDivElement;

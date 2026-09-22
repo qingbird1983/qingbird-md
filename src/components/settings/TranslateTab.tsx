@@ -348,6 +348,14 @@ export default function TranslateTab({
             setDraft((d) => (d ? { ...d, selection_translate: v } : d))
           }
         />
+        <SwitchRow
+          label="导出时重排版"
+          desc="另存为 .md 时对译文施加确定性排版：中英间距、标点全/半角、省略号、破折号。只影响导出文件，不改屏幕上的译文。"
+          checked={draft.relayout_on_export}
+          onChange={(v) =>
+            setDraft((d) => (d ? { ...d, relayout_on_export: v } : d))
+          }
+        />
       </section>
 
       <section className="set-sec">

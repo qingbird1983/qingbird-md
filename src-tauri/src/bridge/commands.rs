@@ -265,28 +265,40 @@ pub fn render_translated(
 ///   空间，与 `translate_document` 的收集、`render_translated` 的收口**共用
 ///   同一索引空间**；序列化侧的遍历顺序与计数规则由 `markdown::cmark` 保证
 ///   与 `units::collect_text_runs` 逐位一致（见该文件模块注释与
-///   `export_run_space_*` 守卫测试）。**不需要 target_lang**——
-///   `data-ri` 是方向无关的（`Inline::Text` 恒占号）。
+///   `export_run_space_*` 守卫测试）。**编号空间方向无关**（`data-ri` 是
+///   `Inline::Text` 恒占号），但 `relayout` 开启时 `target_lang` 仍要传——
+///   重排版规则的全/半角取向依赖方向（不依赖占号）。
 /// - **bilingual**（对照）：`translations` 的 key 是 `data-bi` 块空间，
 ///   **方向相关**——哪些块"可译"取决于翻译方向。所以 `target_lang` 必须传，
 ///   导出侧用它来判定"这一块是不是该出译文、出译文时用哪个块号"。
 ///
-/// `target_lang` 在 `mode == "translation"` 时忽略（避免冗余参数成为第三个
-/// 可能漂的判据）；`mode == "bilingual"` 时**强制要求**——前端调用前已断言
-/// `mode === lastRunMode`，这里再校验一次避免前端漏传。
+/// `target_lang`：`mode == "bilingual"` 时**强制要求**（前端调用前已断言
+/// `mode === lastRunMode`，这里再校验一次避免前端漏传）；`translation` 时
+/// 编号空间不用它，但 `relayout` 开启时用它定方向。
+///
+/// `relayout`：S6 重排版规则集开关（来自设置 `relayout_on_export`）。为 `true`
+/// 时对每个译文 value 走 `translate::relayout::relayout`，**只改文本不改 key**，
+/// 块数不变量原样保持（红线 8）。
 #[tauri::command(async)]
 pub fn export_translation(
     content: String,
     translations: Vec<(usize, String)>,
     mode: String,
     target_lang: String,
+    relayout: bool,
 ) -> String {
-    let map: HashMap<usize, String> = translations.into_iter().collect();
-    match mode.as_str() {
-        "bilingual" => {
-            let target = translate::engine::TargetLang::from_tag(&target_lang);
-            translate::export::export_bilingual(&content, &map, target)
+    let target = translate::engine::TargetLang::from_tag(&target_lang);
+    let mut map: HashMap<usize, String> = translations.into_iter().collect();
+    // 重排版规则集（S6 / A 计划第 5 步 22）：只改写译文 value，**不动 key**，
+    // 所以 `data-ri`/`data-bi` 索引空间与块数不变量原样保持（红线 8）。在分发
+    // 前统一施加，单语（run 空间）与双语（块空间）两条路径一并覆盖。
+    if relayout {
+        for v in map.values_mut() {
+            *v = translate::relayout::relayout(v, target);
         }
+    }
+    match mode.as_str() {
+        "bilingual" => translate::export::export_bilingual(&content, &map, target),
         // 默认（含 `"translation"` 与未知值）走单语路径——前端调用前已用
         // `exportGate` 卡住，这里兜底"单语"避免误传让用户拿到空文件
         // （参 §五 第 2 步 #8 的判据：导出必走收集侧的索引空间）。
@@ -388,5 +400,74 @@ mod tests {
         // 未知 tag 回落 zh（老配置/手改入参不得让渲染崩掉）
         let junk = render_translated(content.into(), "translation".into(), vec![], "klingon".into()).unwrap();
         assert_eq!(junk.html, zh.html);
+    }
+
+    // ---- S6 重排版接线守卫（A 计划第 5 步 22，红线 8：不改块数）----
+
+    use crate::translate::engine::TargetLang;
+    use crate::translate::relayout::relayout;
+
+    /// 开关为真时译文确实被规范化；为假时逐字保留。
+    #[test]
+    fn relayout_flag_normalizes_translation_values_on_export() {
+        let content = "Hello world.";
+        let vec = vec![(0usize, "中文,测试".to_string())];
+        let on = export_translation(
+            content.into(),
+            vec.clone(),
+            "translation".into(),
+            "zh".into(),
+            true,
+        );
+        let off = export_translation(
+            content.into(),
+            vec,
+            "translation".into(),
+            "zh".into(),
+            false,
+        );
+        assert!(on.contains("中文，测试"), "开关开：半角逗号应转全角：{on}");
+        assert!(off.contains("中文,测试"), "开关关：原样逐字导出：{off}");
+        assert!(!off.contains("中文，测试"));
+    }
+
+    /// **块数不变量（红线 8）**：`relayout=true` 的结果，与「先手动规范化每个
+    /// value、再以 `relayout=false` 导出」逐字相等——证明 relayout 只是 value
+    /// 级替换，绝不增删 map 条目 / 改动 key，块结构原样保持。
+    #[test]
+    fn relayout_is_purely_value_level_keys_untouched() {
+        for mode in ["translation", "bilingual"] {
+            let content = "Alpha.\n\nBeta.";
+            let vec = vec![(0usize, "甲,乙".to_string()), (1usize, "丙...".to_string())];
+            let on = export_translation(
+                content.into(),
+                vec.clone(),
+                mode.into(),
+                "zh".into(),
+                true,
+            );
+            let target = TargetLang::from_tag("zh");
+            let pre: Vec<(usize, String)> = vec
+                .into_iter()
+                .map(|(k, v)| (k, relayout(&v, target)))
+                .collect();
+            let off = export_translation(content.into(), pre, mode.into(), "zh".into(), false);
+            assert_eq!(on, off, "relayout 必须是纯 value 级替换（key/块数不动），mode={mode}");
+        }
+    }
+
+    /// 双语导出同样受开关影响（块空间 value 走同一收口）。
+    #[test]
+    fn relayout_applies_to_bilingual_path_too() {
+        let content = "Hello.";
+        let vec = vec![(0usize, "中文,测试".to_string())];
+        let on = export_translation(
+            content.into(),
+            vec,
+            "bilingual".into(),
+            "zh".into(),
+            true,
+        );
+        assert!(on.contains("中文，测试"), "双语路径也应施加：{on}");
     }
 }

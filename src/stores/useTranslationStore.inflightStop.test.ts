@@ -52,6 +52,7 @@ const SEED: Settings = {
   llm_active: "",
   autostart: false,
   translate_target: "zh",
+  relayout_on_export: true,
 };
 
 const CONTENT = "# 标题\n\n正文段落";
