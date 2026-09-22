@@ -86,6 +86,9 @@ export async function exportActiveTranslation(): Promise<boolean> {
   const dd = useDocStore.getState();
   const doc = dd.doc!;
   const target = useSettingsStore.getState().target;
+  // 导出时重排版开关（S6）；设置未加载时按默认「开」，与 storage.rs 的
+  // `default_true` 同口径，避免首帧导出静默丢掉规范化。
+  const relayout = useSettingsStore.getState().settings?.relayout_on_export ?? true;
   // exportGate 已挡下 "original"——剩下的是可导出的两种模式
   // （"translation" / "bilingual"）。这里再 narrow 一次让 tsc 满意。
   const mode = dd.mode === "bilingual" ? "bilingual" : "translation";
@@ -102,6 +105,7 @@ export async function exportActiveTranslation(): Promise<boolean> {
       Array.from(dd.translations.entries()),
       mode,
       target,
+      relayout,
     );
     await api.saveFile(path, md);
     // 表可能只是部分译文（按需翻译只译了视口内的块），未译处保留原文——
