@@ -46,8 +46,8 @@ pub fn run(
         let key = Cache::key(req.provider, req.cache_variant, text);
         match cache.get(&key) {
             Some(v) => {
-                results[i] = Some(Ok(v.to_string()));
-                emit(EngineEvent::Unit { index: req.units[i].0, text: v.to_string(), from_cache: true });
+                emit(EngineEvent::Unit { index: req.units[i].0, text: v.clone(), from_cache: true });
+                results[i] = Some(Ok(v));
             }
             None => pending.push(i),
         }

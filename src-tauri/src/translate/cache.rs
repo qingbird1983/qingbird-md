@@ -165,17 +165,25 @@ impl Cache {
 /// 因「无人通过 trait 调它」触发 dead_code 告警、破 0 告警门禁 → 留到 Step 3 持有者
 /// 泛化成 `Arc<Mutex<dyn CacheBackend>>`、真正需要多态派发时再补进来。
 ///
-/// 对象安全：`get` 返回 `&self` 借用——**读路径不写库**（红线 3）。`Send` 是因为
-/// Step 3 后持有者是 `Arc<Mutex<dyn CacheBackend>>`。
+/// **`get` 返回 `Option<String>`（owned，非借用）**：这是 Step 2 逼出的取舍。
+/// `SqliteCache` 的热层只预装最新 `WARM` 条，未预热的条目要在 `get` 时回查 DB 再
+/// 命中——DB 现读的值是 owned，Safe Rust 下无法作为 `&str` 借出返回。红线 3 的三条
+/// 真实约束**全部守住**：仍 `&self`、仍不写库（回查是只读、`accessed_at` 不更新）、
+/// LRU 年龄仍只在 `set` 改；只有「返回借用」降级为「返回 owned」。热命中多一次
+/// `clone`，而 `run` 命中路径本就把值 `.to_string()`，实际近乎零成本。
+///
+/// `Cache` 的**固有 `get` 仍返回 `Option<&str>`**（cache.rs 8 条契约测试与 worker.rs
+/// 具体调用直接用它，一字不动）；trait 版转发为 owned。`Send` 是因为 Step 3 后持有者
+/// 是 `Arc<Mutex<dyn CacheBackend>>`。
 pub trait CacheBackend: Send {
-    fn get(&self, key: &str) -> Option<&str>;
+    fn get(&self, key: &str) -> Option<String>;
     /// 插入一条；返回是否为**新键**（覆盖返回 false）。
     fn set(&mut self, key: String, value: String) -> bool;
 }
 
 impl CacheBackend for Cache {
-    fn get(&self, key: &str) -> Option<&str> {
-        Cache::get(self, key)
+    fn get(&self, key: &str) -> Option<String> {
+        Cache::get(self, key).map(str::to_string)
     }
     fn set(&mut self, key: String, value: String) -> bool {
         Cache::set(self, key, value)

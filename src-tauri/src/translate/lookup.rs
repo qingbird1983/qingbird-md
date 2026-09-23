@@ -294,7 +294,7 @@ fn parse_json_object(content: &str) -> Option<Value> {
 /// 命中读取；缓存里的坏 JSON 自愈为未命中（下次网络结果会覆写）。
 pub fn cache_get_lookup(cache: &dyn CacheBackend, text: &str, variant: &str) -> Option<crate::dto::WordLookupDTO> {
     let json = cache.get(&Cache::key(CACHE_PROVIDER, variant, text))?;
-    serde_json::from_str(json).ok()
+    serde_json::from_str(&json).ok()
 }
 
 /// 回写（不落盘——落盘由命令层在短锁内完成）。
