@@ -47,6 +47,15 @@ adheres to [Semantic Versioning](https://semver.org/).
 - **嵌套列表之后层级引线断 10px**：末位块的下边距会**从 `li` 里逃逸**（嵌套 `ul` 0.9em、代码卡 1.2em），
   原来的 `bottom: -0.25em` 只桥得住 `li + li` 的项间距。改为 `-1em`，覆盖到 1.25em 的逃逸量
 
+### Changed
+
+- **翻译缓存后端由 JSON 换为 SQLite**（S9 · C 计划 Step 1–3，纯后端，行为对用户透明）：译文缓存
+  与划词查词缓存从「全量重写的 `qingbird-cache.json`」迁到 `qingbird-cache.db`（rusqlite + WAL +
+  内存热层预热最新 1000 条）。收益：写盘不再随缓存规模线性膨胀、重启后 FIFO 淘汰顺序真实（旧
+  JSON 版做不到）、读路径不写库。老用户首次启动时旧 JSON **一次性导入**空库，成功后原文件
+  **重命名保留为 `qingbird-cache.json.imported-<时间戳>`（不删除，可回滚）**；`translate/` 保持同步、
+  缓存库不进 IPC 契约、`types/ipc.ts` 零改动。（代码完成、四道门禁全绿；真机冒烟验收待跑。）
+
 ## [0.2.3] - 2026-09-19
 
 翻译链路补上了「检查」这一环：译完不再只能肉眼看，而能跑一遍**零 AI 成本的结构检查**
