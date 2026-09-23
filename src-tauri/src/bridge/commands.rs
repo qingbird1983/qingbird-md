@@ -61,7 +61,7 @@ pub fn lookup_word(
     let variant = translate::lookup::cache_variant_for(&creds);
     {
         let c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(dto) = translate::lookup::cache_get_lookup(&c, &text, &variant) {
+        if let Some(dto) = translate::lookup::cache_get_lookup(&*c, &text, &variant) {
             return Ok(dto);
         }
     }
@@ -98,7 +98,7 @@ pub fn lookup_word(
     };
     {
         let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-        translate::lookup::cache_put_lookup(&mut c, &text, &variant, &dto);
+        translate::lookup::cache_put_lookup(&mut *c, &text, &variant, &dto);
         let _ = c.save(&storage::cache_path());
     }
     Ok(dto)

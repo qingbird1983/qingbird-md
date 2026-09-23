@@ -155,6 +155,33 @@ impl Cache {
     }
 }
 
+/// 缓存后端边界（S9 Step 1）。把「存什么 / 怎么驱逐」的策略与「用什么介质持久化」
+/// 分离：`run` 与 `lookup` 只认这组方法，Step 2 的 `SqliteCache` 实现同一 trait
+/// 即可切流，调用点一行不改。
+///
+/// **Step 1 只收 `get` / `set`**——这是当前唯一被通过 trait 对象派发的两个动作
+/// （`run` 的缓存 pass/回写、`lookup` 的读写）。`shrink_to` / `clear` / `len` 今天
+/// 由具体持有者（worker / commands）直接调 `Cache` 固有方法，若现在写进 trait 就会
+/// 因「无人通过 trait 调它」触发 dead_code 告警、破 0 告警门禁 → 留到 Step 3 持有者
+/// 泛化成 `Arc<Mutex<dyn CacheBackend>>`、真正需要多态派发时再补进来。
+///
+/// 对象安全：`get` 返回 `&self` 借用——**读路径不写库**（红线 3）。`Send` 是因为
+/// Step 3 后持有者是 `Arc<Mutex<dyn CacheBackend>>`。
+pub trait CacheBackend: Send {
+    fn get(&self, key: &str) -> Option<&str>;
+    /// 插入一条；返回是否为**新键**（覆盖返回 false）。
+    fn set(&mut self, key: String, value: String) -> bool;
+}
+
+impl CacheBackend for Cache {
+    fn get(&self, key: &str) -> Option<&str> {
+        Cache::get(self, key)
+    }
+    fn set(&mut self, key: String, value: String) -> bool {
+        Cache::set(self, key, value)
+    }
+}
+
 impl Default for Cache {
     fn default() -> Self {
         Self::new()

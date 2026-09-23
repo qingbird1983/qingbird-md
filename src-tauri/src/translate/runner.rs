@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use super::batch::{self, BatchDecoder};
-use super::cache::Cache;
+use super::cache::{Cache, CacheBackend};
 use super::events::EngineEvent;
 use super::http::HttpClient;
 use super::openai::{chat_stream, strip_fence, ChatRequest};
@@ -34,7 +34,7 @@ pub struct EngineRequest<'a> {
 /// `emit` is called from worker threads; it must be `Sync` and cheap.
 pub fn run(
     req: &EngineRequest,
-    cache: &mut Cache,
+    cache: &mut dyn CacheBackend,
     emit: &(dyn Fn(EngineEvent) + Sync),
 ) -> Vec<Result<String, String>> {
     let n = req.units.len();
