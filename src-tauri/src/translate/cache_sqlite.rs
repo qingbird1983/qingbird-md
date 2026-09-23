@@ -1,8 +1,8 @@
-#![allow(dead_code)] // Step 2 未接生产：open_or_create/flush/shrink_to 等暂只被本文件测试调用，Step 3 切流后随实际消费者出现而移除。
-//! `SqliteCache` —— S9 Step 2：rusqlite 持久层 + 内存热层。
+//! `SqliteCache` —— S9：rusqlite 持久层 + 内存热层，翻译缓存的**生产持有者**
+//! （Step 3 已切流：`lib.rs` 用 `open_or_create` 装载，worker/命令层收尾统一 `flush`）。
 //!
-//! **本 Step 不切流**：生产路径仍走 JSON（`lib.rs` 的 `Cache::load` 不动），本文件
-//! 与文件末的对拍测试先证明「新后端与旧后端逐条同义」。切流在 Step 3。
+//! 迁移来源：旧 `qingbird-cache.json` 由 [`SqliteCache::import_json_if_empty`] 一次性
+//! 导入，之后 `lib.rs` 把它重命名为 `.imported-<ts>` 保留（红线 6，回滚依赖它）。
 //!
 //! 红线 2：`translate/` 保持同步——用 `rusqlite`（`Connection: Send`），绝不 `async`。
 //! 红线 3：`get` 读路径不写库（回查只读、`accessed_at` 不更新），LRU 年龄只在 `set` 改。
@@ -39,6 +39,44 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// 建表建索引（幂等）。`journal_mode=WAL` 持久写进库头；`synchronous`/`foreign_keys`
+/// 每连接重设（§五）。
+fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS translation_cache (
+             key         TEXT PRIMARY KEY NOT NULL,
+             value       TEXT NOT NULL,
+             seq         INTEGER NOT NULL,
+             accessed_at INTEGER NOT NULL,
+             created_at  INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_cache_accessed ON translation_cache(accessed_at);
+         CREATE INDEX IF NOT EXISTS idx_cache_seq      ON translation_cache(seq);",
+    )
+}
+
+/// 从已打开且建好表的连接装配：续 `seq` → 预热热层。
+fn assemble(conn: Connection) -> rusqlite::Result<SqliteCache> {
+    let seq: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM translation_cache",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let mut c = SqliteCache {
+        hot: RefCell::new(HashMap::new()),
+        conn,
+        seq,
+        pending: Vec::new(),
+    };
+    c.warm(WARM)?;
+    Ok(c)
+}
+
 impl SqliteCache {
     /// 开库（不存在则建）：设 pragma → 建表建索引 → 续 `seq` → 预热热层。
     pub fn open_or_create(path: &Path) -> rusqlite::Result<SqliteCache> {
@@ -46,36 +84,16 @@ impl SqliteCache {
             let _ = std::fs::create_dir_all(parent);
         }
         let conn = Connection::open(path)?;
-        // `journal_mode=WAL` 持久（写进库头）；`synchronous`/`foreign_keys` 每连接重设。
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS translation_cache (
-                 key         TEXT PRIMARY KEY NOT NULL,
-                 value       TEXT NOT NULL,
-                 seq         INTEGER NOT NULL,
-                 accessed_at INTEGER NOT NULL,
-                 created_at  INTEGER NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_cache_accessed ON translation_cache(accessed_at);
-             CREATE INDEX IF NOT EXISTS idx_cache_seq      ON translation_cache(seq);",
-        )?;
-        let seq: i64 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(seq), 0) FROM translation_cache",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        let mut c = SqliteCache {
-            hot: RefCell::new(HashMap::new()),
-            conn,
-            seq,
-            pending: Vec::new(),
-        };
-        c.warm(WARM)?;
-        Ok(c)
+        init_schema(&conn)?;
+        assemble(conn)
+    }
+
+    /// 内存库：生产路径开库失败时的**降级兜底**（不崩应用，本会话译文不落盘），
+    /// 以及 worker 单测造持有者。
+    pub fn open_in_memory() -> rusqlite::Result<SqliteCache> {
+        let conn = Connection::open_in_memory()?;
+        init_schema(&conn)?;
+        assemble(conn)
     }
 
     /// 预热：取最新 `n` 条灌进热层（按 `seq DESC`，即最近插入的）。
@@ -166,10 +184,14 @@ impl SqliteCache {
         removed
     }
 
-    pub fn clear(&mut self) {
-        let _ = self.conn.execute("DELETE FROM translation_cache", []);
+    /// 清空：DELETE 全表（即时、autocommit 落盘）+ 清热层/pending。返回错误让
+    /// 调用方感知「内存清了但没删干净」——否则下次启动旧缓存复活。
+    /// 红线 9：不在这里 `VACUUM`（大库 VACUUM 会卡 UI 线程）；SQLite 自复用空闲页。
+    pub fn clear(&mut self) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM translation_cache", [])?;
         self.pending.clear();
         self.hot.borrow_mut().clear();
+        Ok(())
     }
 
     /// DB 现存条数（不含未 flush 的 pending）。
@@ -181,8 +203,46 @@ impl SqliteCache {
             .unwrap_or(0) as usize
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    /// 一次性导入旧 `qingbird-cache.json`（红线 6/7）：**仅当本库为空且旧 JSON 存在
+    /// 且可解析**时，把一个事务里的全部条目灌进来，返回导入条数（0 = 无需导入）。
+    ///
+    /// ⚠️ 已知且接受的**顺序损失**（红线 7）：旧 JSON 的 `order` 早在 `Cache::from_json`
+    /// 用 `HashMap` 重建时就已丢失（F3），这里赋 `seq` 只能按 `HashMap` 迭代序——
+    /// **不得声称「无损迁移」**；导入后新条目的顺序才是真实的。这是「不比现状差」的
+    /// 一次性代价，之后 F3 由 `seq` 彻底修好。调用方在返回 >0 后负责把旧 JSON 重命名
+    /// 为 `.imported-<ts>` 保留（不删，回滚依赖）。
+    pub fn import_json_if_empty(&mut self, json_path: &Path) -> rusqlite::Result<usize> {
+        if self.len() > 0 {
+            return Ok(0); // 已有库，绝不重复导入
+        }
+        let Ok(s) = std::fs::read_to_string(json_path) else {
+            return Ok(0); // 无旧文件：全新用户，正常
+        };
+        let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&s) else {
+            return Ok(0); // 旧文件损坏：跳过导入（SQLite 库自身完好，不必牵连）
+        };
+        let now = now_secs();
+        let base = self.seq;
+        let tx = self.conn.transaction()?;
+        let mut idx: i64 = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO translation_cache(key, value, seq, accessed_at, created_at)
+                 VALUES(?1, ?2, ?3, ?4, ?4)",
+            )?;
+            for (k, v) in &map {
+                idx += 1;
+                stmt.execute(params![k, v, base + idx, now])?;
+            }
+        }
+        tx.commit()?;
+        self.seq = base + idx;
+        let n = map.len();
+        if n > 0 {
+            // 导入后灌热层，让「最近」条目立即可用（与冷启动 load 等价）。
+            self.warm(WARM)?;
+        }
+        Ok(n)
     }
 }
 
@@ -369,5 +429,30 @@ mod tests {
         assert!(CacheBackend::get(&sqlite, &k("t0")).is_none(), "覆盖不刷新插入序，t0 仍最老先被丢");
         assert!(CacheBackend::get(&sqlite, &k("t1")).is_some(), "t1 应还在");
         let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    /// 迁移守卫（红线 6/7）：一次性导入只在**空库**发生，且可复算。
+    #[test]
+    fn import_json_only_when_empty_and_idempotent() {
+        let db = tmp_db("import"); // tmp_db 返回 cache.db 文件路径，其父目录已建好
+        let dir = db.parent().unwrap().to_path_buf();
+        let json = dir.join("qingbird-cache.json");
+        // 旧 JSON 就是 { key: value } 扁平 map（与 Cache::from_json 同格式）。
+        let mut m = HashMap::new();
+        m.insert(k("hello"), "你好".to_string());
+        m.insert(k("world"), "世界".to_string());
+        std::fs::write(&json, serde_json::to_string(&m).unwrap()).unwrap();
+
+        let mut sqlite = SqliteCache::open_or_create(&db).unwrap();
+        assert_eq!(sqlite.import_json_if_empty(&json).unwrap(), 2, "空库应导入全部 2 条");
+        assert_eq!(sqlite.len(), 2);
+        assert_eq!(CacheBackend::get(&sqlite, &k("hello")).as_deref(), Some("你好"));
+        // 第二次调用：库已非空 → 返回 0，绝不重复灌（防重启叠加）。
+        assert_eq!(sqlite.import_json_if_empty(&json).unwrap(), 0, "非空库不得再导入");
+        assert_eq!(sqlite.len(), 2);
+        // 无旧文件：全新用户路径返回 0，不报错。
+        let mut fresh = SqliteCache::open_in_memory().unwrap();
+        assert_eq!(fresh.import_json_if_empty(&dir.join("nope.json")).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

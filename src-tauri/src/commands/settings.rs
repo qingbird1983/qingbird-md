@@ -42,14 +42,13 @@ pub fn get_data_dir_label() -> String {
     storage::user_data_dir_label()
 }
 
-/// 清空翻译缓存并立即落盘（Task 26 设置弹窗「清除翻译缓存」）。
-/// 单锁持有：clear 与 save 一起，绝不跨任何长操作持有。
-/// save 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
+/// 清空翻译缓存（Task 26 设置弹窗「清除翻译缓存」）。
+/// SqliteCache 的 clear 直接 `DELETE FROM translation_cache` 落盘，无二次 save。
+/// 失败向调用方报错——吞掉会让内存清空而磁盘残留，下次启动复活旧缓存。
 #[tauri::command]
 pub fn clear_cache(st: tauri::State<AppTxn>) -> Result<(), String> {
     let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-    c.clear();
-    c.save(&storage::cache_path()).map_err(|e| e.to_string())
+    c.clear().map_err(|e| e.to_string())
 }
 
 // ---- 休眠会话快照（docs/webview-hibernate-plan.md 步骤 5）----

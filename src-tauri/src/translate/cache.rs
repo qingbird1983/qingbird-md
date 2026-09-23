@@ -69,6 +69,26 @@ impl Cache {
         }
     }
 
+    /// Test-only size probes (production reads the map only through get/set).
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
+/// 已退役的 JSON 时代方法（S9 Step 3 切流后）。
+///
+/// 切流后 `Cache` 在生产里只剩两个身份：**每次运行的内存工作缓冲**（worker / commands
+/// 用 `new`+`get`+`set` 现建现用，`run` 通过 `CacheBackend` trait 派发）和**测试替身**。
+/// 下面这批「磁盘持久化 + 空闲收缩 + 脏标记」方法曾由 worker/commands 生产调用，切流后
+/// 全部改由 `SqliteCache`（`flush`/`shrink_to`/`clear`）承担，生产侧再无消费者。
+///
+/// 之所以**暂不删除**：`cache_sqlite.rs` 的对拍测试（尤其 `parity_shrink_preserves_same_set`）
+/// 仍以这套旧实现为「参照实现」验证 SQLite 后端的 FIFO/收缩语义逐条一致。删除会连回归
+/// 覆盖一起丢掉。用 `#[allow(dead_code)]` 显式标注为「保留的参照实现」，待 JSON 层彻底
+/// 下线时（后续独立清理步）连同这些方法与对应测试一并移除。
+#[allow(dead_code)]
+impl Cache {
     /// Drop oldest entries (front of FIFO) until `map.len() <= target`.
     ///
     /// Returns the number of entries actually removed. No-op when
@@ -108,12 +128,6 @@ impl Cache {
 
     pub fn mark_clean(&mut self) {
         self.dirty = false;
-    }
-
-    /// Test-only size probes (production reads the map only through get/set).
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.map.len()
     }
 
     /// Production reader for size: bridge.rs needs it to decide whether to

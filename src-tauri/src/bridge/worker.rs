@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
-use crate::{storage, translate};
-use crate::translate::cache::Cache;
+use crate::translate;
+use crate::translate::cache::{Cache, CacheBackend};
+use crate::translate::cache_sqlite::SqliteCache;
 use crate::translate::engine::TargetLang;
 
 use super::events::{TranslationDoneEvt, TranslationPartialEvt, TranslationProgressEvt};
@@ -43,13 +44,13 @@ pub(super) fn note_translate_activity() {
 /// worker 收尾调用：若离上次翻译活动已超过 [`IDLE_SHRINK_AFTER`] 且当前
 /// cache 大于 [`SHRINK_TO`]，裁到目标。返回是否实际裁剪（裁了 dirty=true，
 /// 调用方负责 save 重写磁盘）。
-fn shrink_if_idle(cache: &mut Cache) -> bool {
+fn shrink_if_idle(cache: &mut SqliteCache) -> bool {
     let now = Instant::now();
     let last = *LAST_TRANSLATE_AT
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if now.saturating_duration_since(last) >= IDLE_SHRINK_AFTER
-        && cache.len_pub() > SHRINK_TO
+        && cache.len() > SHRINK_TO
     {
         cache.shrink_to(SHRINK_TO) > 0
     } else {
@@ -58,7 +59,7 @@ fn shrink_if_idle(cache: &mut Cache) -> bool {
 }
 
 pub(super) struct WorkerState {
-    pub(super) cache: Arc<Mutex<Cache>>,
+    pub(super) cache: Arc<Mutex<SqliteCache>>,
     pub(super) cancel: Arc<AtomicBool>,
     pub(super) running: Arc<AtomicBool>,
 }
@@ -225,17 +226,15 @@ fn worker_main(
                 shared.set(Cache::key(&provider, &variant, &texts[i]), v.clone());
             }
         }
-        // 空闲收缩：worker 收尾时若距上次翻译活动已超过 IDLE_SHRINK_AFTER，
-        // 把内存 cache 砍到 SHRINK_TO 条并标记 dirty（save 一次性写回磁盘）。
-        // 收益：cache 上限 20000 条常驻 → 主动收紧后 ~2-3MB 起步。
+        // 空闲收缩：worker 收尾时若距上次翻译活动已超过 IDLE_SHRINK_AFTER，把 SQLite
+        // 砍回 SHRINK_TO 条（按真实 seq FIFO）。红线 4：落盘只在命令层这个统一收口——
+        // SQLite 版把今天的「全量重写 JSON」换成 `flush` 的事务批量写；无 pending 即空转。
         let shrunk = shrink_if_idle(&mut shared);
-        if shared.is_dirty() {
-            if let Err(e) = shared.save(&storage::cache_path()) {
-                eprintln!("[cache] save after shrink failed: {e}");
-            }
-            if shrunk {
-                crate::trim::trim_working_set();
-            }
+        if let Err(e) = shared.flush() {
+            eprintln!("[cache] flush after merge failed: {e}");
+        }
+        if shrunk {
+            crate::trim::trim_working_set();
         }
     }
 
@@ -305,7 +304,7 @@ mod tests {
         std::panic::set_hook(prev);
 
         // 中毒后两个入口都必须照常工作：读（shrink_if_idle）与写（note_*）
-        let mut scratch = Cache::new();
+        let mut scratch = SqliteCache::open_in_memory().unwrap();
         assert!(
             !shrink_if_idle(&mut scratch),
             "中毒后 shrink_if_idle 不得 panic，返回 false"
@@ -370,7 +369,7 @@ mod tests {
             };
         let running = Arc::new(AtomicBool::new(true));
         let st = WorkerState {
-            cache: Arc::new(Mutex::new(Cache::new())),
+            cache: Arc::new(Mutex::new(SqliteCache::open_in_memory().unwrap())),
             cancel: Arc::new(AtomicBool::new(false)),
             running: Arc::clone(&running),
         };

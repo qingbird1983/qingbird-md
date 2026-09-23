@@ -8,8 +8,8 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter};
 
 use crate::AppTxn;
-use crate::translate::cache::Cache;
-use crate::{dto, markdown, storage, translate};
+use crate::translate::cache::{Cache, CacheBackend};
+use crate::{dto, markdown, translate};
 
 use super::events::{LookupDeltaEvt, TranslateStart};
 use super::payload::{cached_done_evt, sweep_cached_pairs};
@@ -99,7 +99,7 @@ pub fn lookup_word(
     {
         let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
         translate::lookup::cache_put_lookup(&mut *c, &text, &variant, &dto);
-        let _ = c.save(&storage::cache_path());
+        let _ = c.flush();
     }
     Ok(dto)
 }
@@ -171,7 +171,7 @@ pub fn translate_document(
         let mut seeded = Cache::new();
         for t in &texts {
             if let Some(v) = shared.get(&Cache::key(&provider, &variant, t)) {
-                seeded.set(Cache::key(&provider, &variant, t), v.to_string());
+                seeded.set(Cache::key(&provider, &variant, t), v);
             }
         }
         seeded
@@ -195,7 +195,7 @@ pub fn translate_document(
         if window.is_some() {
             let shared = state.cache.lock().unwrap_or_else(|e| e.into_inner());
             done.translations =
-                Some(sweep_cached_pairs(&shared, &provider, &variant, &blocks, bilingual, target));
+                Some(sweep_cached_pairs(&*shared, &provider, &variant, &blocks, bilingual, target));
         }
         return Ok(TranslateStart::Cached { done });
     }

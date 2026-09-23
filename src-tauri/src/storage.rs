@@ -211,9 +211,7 @@ pub fn cache_path() -> PathBuf {
     user_data_dir().join("qingbird-cache.json")
 }
 
-/// S9 Step 2：SQLite 缓存库路径，与 [`cache_path`] 并列（不新建子目录，见 C 计划 §九）。
-/// Step 3 切流后成为主路径，`cache_path` 退居「迁移来源」。
-#[allow(dead_code)] // Step 2 尚无消费者（Step 3 切流时由 lib.rs 调用）。
+/// S9：SQLite 缓存库主路径，与 [`cache_path`]（JSON，现为迁移来源）并列（不新建子目录，见 C 计划 §九）。
 pub fn cache_db_path() -> PathBuf {
     user_data_dir().join("qingbird-cache.db")
 }
