@@ -559,7 +559,7 @@
 }
 
 .pal-preview .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--pv-accent); }
-.pal-preview .seal { width: 10px; height: 10px; border-radius: 2.5px; background: var(--pv-zhu); transform: rotate(-3deg); }
+.pal-preview .seal { width: 10px; height: 10px; border-radius: 2.5px; background: var(--pv-zhu); }
 
 .pal-preview .body {
   flex: 1;
