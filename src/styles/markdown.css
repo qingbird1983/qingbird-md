@@ -524,8 +524,13 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   border-right: none;
 }
 
+/* 末行收口：tbody 的最后一行抹掉下边线（外框已画底边）。
+   thead 分支必须限定为「thead 是 table 的最后一个元素子节点」= 表后无 tbody
+   的病态表兜底；写成 `thead tr:last-child th` 会命中任何带表头的常规表，
+   把表头与表体之间那条分隔线剥掉（验收标准明确要求「表头分隔线在」）。
+   请勿顺手简化回 thead tr:last-child。 */
 .markdown-body tbody tr:last-child td,
-.markdown-body thead tr:last-child th {
+.markdown-body table > thead:last-child tr:last-child th {
   border-bottom: none;
 }
 
@@ -675,8 +680,10 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
   border-right: none;
 }
 
+/* 同上：thead 分支只兜底「表内无 tbody」（front_matter.rs 恒渲染 <tbody>，
+   此分支实为空转，仍与常规表格保持同构，勿放宽成 thead tr:last-child）。 */
 .markdown-body .front-matter tbody tr:last-child td,
-.markdown-body .front-matter thead tr:last-child th {
+.markdown-body .front-matter > thead:last-child tr:last-child th {
   border-bottom: none;
 }
 
