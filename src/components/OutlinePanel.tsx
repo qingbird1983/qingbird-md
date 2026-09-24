@@ -155,7 +155,7 @@ export default function OutlinePanel() {
               className={`outline-item outline-lv${Math.min(6, Math.max(1, item.level))}${
                 collapsed.has(item.id) ? " is-collapsed" : ""
               }`}
-              style={{ paddingLeft: 8 + Math.max(0, item.level - 1) * 13 }}
+              style={{ paddingLeft: 8 + Math.max(0, item.level - 2) * 13 }}
               title={item.text}
               onClick={() =>
                 document
@@ -174,8 +174,8 @@ export default function OutlinePanel() {
                     toggleCollapsed(item.id);
                   }}
                 >
-                  <svg viewBox="0 0 8 8" width="8" height="8" aria-hidden="true">
-                    <path d="M2 1l4 3-4 3z" fill="currentColor" />
+                  <svg viewBox="0 0 8 8" width="9" height="9" aria-hidden="true">
+                    <path d="M1.9 2.7 4 5.1 6.1 2.7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
               )}

@@ -304,20 +304,26 @@
   color: var(--fg);
 }
 
-/* 展开/收缩小箭头：有子级才渲染，收缩时左转 90°；flex 对齐占位 */
+/* 展开/收缩小箭头：有子级才渲染，收缩时左转 90°；flex 对齐占位。
+   默认隐藏、hover 触发区才淡入（同正文 caret 口径）；触发区 16×16，
+   负 margin 抵掉 .outline-item 的 flex gap，文字位置不随三角显隐跳动 */
 .outline-toggle {
   flex: none;
   align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  margin-right: -5px;
   border-radius: 3px;
   color: var(--fg3);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s, background 0.14s, color 0.14s;
 }
 .outline-toggle:hover {
+  opacity: 1;
   background: var(--item-hover-bg);
   color: var(--fg);
 }
