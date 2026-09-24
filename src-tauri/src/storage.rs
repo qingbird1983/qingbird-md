@@ -110,6 +110,10 @@ pub struct Settings {
     /// `#[serde(default = "default_true")]` = 老配置文件读出来即「开」，升级零感知。
     #[serde(default = "default_true")]
     pub capture_enabled: bool,
+    /// 右上角「关闭」的行为：ask=每次询问（前端弹框）、tray=隐藏到托盘常驻、
+    /// exit=直接退出应用。default ask——升级后第一次关窗由用户自选并记忆。
+    #[serde(default = "default_ask")]
+    pub close_action: String,
 }
 
 impl Default for Settings {
@@ -134,6 +138,7 @@ impl Default for Settings {
             translate_target: String::new(),
             relayout_on_export: true,
             capture_enabled: true,
+            close_action: "ask".to_string(),
         }
     }
 }
@@ -143,6 +148,9 @@ fn default_provider() -> String {
 }
 fn default_on() -> String {
     "on".to_string()
+}
+fn default_ask() -> String {
+    "ask".to_string()
 }
 
 /// 出厂快捷键。与前端 `src/lib/hotkeyRegistry.ts` 的 HOTKEYS 表逐条对应，
@@ -420,6 +428,8 @@ mod tests {
         assert!(!s2.autostart);
         // capture_enabled 缺字段 → true（default_true：老配置升级即「开」，零感知）
         assert!(s2.capture_enabled);
+        // close_action 缺字段 → "ask"（default_ask：升级后第一次关窗由用户自选并记忆）
+        assert_eq!(s2.close_action, "ask");
     }
 
     #[test]

@@ -52,6 +52,15 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     storage::save_settings(&s)
 }
 
+/// 关窗询问弹窗的回答：按选择执行「隐藏到托盘」或「退出应用」。
+#[tauri::command]
+pub fn apply_close_decision(app: AppHandle, decision: String) {
+    match decision.as_str() {
+        "exit" => crate::window_boot::quit_app(&app),
+        _ => crate::window_boot::to_tray(&app),
+    }
+}
+
 /// 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）——给界面文案用。
 /// 与 `get_user_data_dir` 分开是有意的：那个返回的是可执行的真路径
 /// （`reveal_path` 直接吃它），这个只给人看。

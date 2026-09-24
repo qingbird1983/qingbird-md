@@ -71,6 +71,9 @@ interface UiState {
   toasts: Toast[];
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
+  /** 关窗询问弹窗（Task 11，close_action=ask 时由后端 close-requested 事件唤起）。
+   * 纯内存态，不落 localStorage——它是瞬时交互的开关，不是跨启动偏好。 */
+  closeAskOpen: boolean;
   /** 启动仪式感动画阶段，见 IntroPhase 注释。 */
   introPhase: IntroPhase;
 
@@ -97,6 +100,7 @@ interface UiState {
   closePalette(): void;
   openSettings(): void;
   closeSettings(): void;
+  setCloseAskOpen(v: boolean): void;
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
   setOutlineSide(s: PanelSide): void;
@@ -204,6 +208,7 @@ export const useUiStore = create<UiState>()((set) => ({
   toasts: [],
   commandPaletteOpen: false,
   settingsOpen: false,
+  closeAskOpen: false,
   introPhase: "idle",
 
   // 转换都带阶段门：乱序调用（StrictMode 双跑、看门狗与握手竞争）只能空转，
@@ -253,6 +258,8 @@ export const useUiStore = create<UiState>()((set) => ({
   closePalette: () => set({ commandPaletteOpen: false }),
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  // 关窗询问弹窗开关：纯内存（见 closeAskOpen 字段注释）。
+  setCloseAskOpen: (v) => set({ closeAskOpen: v }),
 
   setSidebarWidth: (w) => set({ sidebarWidth: w, bootWidthPending: false }),
   setOutlineWidth: (w) => set({ outlineWidth: w }),

@@ -86,6 +86,7 @@ const SEED: Settings = {
   translate_target: "zh",
   relayout_on_export: true,
   capture_enabled: true,
+  close_action: "ask",
 };
 
 let host: HTMLDivElement;
@@ -239,6 +240,20 @@ describe("设置面板骨架", () => {
     save.mockRestore();
   });
 
+  // Task 11「关闭行为」三档胶囊：点即生效走整包 save（后端关窗钩子每次现读盘，
+  // 下一次关窗即生效）。弹框本体链路是真机验收项，不在这里重复。
+  it("常规页「关闭行为」：三档胶囊默认选中每次询问，点击整包 save", () => {
+    const box = host.querySelector<HTMLElement>('[aria-label="关闭行为"]')!;
+    const btns = Array.from(box.querySelectorAll<HTMLButtonElement>("button"));
+    expect(btns.map((b) => b.textContent)).toEqual(["每次询问", "常驻托盘", "退出应用"]);
+    expect(btns[0]!.className).toContain("on");
+    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
+    act(() => btns[2]!.click());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0]![0] as Settings).close_action).toBe("exit");
+    save.mockRestore();
+  });
+
   it("搜索过滤分类；无命中时给空态", () => {
     const box = host.querySelector<HTMLInputElement>(".set-bar input")!;
     // 「正文宽度」的搜索键已随这一节挪到「常规」分类
@@ -276,7 +291,7 @@ describe("设置面板骨架", () => {
     // setState 会驱动已挂载实例重渲（连带 Seg 重测量），必须在 act 里发生。
     act(() => {
       useSettingsStore.setState({
-        settings: { ...SEED, palette: "tan", autostart: true, capture_enabled: false, relayout_on_export: false },
+        settings: { ...SEED, palette: "tan", autostart: true, capture_enabled: false, relayout_on_export: false, close_action: "tray" },
         palette: "tan",
       });
     });
@@ -288,6 +303,8 @@ describe("设置面板骨架", () => {
     expect(written.autostart).toBe(true);
     expect(written.capture_enabled).toBe(false);
     expect(written.relayout_on_export).toBe(false);
+    // Task 11：关窗询问弹窗勾「记住」也直写 store，同样不许被旧草稿打回
+    expect(written.close_action).toBe("tray");
     save.mockRestore();
   });
 });

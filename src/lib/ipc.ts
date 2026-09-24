@@ -55,6 +55,10 @@ export const api = {
   // 「开机自启」开关（Task 10）：命令端 apply 到 autostart 插件 + 落盘，
   // 与托盘同名勾选项同口径（tray.rs::toggle_autostart），不是整包 save。
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
+  // 关窗询问弹窗的回答（Task 11）：后端按选择执行「隐藏到托盘」或「退出应用」，
+  // 动作与关窗钩子的 tray/exit 两分支同一归宿（window_boot::{to_tray, quit_app}）。
+  applyCloseDecision: (decision: "tray" | "exit") =>
+    invoke<void>("apply_close_decision", { decision }),
 
   // ---- 对话框（Rust 参数 default_name 按 Tauri v2 默认 camelCase 匹配）----
   pickFile: () => invoke<string | null>("pick_file"),
@@ -237,6 +241,12 @@ export const api = {
   // 不回则 3s 后 Rust 强制销毁（内存释放优先于草稿完整性）。
   listenHibernate: (cb: () => void) => listen<null>("session-hibernate", () => cb()),
 };
+
+// 关窗询问（Task 11）：close_action=ask 时后端拦下关闭请求后广播
+// close-requested，前端唤起 CloseAskDialog。App.tsx 启动时只挂一次。
+export function listenCloseRequested(cb: () => void) {
+  return listen("close-requested", cb);
+}
 
 // ---- 偏移换算：CodeMirror 位置 ↔ Rust UTF-8 字节 ----
 // CM6 文档位置按 UTF-16 code unit 计数（BMP 字符 1 单位、代理对 2 单位，与 JS

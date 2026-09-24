@@ -90,24 +90,49 @@ fn boot_ready(app: tauri::AppHandle) -> bool {
     show_main_window(&app)
 }
 
-/// 挂主窗口的「关闭=隐藏 + 排定休眠」钩子。
+/// 挂主窗口的「关闭」钩子：按 settings.close_action 三分支——
+/// exit=直接退出、tray=隐藏到托盘常驻、ask（默认）=拦下后发 `close-requested`
+/// 事件转交前端弹框（CloseAskDialog），选择经 apply_close_decision 命令回来。
 ///
 /// 抽成函数是因为它有第二个调用点：休眠后冷重建的窗口是全新对象，`setup` 里
 /// 挂的那份钩子不会跟着过去，必须重挂，否则第二次关窗会真的退出应用（坑 3）。
+/// 每次关窗现读盘（load_settings）：改设置无需重挂钩子，下一次关窗即生效。
 pub(crate) fn hook_main_window_close(win: &tauri::WebviewWindow) {
     let h = win.app_handle().clone();
     win.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-            // 关闭=隐藏到托盘（spec §5）；真退出走托盘菜单「退出」。
-            // 排定 5 分钟后真正销毁 WebView（hibernate L1）。
-            api.prevent_close();
-            if let Some(w) = h.get_webview_window(hibernate::MAIN_LABEL) {
-                let _ = w.hide();
+            match storage::load_settings().close_action.as_str() {
+                "exit" => {
+                    api.prevent_close();
+                    quit_app(&h);
+                }
+                "tray" => {
+                    api.prevent_close();
+                    to_tray(&h);
+                }
+                // ask：拦下后转交前端弹框（CloseAskDialog），选择经
+                // apply_close_decision 命令回到下面两个动作之一。
+                _ => {
+                    api.prevent_close();
+                    let _ = h.emit("close-requested", ());
+                }
             }
-            eprintln!("[wb] 窗口关闭请求已拦下（隐藏 + 排定休眠）");
-            hibernate::schedule(&h);
         }
     });
+}
+
+/// 关闭=隐藏到托盘 + 排定休眠（原「spec §5」行为的唯一归宿；冷重建窗口重挂钩子后同样生效）。
+pub(crate) fn to_tray(h: &tauri::AppHandle) {
+    if let Some(w) = h.get_webview_window(hibernate::MAIN_LABEL) {
+        let _ = w.hide();
+    }
+    hibernate::schedule(h);
+}
+
+/// 真退出：不保留休眠草稿（与托盘「退出」同口径——用户意图是结束）。
+pub(crate) fn quit_app(h: &tauri::AppHandle) {
+    let _ = hibernate::clear_snapshot();
+    h.exit(0);
 }
 
 // ---- 单实例 handoff（Task 10）----
@@ -193,6 +218,8 @@ pub fn run() {
             commands::settings::get_data_dir_label,
             // Task 10: 设置面板「开机自启」开关（与托盘同名项同口径，见 commands/settings.rs）
             commands::settings::set_autostart,
+            // Task 11: 关窗询问弹窗的回答（close_action=ask 时前端弹框的出口）
+            commands::settings::apply_close_decision,
             commands::workspace_ops::open_workspace,
             commands::workspace_ops::filter_workspace,
             commands::workspace_ops::create_file,

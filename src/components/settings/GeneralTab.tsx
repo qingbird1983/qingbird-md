@@ -5,6 +5,7 @@ import { Info } from "lucide-react";
 import { api } from "../../lib/ipc";
 import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, errText, useUiStore, type ContentWidth } from "../../stores/useUiStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
+import type { CloseAction } from "../../types/ipc";
 import { Seg } from "../ui/Seg";
 import { SwitchRow } from "./SettingsParts";
 
@@ -14,6 +15,9 @@ export default function GeneralTab() {
   const setContentWidth = useUiStore((s) => s.setContentWidth);
   const listGuide = useUiStore((s) => s.listGuide);
   const setListGuide = useUiStore((s) => s.setListGuide);
+  // close_action 点即生效（整包 save，与 capture_enabled 同路）；后端钩子
+  // 每次关窗现读盘，下一次关窗即生效，无需重挂。
+  const closeAction = (useSettingsStore((s) => s.settings?.close_action ?? "ask")) as CloseAction;
   const relayout = useSettingsStore((s) => s.settings?.relayout_on_export ?? true);
   const setRelayout = (v: boolean) => {
     const cur = useSettingsStore.getState().settings;
@@ -37,6 +41,19 @@ export default function GeneralTab() {
 
   return (
     <>
+      <section className="set-sec">
+        <h3 className="set-sec-title">关闭行为</h3>
+        <p className="set-sec-desc">点右上角「关闭」按钮时发生什么。选「每次询问」后关窗会弹框，勾「记住」即回到固定行为。</p>
+        <Seg variant="setseg" ariaLabel="关闭行为" value={closeAction}
+          onChange={(v) => { const cur = useSettingsStore.getState().settings;
+            if (cur) void useSettingsStore.getState().save({ ...cur, close_action: v }); }}
+          options={[
+            { value: "ask", label: "每次询问" },
+            { value: "tray", label: "常驻托盘" },
+            { value: "exit", label: "退出应用" },
+          ]} />
+      </section>
+
       <section className="set-sec">
         <h3 className="set-sec-title">启动与截图</h3>
         <SwitchRow label="开机自启"

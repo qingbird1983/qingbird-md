@@ -56,6 +56,7 @@ export function useSettingsDraft(): SettingsDraft {
       // 弹窗时的旧快照）。不这样覆盖的话，「切了配色/方向 → 关窗」会把旧值写回盘。
       // 「常规」页三个点即生效字段同病同治（Task 10）：开机自启 / 截图翻译 /
       // 导出重排版都直写 store，不覆盖就会被关窗时的旧草稿整包打回原值。
+      // close_action（Task 11）同理——关窗询问弹窗勾「记住」也是直写 store。
       const cur = useSettingsStore.getState().settings;
       // 当前这栏凭据顺手写回它对应的档案（用户可能改了字段却直接关窗）
       const llmProfiles = d.llm_active
@@ -69,6 +70,7 @@ export function useSettingsDraft(): SettingsDraft {
         autostart: cur?.autostart ?? d.autostart,
         capture_enabled: cur?.capture_enabled ?? d.capture_enabled,
         relayout_on_export: cur?.relayout_on_export ?? d.relayout_on_export,
+        close_action: cur?.close_action ?? d.close_action,
         provider: fp,
         providers: { ...d.providers, [fp]: fc },
         llm_profiles: llmProfiles,
