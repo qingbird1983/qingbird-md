@@ -70,10 +70,11 @@ export function addCopyButtons(scope: HTMLElement) {
 }
 
 /**
- * 标题折叠（对齐旧版 UI）：每个标题前置 ▼ caret，点击隐藏到下一个同级或
- * 更高级标题为止的全部兄弟节点。折叠态存 DOM（inline display），重渲染
- * （内容变化 → innerHTML 重建）即重置——ponytail: 折叠不跨编辑保留，
- * 需要持久化时提升到 uiStore 按 contentKey 记忆。
+ * 标题折叠（对齐旧版 UI）：每个标题前置空心 chevron caret（悬在正文左内边距
+ * 的触发带里，hover 才显形，折叠态靠 caret 上的 is-collapsed 类转箭头），点击
+ * 隐藏到下一个同级或更高级标题为止的全部兄弟节点。折叠态存 DOM（inline
+ * display），重渲染（内容变化 → innerHTML 重建）即重置——ponytail: 折叠不跨
+ * 编辑保留，需要持久化时提升到 uiStore 按 contentKey 记忆。
  */
 export function addHeadingToggles(scope: HTMLElement) {
   const heads = scope.querySelectorAll<HTMLHeadingElement>("h1,h2,h3,h4,h5,h6");
@@ -83,12 +84,16 @@ export function addHeadingToggles(scope: HTMLElement) {
     const caret = document.createElement("button");
     caret.type = "button";
     caret.className = "h-toggle";
-    caret.textContent = "▼";
+    // 空心 V 形 chevron：stroke 描边、不填充（用户要求「换空心小三角」）。
+    caret.innerHTML =
+      '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">' +
+      '<path d="M2.8 4.6 6 8.1l3.2-3.5" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     caret.title = "折叠/展开本节";
     caret.setAttribute("aria-expanded", "true");
     caret.addEventListener("click", () => {
       const collapsed = h.classList.toggle("h-collapsed");
-      caret.textContent = collapsed ? "▶" : "▼";
+      caret.classList.toggle("is-collapsed", collapsed);
       caret.setAttribute("aria-expanded", collapsed ? "false" : "true");
       let sib = h.nextElementSibling;
       while (sib) {
