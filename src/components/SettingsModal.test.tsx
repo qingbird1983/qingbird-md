@@ -85,6 +85,7 @@ const SEED: Settings = {
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
+  capture_enabled: true,
 };
 
 let host: HTMLDivElement;
@@ -207,6 +208,37 @@ describe("设置面板骨架", () => {
     expect(on[0]!.textContent).toContain(PALETTES.qing.label);
   });
 
+  // Task 10「启动与截图」一节：两个开关走两条路——开机自启调专用命令
+  // set_autostart（插件 apply + 落盘，不经整包 save），截图翻译改的是
+  // settings.capture_enabled（整包 save，后端 hotkeys::sync 即时重注册）。
+  it("常规页首节「启动与截图」：开机自启调专用命令，截图翻译走整包 save", async () => {
+    const { api } = await import("../lib/ipc");
+    const rowSw = (label: string) =>
+      Array.from(pane().querySelectorAll<HTMLElement>(".setti"))
+        .find((r) => r.querySelector(".setti-label")?.textContent === label)!
+        .querySelector<HTMLButtonElement>(".sw")!;
+    // SEED：autostart=false / capture_enabled=true（受控组件，aria 跟着 store 走）
+    expect(pane().textContent).toContain("启动与截图");
+    expect(rowSw("开机自启").getAttribute("aria-checked")).toBe("false");
+    expect(rowSw("截图翻译").getAttribute("aria-checked")).toBe("true");
+
+    const setAuto = vi.spyOn(api, "setAutostart").mockResolvedValue(undefined);
+    await act(async () => {
+      rowSw("开机自启").click();
+      await drain();
+    });
+    expect(setAuto).toHaveBeenCalledWith(true);
+    // 命令成功后本地镜像翻转（不整包覆写草稿）
+    expect(useSettingsStore.getState().settings?.autostart).toBe(true);
+    setAuto.mockRestore();
+
+    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
+    act(() => rowSw("截图翻译").click());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0]![0] as Settings).capture_enabled).toBe(false);
+    save.mockRestore();
+  });
+
   it("搜索过滤分类；无命中时给空态", () => {
     const box = host.querySelector<HTMLInputElement>(".set-bar input")!;
     // 「正文宽度」的搜索键已随这一节挪到「常规」分类
@@ -238,15 +270,24 @@ describe("设置面板骨架", () => {
     save.mockRestore();
   });
 
-  it("关窗时 theme/palette 取 store 现值，不吃 draft 里的旧快照", () => {
-    // 打开弹窗后用户又去切了配色（真实路径：draft 是更早的快照）。
+  it("关窗时点即生效字段取 store 现值，不吃 draft 里的旧快照", () => {
+    // 打开弹窗后用户又去切了配色 / 拨了常规页三个点即生效开关（真实路径：
+    // draft 是更早的快照）。
     // setState 会驱动已挂载实例重渲（连带 Seg 重测量），必须在 act 里发生。
     act(() => {
-      useSettingsStore.setState({ settings: { ...SEED, palette: "tan" }, palette: "tan" });
+      useSettingsStore.setState({
+        settings: { ...SEED, palette: "tan", autostart: true, capture_enabled: false, relayout_on_export: false },
+        palette: "tan",
+      });
     });
     const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
     act(() => host.querySelector<HTMLButtonElement>(".set-x")!.click());
-    expect((save.mock.calls[0]![0] as Settings).palette).toBe("tan");
+    const written = save.mock.calls[0]![0] as Settings;
+    expect(written.palette).toBe("tan");
+    // Task 10：不覆盖就会被旧草稿打回——开机自启尤其致命（插件已启用、盘上却 false）
+    expect(written.autostart).toBe(true);
+    expect(written.capture_enabled).toBe(false);
+    expect(written.relayout_on_export).toBe(false);
     save.mockRestore();
   });
 });

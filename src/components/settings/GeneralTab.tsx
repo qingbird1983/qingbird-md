@@ -2,7 +2,8 @@
 // 不进草稿。正文宽度与层级引线自「外观」迁入（2026-09-24 用户分类重整），
 // 导出时重排版自「翻译与模型」迁入并改点即生效。
 import { Info } from "lucide-react";
-import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, useUiStore, type ContentWidth } from "../../stores/useUiStore";
+import { api } from "../../lib/ipc";
+import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, errText, useUiStore, type ContentWidth } from "../../stores/useUiStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
 import { Seg } from "../ui/Seg";
 import { SwitchRow } from "./SettingsParts";
@@ -18,9 +19,36 @@ export default function GeneralTab() {
     const cur = useSettingsStore.getState().settings;
     if (cur) void useSettingsStore.getState().save({ ...cur, relayout_on_export: v });
   };
+  // autostart / capture_enabled 走订阅（不订阅就不重渲染）
+  const autostart = useSettingsStore((s) => s.settings?.autostart ?? false);
+  const captureOn = useSettingsStore((s) => s.settings?.capture_enabled ?? true);
+  // 开机自启不走整包 save：专用命令 apply 插件 + 落盘（与托盘同口径）；
+  // 成功后只本地镜像 autostart 一处，避免把别的表单草稿整包覆写回去。
+  const setAutostart = async (v: boolean) => {
+    try {
+      await api.setAutostart(v);
+    } catch (e) {
+      useUiStore.getState().addToast("error", `设置开机自启失败：${errText(e)}`);
+      return;
+    }
+    const cur = useSettingsStore.getState().settings;
+    if (cur) useSettingsStore.setState({ settings: { ...cur, autostart: v } });
+  };
 
   return (
     <>
+      <section className="set-sec">
+        <h3 className="set-sec-title">启动与截图</h3>
+        <SwitchRow label="开机自启"
+          desc="登录后自动启动青鸟。关闭后随系统登录不再拉起（托盘菜单里的同名勾选项与此同源）。"
+          checked={autostart} onChange={(v) => void setAutostart(v)} />
+        <SwitchRow label="截图翻译"
+          desc="全局截图翻译的总开关。关闭后：截图热键不再响应、托盘菜单「截图翻译」不再触发；快捷键录制与翻译配置不受影响。"
+          checked={captureOn}
+          onChange={(v) => { const cur = useSettingsStore.getState().settings;
+            if (cur) void useSettingsStore.getState().save({ ...cur, capture_enabled: v }); }} />
+      </section>
+
       <section className="set-sec">
         <h3 className="set-sec-title">正文宽度</h3>
         <p className="set-sec-desc">预览区正文列的宽度。也可以直接拖预览区的边缘自由调宽。</p>

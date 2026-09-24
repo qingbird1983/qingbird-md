@@ -129,6 +129,13 @@ export interface Settings {
    * 默认开；关掉即回到逐字导出。仅「另存为」时对译文施加。
    */
   relayout_on_export: boolean;
+  /**
+   * 截图翻译总开关（设置面板「常规」页）。关 = 全局热键不注册、托盘菜单不触发
+   * （hotkeys.rs / tray.rs 双门控）。默认开；老配置缺字段 → true。
+   * 同 `autostart`：整包 `save_settings` 走 serde 反序列化，字段没登记会被
+   * 静默丢成默认值——必须列在类型里。
+   */
+  capture_enabled: boolean;
 }
 
 /**

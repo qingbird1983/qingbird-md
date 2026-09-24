@@ -191,6 +191,8 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::get_user_data_dir,
             commands::settings::get_data_dir_label,
+            // Task 10: 设置面板「开机自启」开关（与托盘同名项同口径，见 commands/settings.rs）
+            commands::settings::set_autostart,
             commands::workspace_ops::open_workspace,
             commands::workspace_ops::filter_workspace,
             commands::workspace_ops::create_file,

@@ -106,6 +106,10 @@ pub struct Settings {
     /// **不改实时预览、不改译文表、不进 Cache**。
     #[serde(default = "default_true")]
     pub relayout_on_export: bool,
+    /// 截图翻译总开关。关 = 全局热键不注册、托盘菜单不触发（hotkeys.rs / tray.rs 双门控）。
+    /// `#[serde(default = "default_true")]` = 老配置文件读出来即「开」，升级零感知。
+    #[serde(default = "default_true")]
+    pub capture_enabled: bool,
 }
 
 impl Default for Settings {
@@ -129,6 +133,7 @@ impl Default for Settings {
             llm_active: String::new(),
             translate_target: String::new(),
             relayout_on_export: true,
+            capture_enabled: true,
         }
     }
 }
@@ -413,6 +418,8 @@ mod tests {
         assert_eq!(s2.hotkeys.get("capture").map(String::as_str), Some(""));
         // autostart 缺字段 → false
         assert!(!s2.autostart);
+        // capture_enabled 缺字段 → true（default_true：老配置升级即「开」，零感知）
+        assert!(s2.capture_enabled);
     }
 
     #[test]

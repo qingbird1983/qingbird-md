@@ -53,6 +53,7 @@ const SEED: Settings = {
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
+  capture_enabled: true,
 };
 
 const CONTENT = "# 标题\n\n正文段落";

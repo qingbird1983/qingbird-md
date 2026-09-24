@@ -52,6 +52,9 @@ export const api = {
   // 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）。与 userDataDir 分开：
   // 那个是喂给 revealPath 的真路径，这个只写给人看——绝不可用它去开目录。
   dataDirLabel: () => invoke<string>("get_data_dir_label"),
+  // 「开机自启」开关（Task 10）：命令端 apply 到 autostart 插件 + 落盘，
+  // 与托盘同名勾选项同口径（tray.rs::toggle_autostart），不是整包 save。
+  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
 
   // ---- 对话框（Rust 参数 default_name 按 Tauri v2 默认 camelCase 匹配）----
   pickFile: () => invoke<string | null>("pick_file"),

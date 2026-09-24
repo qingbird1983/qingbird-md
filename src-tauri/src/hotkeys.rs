@@ -57,21 +57,25 @@ pub fn sync(app: &tauri::AppHandle, settings: &storage::Settings) {
 
     // capture：特判回调——不 emit hotkey-mode，直接触发截图（worker 线程，
     // 主线程回调立即返回；orchestrate::begin 内部自带单飞互斥）。
-    if let Some(combo) = settings.hotkeys.get("capture") {
-        if registrable(combo) {
-            if let Err(e) = gs.on_shortcut(combo.as_str(), |app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    let app = app.clone();
-                    std::thread::spawn(move || {
-                        if let Err(e) = crate::capture::orchestrate::begin(app) {
-                            eprintln!("capture hotkey: {e}");
-                        }
-                    });
+    // 「截图翻译」总开关（settings.capture_enabled）关闭时整段跳过：不注册
+    // 全局热键，托盘侧另有同名门控（tray.rs::on_menu_event）。
+    if settings.capture_enabled {
+        if let Some(combo) = settings.hotkeys.get("capture") {
+            if registrable(combo) {
+                if let Err(e) = gs.on_shortcut(combo.as_str(), |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = crate::capture::orchestrate::begin(app) {
+                                eprintln!("capture hotkey: {e}");
+                            }
+                        });
+                    }
+                }) {
+                    eprintln!("register global hotkey {combo} (capture): {e}");
                 }
-            }) {
-                eprintln!("register global hotkey {combo} (capture): {e}");
-            }
-        } // 空/Meta：与模式热键同口径静默跳过
+            } // 空/Meta：与模式热键同口径静默跳过
+        }
     }
 }
 

@@ -34,6 +34,24 @@ pub fn get_user_data_dir() -> String {
     storage::user_data_dir().to_string_lossy().into_owned()
 }
 
+/// 设置面板「开机自启」开关：apply 到 autostart 插件 + 落盘（插件为即时权威，
+/// settings.autostart 为持久化权威——与 tray.rs::toggle_autostart 同口径，
+/// 只是触发方从托盘菜单换成前端）。
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    if enabled {
+        al.enable()
+    } else {
+        al.disable()
+    }
+    .map_err(|e| e.to_string())?;
+    let mut s = storage::load_settings();
+    s.autostart = enabled;
+    storage::save_settings(&s)
+}
+
 /// 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）——给界面文案用。
 /// 与 `get_user_data_dir` 分开是有意的：那个返回的是可执行的真路径
 /// （`reveal_path` 直接吃它），这个只给人看。
