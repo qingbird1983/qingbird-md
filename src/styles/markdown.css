@@ -490,18 +490,35 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
 /* ---- 表格：斑马纹 ---- */
 
 .markdown-body table {
-  /* 跟满正文宽度（对齐 InkNote 观感）：列宽仍由内容 auto 分配，
-     超长单元格靠 word-wrap 在 th/td 内折行而非横向溢出。 */
+  /* 圆角与代码卡片同款 10px。border-collapse: collapse 下圆角不生效（边框合并
+     绘制），故换 separate + 零间距：外框画在 table 上（整圈圆角），
+     单元格只画右/下内分隔线，末列末行收口，overflow 裁掉四角背景溢出。 */
   width: 100%;
   margin: 1.1em 0;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--md-border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .markdown-body th,
 .markdown-body td {
   padding: 8px 14px;
-  border: 1px solid var(--md-border);
+  border: none;
+  border-right: 1px solid var(--md-border);
+  border-bottom: 1px solid var(--md-border);
   text-align: left;
+}
+
+.markdown-body th:last-child,
+.markdown-body td:last-child {
+  border-right: none;
+}
+
+.markdown-body tbody tr:last-child td,
+.markdown-body thead tr:last-child th {
+  border-bottom: none;
 }
 
 .markdown-body thead th {
@@ -625,17 +642,34 @@ body[data-theme="dark"] .markdown-body pre.code-block .lc > span {
       再配 `overflow-wrap: anywhere` 让超长 URL 在格内折行——这样整块不会产生
       横向溢出，也就不必过问全局滚动条真源（11-toast-command.css）。 */
 .markdown-body .front-matter {
+  /* 与上方常规表格同款圆角收口（separate + 外框圆角 + 单元格右/下分隔线）。 */
   width: 100%;
   margin: 1.1em 0;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--md-border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .markdown-body .front-matter th,
 .markdown-body .front-matter td {
   padding: 7px 14px;
-  border: 1px solid var(--md-border);
+  border: none;
+  border-right: 1px solid var(--md-border);
+  border-bottom: 1px solid var(--md-border);
   text-align: left;
   vertical-align: top;
+}
+
+.markdown-body .front-matter th:last-child,
+.markdown-body .front-matter td:last-child {
+  border-right: none;
+}
+
+.markdown-body .front-matter tbody tr:last-child td,
+.markdown-body .front-matter thead tr:last-child th {
+  border-bottom: none;
 }
 
 .markdown-body .front-matter th {
