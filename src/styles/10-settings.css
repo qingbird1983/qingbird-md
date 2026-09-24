@@ -129,7 +129,6 @@
 .set-nav-reset.armed {
   color: var(--accent);
   border: 1px solid var(--accent);
-  border-style: solid;
 }
 
 /* ── 右：工具条 + 详情 ── */

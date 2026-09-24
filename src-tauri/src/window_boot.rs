@@ -123,6 +123,7 @@ pub(crate) fn hook_main_window_close(win: &tauri::WebviewWindow) {
 
 /// 关闭=隐藏到托盘 + 排定休眠（原「spec §5」行为的唯一归宿；冷重建窗口重挂钩子后同样生效）。
 pub(crate) fn to_tray(h: &tauri::AppHandle) {
+    eprintln!("[wb] 关闭窗口→隐藏到托盘（排定休眠）");
     if let Some(w) = h.get_webview_window(hibernate::MAIN_LABEL) {
         let _ = w.hide();
     }
@@ -131,6 +132,7 @@ pub(crate) fn to_tray(h: &tauri::AppHandle) {
 
 /// 真退出：不保留休眠草稿（与托盘「退出」同口径——用户意图是结束）。
 pub(crate) fn quit_app(h: &tauri::AppHandle) {
+    eprintln!("[wb] 关闭窗口→退出应用（清休眠草稿）");
     let _ = hibernate::clear_snapshot();
     h.exit(0);
 }

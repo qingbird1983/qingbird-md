@@ -1,6 +1,8 @@
 // 右上角关闭=「退出还是常驻托盘？」询问框（close_action=ask 时由后端
 // close-requested 事件唤起）。勾「记住我的选择」即把 close_action 落盘，
 // 下次关窗直接执行不再弹框；改回来在 设置→常规→关闭行为。
+// 挂载方式：App.tsx 以 ui.closeAskOpen 条件挂载（同 SettingsModal），
+// 组件本体不含门卫——卸载即归零，remember 勾选态绝不跨开合残留。
 import { useState } from "react";
 import Modal from "./Modal";
 import { api } from "../lib/ipc";
@@ -8,10 +10,8 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore, errText } from "../stores/useUiStore";
 
 export default function CloseAskDialog() {
-  const open = useUiStore((s) => s.closeAskOpen);
   const setOpen = useUiStore((s) => s.setCloseAskOpen);
   const [remember, setRemember] = useState(false);
-  if (!open) return null;
   const decide = (action: "tray" | "exit") => {
     if (remember) {
       const cur = useSettingsStore.getState().settings;
