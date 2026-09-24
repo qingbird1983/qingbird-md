@@ -43,7 +43,14 @@
   position: relative;
   flex: none;
   min-width: 0;
-  transition: opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
+  /* width+opacity 双过渡与 .sidebar 同款（--ease-overshoot 回弹）：展开方向
+     宽度过冲到比终值更宽再弹回——三栏手感一致；收起方向过冲会把 width 推到
+     负值被钳 0，表现为平滑滑入（侧栏同此）。冷启动 intro 的收缩+回弹不靠
+     这条——12-welcome.css 的 outline-collapse keyframes 显式弹一小条
+     （animation 优先级高于 transition，二者不打架）。 */
+  transition:
+    width var(--panel-anim, 300ms) var(--ease-overshoot, ease),
+    opacity var(--panel-anim, 300ms) var(--ease-overshoot, ease);
 }
 .panel-unit > aside {
   width: 100%;
@@ -87,6 +94,15 @@
 }
 .panel-slot.review-slot[data-side="left"] > .app-resizer {
   right: 0;
+}
+
+/* 收起态整槽禁用命中（2026-09-24 常挂载后的必备守卫）：核查槽盒子在网格里
+   横向拉伸到整条轨道宽——收起后仍与同列大纲栏（以及工具栏让位段的右端）
+   等大重叠，透明盒子会整面吃掉下层元素的点击/滚轮/拖拽（大纲栏全瘫的根因）。
+   data-open 由 App.tsx 内联：收起即 none（收缩动画中的面板本就无需命中），
+   展开恢复默认 auto。展开态核查槽独占外列，与大纲栏不重叠，无需此规则。 */
+.panel-slot.review-slot[data-open="false"] {
+  pointer-events: none;
 }
 
 /* ============ 侧栏把手（"耳朵"）============ */

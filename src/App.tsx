@@ -111,19 +111,29 @@ function App() {
     !navVisible,
     introPlaying ? INTRO_ANIM_MS : PANEL_ANIM_MS,
   );
+  // 大纲/核查槽同一铁律（常挂载 + 宽度过渡后）：让位「展开当帧生效、收回等
+  // 收起动画播完」（同 navGone）——否则主区提前跨列吸收/大纲提前挪列，会叠进
+  // 正在收缩的槽里。xGone 在面板可见或收缩中恒 false，收完后才翻 true；
+  // 占位 = 可见 || 未收完（展开首帧 xGone 还没来得及翻，补上可见项）。
+  const outlineGone = useSettled(!outlineVisible, PANEL_ANIM_MS);
+  const reviewGone = useSettled(!showReview, PANEL_ANIM_MS);
+  const outlineOccupied = outlineVisible || !outlineGone;
+  const reviewOccupied = showReview || !reviewGone;
   // 左槽被占用（大纲或核查任一左停靠）时不能吸收。
   // review 不参与 intro armed（首屏不显示核查面板），所以不加 introArmed 门。
-  const outlineDockedLeft = !introArmed && showOutline && outlineSide === "left";
-  const reviewDockedLeft = showReview && reviewSide === "left";
+  const outlineDockedLeft = !introArmed && outlineOccupied && outlineSide === "left";
+  const reviewDockedLeft = reviewOccupied && reviewSide === "left";
   const leftSlotOccupied = outlineDockedLeft || reviewDockedLeft;
   const absorb = navGone && !leftSlotOccupied;
   // 同侧共存（§8.2 二轮，2026-09-19）：核查与大纲同侧时，核查是「外一级」
   // 高栏——占外侧列（右 col7 / 左 col3）且跨 row 2-4（上抵标签栏下）；
   // 大纲栏让位内移一列（右 →col6 / 左 →col4）。分侧时各回原列（7/3）。
   // 推移而非覆盖、也不翻对侧（旧版 toggleReview 的自动翻边已删）。
-  const reviewOpenRight = showReview && reviewSide === "right";
-  const reviewOpenLeft = reviewDockedLeft;
-  const outlineCol = outlineSide === "right" ? (reviewOpenRight ? 6 : 7) : reviewOpenLeft ? 4 : 3;
+  // 让位时机 = 占位时机：核查展开当帧大纲就内移（此刻核查还 0 宽，两列位置
+  // 重合，视觉无跳）；核查收完（occupied 翻 false）大纲才回外列，同理无跳。
+  const reviewOccRight = reviewOccupied && reviewSide === "right";
+  const reviewOccLeft = reviewDockedLeft;
+  const outlineCol = outlineSide === "right" ? (reviewOccRight ? 6 : 7) : reviewOccLeft ? 4 : 3;
   const mainStyle = {
     ["--col-main" as string]: String(absorb ? 1 : 5),
     ["--main-span" as string]: String(absorb ? 5 : 1),
@@ -132,8 +142,9 @@ function App() {
     ["--col-ws" as string]: String(absorb ? 1 : 3),
     // 核查高栏占住 row 2 一角时工具栏让位（见 03-toolbar.css）：
     // 右同侧止于 col7 线前，左同侧从 col4 起（col3 被核查栏占住）。
-    ...(reviewOpenRight ? { ["--tb-end" as string]: "7" } : {}),
-    ...(reviewOpenLeft ? { ["--tb-start" as string]: "4" } : {}),
+    // 时机 = 占位时机：展开当帧就让，收起等动画播完再收回。
+    ...(reviewOccRight ? { ["--tb-end" as string]: "7" } : {}),
+    ...(reviewOccLeft ? { ["--tb-start" as string]: "4" } : {}),
     // intro 播放期间把面板过渡时长整体拉长（侧栏/大纲栏/拖宽条/标签条都继承
     // 这一个变量），三处动画共用同一时长 → 同时落定，不需要按距离分别算。
     ...(introPlaying
@@ -216,38 +227,36 @@ function App() {
       </div>
       {/* AI 核查面板（§八）：与大纲各自独立选边；同侧时核查占外侧列 + row 2/4
           （高栏，上抵标签栏下），大纲让位内移——推移而非覆盖。列号/行号内联，
-          线的朝向交给 .panel-slot[data-side] CSS。面板开合走 v1 的直接挂载/卸载
-          （无收展过渡）。2026-09-19 三轮：AI 栏不再设把手——开合只走状态栏
-          开关（用户拍板）；拖宽热区保留。 */}
-      {showReview && (
+          线的朝向交给 .panel-slot[data-side] CSS。2026-09-24 收展统一：槽与
+          侧栏/大纲同款常挂载 + width/opacity 过渡（.panel-unit，回弹曲线同源）；
+          内容随占位挂载——收完即卸，停掉面板内的防抖查词，首开语义不变。
+          AI 栏不设把手——开合只走状态栏开关（用户拍板）；拖宽热区保留。 */}
+      <div
+        className="panel-slot review-slot"
+        data-side={reviewSide}
+        data-open={showReview}
+        style={{
+          gridColumn: reviewSide === "right" ? 7 : 3,
+          gridRow: "2 / 4",
+        }}
+      >
+        <PanelResizer
+          place={reviewSide === "right" ? "review-right" : "review-left"}
+          hidden={!showReview}
+        />
         <div
-          className="panel-slot review-slot"
-          data-side={reviewSide}
+          className="panel-unit"
           style={{
-            gridColumn: reviewSide === "right" ? 7 : 3,
-            gridRow: "2 / 4",
+            width: showReview ? reviewWidth : 0,
+            opacity: showReview ? 1 : 0,
+            ["--panel-w" as string]: `${reviewWidth}px`,
           }}
         >
-          <PanelResizer
-            place={reviewSide === "right" ? "review-right" : "review-left"}
-            hidden={false}
-          />
-          <div
-            className="panel-unit"
-            style={{
-              width: reviewWidth,
-              opacity: 1,
-              ["--panel-w" as string]: `${reviewWidth}px`,
-            }}
-          >
-            <aside className="review-panel">
-              <div className="panel-clip">
-                <ReviewPanel />
-              </div>
-            </aside>
-          </div>
+          <aside className="review-panel">
+            <div className="panel-clip">{reviewOccupied && <ReviewPanel />}</div>
+          </aside>
         </div>
-      )}
+      </div>
       <StatusBar />
       {/* T24 划词翻译浮窗：fixed 定位，DOM 位置仅作挂载点 */}
       <SelectionPopup />

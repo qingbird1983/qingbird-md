@@ -7,10 +7,10 @@
  * 这一层在 S4 只做「确保面板打开 + 等布局落定」，S5 的语义核查会在这里挂
  * `then: () => setDraftInput(prompt)` —— 那才是"注入"的一半。
  *
- * 为什么必须等：面板是**条件挂载**的（App.tsx 里 `showReview && <div className="panel-unit">`），
- * 从 `setReviewOpen(true)` 到槽位真正进 DOM 之间隔着 React 的提交；
- * 而且主区在这一刻变窄 → 预览重排 → 块高全变。
- * 所以"开面板"和"按坐标滚动"之间**必须夹一个布局等待**，
+ * 为什么必须等：面板外壳是常挂载的，但内容随占位条件挂载（App.tsx：
+ * `reviewOccupied && <ReviewPanel />`），从 `setReviewOpen(true)` 到内容
+ * 真正进 DOM 之间隔着 React 的提交；而且主区在这一刻变窄 → 预览重排 →
+ * 块高全变。所以"开面板"和"按坐标滚动"之间**必须夹一个布局等待**，
  * 否则 `scrollIntoView` 会按旧宽度算落点，滚完偏一截。
  */
 import { useUiStore } from "../stores/useUiStore";
