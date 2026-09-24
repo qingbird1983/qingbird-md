@@ -122,20 +122,47 @@ const seed = (patch: Partial<Settings> = {}) => {
   useSettingsStore.setState({ settings: s, theme: "light", palette: "qing" });
 };
 
-beforeEach(() => {
+// ---- act 卫生（Task 9 评审 2026-09-24：测试输出必须无 wrap-tests-with-act 噪音）----
+// 两条源头，都只在测试侧兜，Seg.tsx 的逐字实现不动：
+//   1. Seg 首帧「下一拍才允许过渡」走 requestAnimationFrame——happy-dom 的 rAF 是
+//      真定时器（~16ms），回调必然落在同步 act 之外 → setReady 触发警告。这里把
+//      rAF 桩成同步立即执行：setReady 就地落进当前 act()。断言只看类名/结构，
+//      seg-ready 只开 CSS transition，测试里没有动画时序可测，同步化不失真。
+//      （先例：lib/reviewPanel.test.ts、lib/streamFollow.test.ts 同样手工接管 rAF。）
+//   2. 挂载期三个 IPC promise（getProviders/userDataDir/dataDirLabel → setState）
+//      是微任务，同步 act 里等不到 → 评审前就有的存量噪音。渲染改异步 act 并
+//      排空一拍宏任务，让它们也在 act 内落地。（先例：ReviewPanel.test.tsx 的
+//      `await act(async () => nextFrame())`。）
+const origRaf = globalThis.requestAnimationFrame;
+
+/** 在 act 内排空 promise 微任务链（一个宏任务节拍足够）。 */
+const drain = () => new Promise((r) => setTimeout(r, 0));
+
+/** 挂载 + 排空：beforeEach 与测试内重挂共用，保证首帧更新全在 act 里落地。 */
+const renderModal = async () => {
+  await act(async () => {
+    root.render(<SettingsModal />);
+    await drain();
+  });
+};
+
+beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  }) as typeof globalThis.requestAnimationFrame;
   seed();
   useUiStore.setState({ settingsOpen: true });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => {
-    root.render(<SettingsModal />);
-  });
+  await renderModal();
 });
 
 afterEach(() => {
   act(() => root.unmount());
+  globalThis.requestAnimationFrame = origRaf;
   host.remove();
 });
 
@@ -212,8 +239,11 @@ describe("设置面板骨架", () => {
   });
 
   it("关窗时 theme/palette 取 store 现值，不吃 draft 里的旧快照", () => {
-    // 打开弹窗后用户又去切了配色（真实路径：draft 是更早的快照）
-    useSettingsStore.setState({ settings: { ...SEED, palette: "tan" }, palette: "tan" });
+    // 打开弹窗后用户又去切了配色（真实路径：draft 是更早的快照）。
+    // setState 会驱动已挂载实例重渲（连带 Seg 重测量），必须在 act 里发生。
+    act(() => {
+      useSettingsStore.setState({ settings: { ...SEED, palette: "tan" }, palette: "tan" });
+    });
     const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
     act(() => host.querySelector<HTMLButtonElement>(".set-x")!.click());
     expect((save.mock.calls[0]![0] as Settings).palette).toBe("tan");
@@ -330,13 +360,11 @@ describe("大模型配置档案", () => {
     expect(pane().textContent).not.toContain("还没有配置");
   });
 
-  it("没有历史凭据时显示空态而不是假装有一套配置", () => {
+  it("没有历史凭据时显示空态而不是假装有一套配置", async () => {
     act(() => root.unmount());
     seed({ providers: { llm: {} } });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
+    await renderModal();
     goCat(2);
     expect(host.querySelectorAll(".prof").length).toBe(0);
     expect(pane().textContent).toContain("还没有配置");
@@ -493,14 +521,12 @@ describe("快捷键页", () => {
     expect(host.querySelector("#set-hk-italic")!.textContent).toBe("Ctrl+I");
   });
 
-  it("冲突的键位框会被标出来", () => {
+  it("冲突的键位框会被标出来", async () => {
     act(() => root.unmount());
     // italic 抢了 save 的默认键 Ctrl+S → 两项都该被标红
     seed({ hotkeys: { ...SEED.hotkeys, italic: "Ctrl+S" } });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
+    await renderModal();
     goCat(3);
     expect(host.querySelector("#set-hk-italic")!.className).toContain("bad");
     expect(host.querySelector("#set-hk-save")!.className).toContain("bad");
@@ -578,14 +604,12 @@ describe("其余分类", () => {
     });
   });
 
-  it("设置未加载时不炸，给出提示", () => {
+  it("设置未加载时不炸，给出提示", async () => {
     // 必须重挂：draft 是挂载那一刻的快照，settings 事后变 null 不影响已渲染实例
     act(() => root.unmount());
     useSettingsStore.setState({ settings: null });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
+    await renderModal();
     expect(host.textContent).toContain("设置尚未加载");
   });
 });
