@@ -6,6 +6,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { LlmProfile, ProviderInfo, Settings, TargetLang } from "../../types/ipc";
 import { useDocStore } from "../../stores/useDocStore";
 import { LLM_PRESETS } from "../../hooks/useLlmProfiles";
+import { Seg } from "../ui/Seg";
 import { SwitchRow } from "./SettingsParts";
 
 /** 大模型接口协议。**只有 OpenAI 兼容这一种真能用**；Anthropic 先占位。
@@ -111,18 +112,9 @@ export default function TranslateTab({
           决定整篇译文的目标语言，也决定「译文另存为」的文件名后缀。
           切换会立即作废当前译文并按新方向重新翻译。
         </p>
-        <div className="setseg" role="group" aria-label="翻译方向">
-          {TARGET_OPTIONS.map(([v, label]) => (
-            <button
-              key={v}
-              type="button"
-              className={translateTarget === v ? "on" : ""}
-              onClick={() => void useDocStore.getState().setTranslateTarget(v)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Seg variant="setseg" ariaLabel="翻译方向" value={translateTarget}
+          onChange={(v) => void useDocStore.getState().setTranslateTarget(v)}
+          options={TARGET_OPTIONS.map(([v, label]) => ({ value: v, label }))} />
       </section>
 
       <section className="set-sec">
@@ -130,38 +122,25 @@ export default function TranslateTab({
         <p className="set-sec-desc">
           按来源分三类：免密钥的可以直接用，专业源与大模型需要填自己的凭据。
         </p>
-        <div className="setseg">
-          {PROV_GROUPS.map(([g, label]) => (
-            <button
-              key={g}
-              type="button"
-              className={grp === g ? "on" : ""}
-              onClick={() => changeGroup(g)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Seg variant="setseg" ariaLabel="翻译源分组" value={grp} onChange={changeGroup}
+          options={PROV_GROUPS.map(([g, label]) => ({ value: g, label }))} />
         {/* LLM 组的下拉是**伪选择**——注册表里这一组只有 `llm` 一个源，
             选项永远只有一项。这里真正要选的是「接口协议」，所以换成胶囊；
             其余组源多，照旧用下拉。 */}
         {grp === "llm" ? (
           <div className="set-field">
             <label>接口协议</label>
-            <div className="setseg" role="group" aria-label="接口协议">
-              {LLM_PROTOCOLS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={p.supported ? "on" : ""}
-                  disabled={!p.supported}
-                  title={p.supported ? undefined : "暂未支持，后续版本再考虑"}
-                >
-                  {p.label}
-                  {!p.supported && <span className="setseg-tag">暂未支持</span>}
-                </button>
-              ))}
-            </div>
+            {/* 静态展示：无 onChange——supported 项恒为选中（唯一能用的那个），
+                禁用项看得见按不动。 */}
+            <Seg variant="setseg" ariaLabel="接口协议"
+              value={(LLM_PROTOCOLS.find((p) => p.supported)?.id ?? "") as string}
+              options={LLM_PROTOCOLS.map((p) => ({
+                value: p.id,
+                label: p.label,
+                disabled: !p.supported,
+                tag: p.supported ? undefined : "暂未支持",
+                title: p.supported ? undefined : "暂未支持，后续版本再考虑",
+              }))} />
           </div>
         ) : (
           <div className="set-field">

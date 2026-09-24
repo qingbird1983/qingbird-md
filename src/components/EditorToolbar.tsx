@@ -39,6 +39,7 @@ import { useDocStore } from "../stores/useDocStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { insertFormula, insertMermaid } from "../lib/inserts";
 import Menu, { MenuItem } from "./menus/Menu";
+import { Seg } from "./ui/Seg";
 
 // ── 分隔线 ──
 function Sep() {
@@ -177,21 +178,16 @@ export default function EditorToolbar() {
       {/* 弹性占位：从此处之后的按钮全部右对齐（源码视图起） */}
       <span className="tb-gap" />
 
-      {/* ── ⑤ 视图切换（胶囊分段：源码/分栏/预览，DESIGN.md §4 viewseg）── */}
-      <div className="viewseg" role="group" aria-label="视图">
-        <button type="button" className={view === "source" ? "on" : ""}
-          title="源码视图" onClick={() => switchView("source")}>
-          源码
-        </button>
-        <button type="button" className={view === "split" ? "on" : ""}
-          title="分栏视图" onClick={() => switchView("split")}>
-          分栏
-        </button>
-        <button type="button" className={view === "preview" ? "on" : ""}
-          title="预览视图" onClick={() => switchView("preview")}>
-          预览
-        </button>
-      </div>
+      {/* ── ⑤ 视图切换（胶囊分段：源码/分栏/预览，DESIGN.md §4 viewseg）──
+           2026-09-24 需求 6：迁入统一 Seg 滑块动效。 */}
+      <Seg variant="viewseg" ariaLabel="视图" value={view}
+        onChange={(v) => void switchView(v)}
+        options={[
+          { value: "source", label: "源码", title: "源码视图" },
+          { value: "split", label: "分栏", title: "分栏视图" },
+          { value: "preview", label: "预览", title: "预览视图" },
+        ]}
+      />
 
       {/* —— 正文宽度档已从工具栏移除（2026-09-14，用户要求）——
            理由：正文栏左右边缘可自由拖宽拉窄，四档预设的使用频率已很低。

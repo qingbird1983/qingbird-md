@@ -2,8 +2,9 @@
 // 不进草稿。正文宽度与层级引线自「外观」迁入（2026-09-24 用户分类重整），
 // 导出时重排版自「翻译与模型」迁入并改点即生效。
 import { Info } from "lucide-react";
-import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, useUiStore } from "../../stores/useUiStore";
+import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, useUiStore, type ContentWidth } from "../../stores/useUiStore";
 import { useSettingsStore } from "../../stores/useSettingsStore";
+import { Seg } from "../ui/Seg";
 import { SwitchRow } from "./SettingsParts";
 
 export default function GeneralTab() {
@@ -23,15 +24,12 @@ export default function GeneralTab() {
       <section className="set-sec">
         <h3 className="set-sec-title">正文宽度</h3>
         <p className="set-sec-desc">预览区正文列的宽度。也可以直接拖预览区的边缘自由调宽。</p>
-        <div className="setseg">
-          {CONTENT_WIDTHS.map((w) => (
-            <button key={w} type="button"
-              className={customWidth === null && contentWidth === w ? "on" : ""}
-              onClick={() => setContentWidth(w)}>
-              {CONTENT_WIDTH_LABEL[w]}
-            </button>
-          ))}
-        </div>
+        {/* customWidth !== null（拖拽得到的自由宽度）时传空串哨兵：
+            匹配不到任何按钮 → 滑块隐藏，语义同旧「无 .on」。 */}
+        <Seg variant="setseg" ariaLabel="正文宽度"
+          value={(customWidth === null ? contentWidth : "") as ContentWidth}
+          onChange={(w) => setContentWidth(w)}
+          options={CONTENT_WIDTHS.map((w) => ({ value: w, label: CONTENT_WIDTH_LABEL[w] }))} />
         {customWidth !== null && (
           <div className="set-hint">
             <Info size={13} />

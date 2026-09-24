@@ -5,6 +5,7 @@ import { type CSSProperties } from "react";
 import { Check } from "lucide-react";
 import type { Theme } from "../../stores/useSettingsStore";
 import { PALETTES, PALETTE_IDS, paletteSwatch, type PaletteId } from "../../lib/paletteSeeds";
+import { Seg } from "../ui/Seg";
 
 const THEME_OPTIONS: Array<[Theme, string]> = [
   ["light", "浅色"],
@@ -34,18 +35,8 @@ export default function LookTab({
       <section className="set-sec">
         <h3 className="set-sec-title">明暗</h3>
         <p className="set-sec-desc">「跟随系统」会随操作系统的浅色/深色外观实时切换。</p>
-        <div className="setseg">
-          {THEME_OPTIONS.map(([v, label]) => (
-            <button
-              key={v}
-              type="button"
-              className={theme === v ? "on" : ""}
-              onClick={() => setTheme(v)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Seg variant="setseg" ariaLabel="明暗" value={theme} onChange={setTheme}
+          options={THEME_OPTIONS.map(([v, label]) => ({ value: v, label }))} />
       </section>
 
       <section className="set-sec">
@@ -54,22 +45,8 @@ export default function LookTab({
           纸色与彩头成套切换，朱砂印保持不变。卡上的小样就是该配色真实的纸面、
           侧栏、彩头与朱砂。
         </p>
-        <div className="setseg sm">
-          <button
-            type="button"
-            className={pvMode === "light" ? "on" : ""}
-            onClick={() => setPvMode("light")}
-          >
-            浅色预览
-          </button>
-          <button
-            type="button"
-            className={pvMode === "dark" ? "on" : ""}
-            onClick={() => setPvMode("dark")}
-          >
-            深色预览
-          </button>
-        </div>
+        <Seg variant="setseg sm" ariaLabel="配色预览档" value={pvMode} onChange={setPvMode}
+          options={[{ value: "light", label: "浅色预览" }, { value: "dark", label: "深色预览" }]} />
         <div className="pal-grid">
           {PALETTE_IDS.map((id) => {
             const p = PALETTES[id];
