@@ -31,7 +31,7 @@
 // CRUD 在 hooks/useLlmProfiles，快捷键录制在 hooks/useHotkeyRecorder；六个
 // 分类的详情在 components/settings/*Tab.tsx（JSX 逐字）。本文件只留导航、
 // 搜索、即时生效类订阅与跨页共享的临时状态（pvMode 等）；可复用的
-// Bar / SwitchRow 小件见 components/settings/SettingsParts.tsx（2026-09-24 迁出）。
+// Bar / SwitchRow / ResetAllButton 小件见 components/settings/SettingsParts.tsx（2026-09-24 迁出）。
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -50,7 +50,7 @@ import { errText, useUiStore } from "../stores/useUiStore";
 import { useSettingsDraft } from "../hooks/useSettingsDraft";
 import { useLlmProfiles } from "../hooks/useLlmProfiles";
 import { useHotkeyRecorder } from "../hooks/useHotkeyRecorder";
-import { Bar } from "./settings/SettingsParts";
+import { Bar, ResetAllButton } from "./settings/SettingsParts";
 import GeneralTab from "./settings/GeneralTab";
 import LookTab from "./settings/LookTab";
 import TranslateTab, { groupOf, type ProvGroup } from "./settings/TranslateTab";
@@ -315,6 +315,7 @@ export default function SettingsModal() {
             </button>
           ))}
           {visibleCats.length === 0 && <div className="set-nav-empty">没有匹配的设置项</div>}
+          <ResetAllButton />
         </nav>
 
         {/* ── 右：工具条 + 详情 ── */}

@@ -445,6 +445,23 @@ mod tests {
         assert_eq!(s.hotkeys.len(), 4);
     }
 
+    /// Task 12 回归钉：一键恢复（commands::settings::reset_settings）就是
+    /// `Settings::default()` 整包写回，所以出厂值必须逐个盖住 Task 10/11 的
+    /// 「点即跑」字段——漏一个就是恢复只清了一半。另一半保险是编译期的：
+    /// 本文件的 Default 是手写 impl（结构体字面量穷尽校验），新增字段不补
+    /// 出厂值直接编译失败；本测试钉的是「补的值是对的」。
+    #[test]
+    fn default_settings_cover_point_and_go_fields() {
+        let s = Settings::default();
+        assert!(!s.autostart, "恢复后开机自启必须回「关」");
+        assert!(s.capture_enabled, "截图翻译出厂 = 开");
+        assert_eq!(s.close_action, "ask", "关闭行为出厂 = 每次询问");
+        assert!(s.relayout_on_export, "导出重排版出厂 = 开");
+        assert_eq!(s.theme, "", "明暗出厂 = 跟随系统");
+        assert_eq!(s.palette, "", "配色出厂 = 空串（前端归一化成 xuan）");
+        assert_eq!(s.translate_target, "", "方向出厂 = 空串（两侧归一化成 zh）");
+    }
+
     /// 配置档案必须能原样落盘再读回——`save_settings` 走 serde 反序列化，
     /// 字段名漏登记就会被静默丢弃（前端攒的档案下次启动消失）。
     #[test]

@@ -16,6 +16,14 @@ interface SettingsState {
   palette: PaletteId;
   /** 翻译方向（目标语言）。默认 zh = 改动前行为；落盘在 settings.translate_target */
   target: TargetLang;
+  /**
+   * load() 成功代数计数（Task 12）：一键恢复后 load() 会把 settings 整包换回
+   * 出厂值，而设置弹窗的草稿是恢复前的快照——不重种草，关窗就会把旧草稿写回盘、
+   * 等于把恢复作废。useSettingsDraft 订阅本计数变化来重种草稿。
+   * 只在 load()（启动加载 / 恢复后拉全量）时递增；save/applyRemote 等不动它，
+   * 否则编辑中的表单会被广播 echo 打翻（同文件 applyRemote 注释的坑）。
+   */
+  loadGeneration: number;
 
   /** 启动加载 + 注册 settings-updated 监听（整个应用生命周期只挂一次）。 */
   load(): Promise<void>;
@@ -79,6 +87,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   theme: "auto",
   palette: normalizePalette(""),
   target: "zh",
+  loadGeneration: 0,
 
   load: async () => {
     try {
@@ -88,6 +97,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         theme: normalizeTheme(s.theme),
         palette: normalizePalette(s.palette),
         target: normalizeTarget(s.translate_target),
+        loadGeneration: get().loadGeneration + 1,
       });
     } catch (e) {
       useUiStore.getState().addToast("error", `读取设置失败：${errText(e)}`);

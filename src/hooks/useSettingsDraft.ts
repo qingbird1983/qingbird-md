@@ -47,6 +47,23 @@ export function useSettingsDraft(): SettingsDraft {
     }
   }, [live, draft]);
 
+  // Task 12：一键恢复全局默认后 load() 把 settings 整包换回出厂值，而 draft /
+  // formProvider / formCreds 还是恢复前的快照——不重种草，关窗时 saveAndClose
+  // 会把旧 provider/凭据/热键整包写回盘，等于把恢复作废（Task 10/11「点即生效
+  // 字段被旧草稿覆盖」的全量版）。订阅 loadGeneration（只有 load() 递增，
+  // 广播 echo 与 save 都不动它，所以不会打翻正常编辑中的表单）重种草草稿三件套。
+  const epoch = useSettingsStore((s) => s.loadGeneration);
+  const seededEpoch = useRef(epoch);
+  useEffect(() => {
+    if (epoch === seededEpoch.current) return;
+    seededEpoch.current = epoch;
+    const cur = useSettingsStore.getState().settings;
+    if (!cur) return;
+    setDraft({ ...cur, providers: { ...cur.providers } });
+    setFormProvider(cur.provider);
+    setFormCreds(cur.providers[cur.provider] ?? {});
+  }, [epoch]);
+
   /** 关窗前统一落盘（这就是「取消/保存」两个按钮的替代品）。 */
   const saveAndClose = useCallback(() => {
     const { draft: d, formProvider: fp, formCreds: fc } = latest.current;

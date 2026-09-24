@@ -220,6 +220,8 @@ pub fn run() {
             commands::settings::set_autostart,
             // Task 11: 关窗询问弹窗的回答（close_action=ask 时前端弹框的出口）
             commands::settings::apply_close_decision,
+            // Task 12: 设置面板左下角「一键恢复全局默认设置」（commands/settings.rs）
+            commands::settings::reset_settings,
             commands::workspace_ops::open_workspace,
             commands::workspace_ops::filter_workspace,
             commands::workspace_ops::create_file,

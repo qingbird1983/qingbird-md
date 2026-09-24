@@ -61,6 +61,20 @@ pub fn apply_close_decision(app: AppHandle, decision: String) {
     }
 }
 
+/// 一键恢复全局默认设置（设置面板左下角）：Settings 整包回出厂值，
+/// 开机自启同步关掉（插件是即时权威，别留一个盘外还活着的副作用），
+/// 热键重注册、广播收敛各窗口。不清缓存/最近打开——那是数据不是设置。
+#[tauri::command]
+pub fn reset_settings(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let _ = app.autolaunch().disable(); // 失败不阻断：盘上 autostart 已回 false，下次启动自正
+    let s = storage::Settings::default();
+    storage::save_settings(&s)?;
+    hotkeys::sync(&app, &s);
+    let _ = app.emit("settings-updated", storage::settings_broadcast_payload(&s));
+    Ok(())
+}
+
 /// 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）——给界面文案用。
 /// 与 `get_user_data_dir` 分开是有意的：那个返回的是可执行的真路径
 /// （`reveal_path` 直接吃它），这个只给人看。

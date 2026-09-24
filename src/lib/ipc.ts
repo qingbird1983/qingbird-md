@@ -59,6 +59,9 @@ export const api = {
   // 动作与关窗钩子的 tray/exit 两分支同一归宿（window_boot::{to_tray, quit_app}）。
   applyCloseDecision: (decision: "tray" | "exit") =>
     invoke<void>("apply_close_decision", { decision }),
+  // 一键恢复全局默认设置（Task 12）：命令端 Settings 整包回出厂值 + 关掉开机自启
+  // + 热键重注册 + 广播收敛各窗口。不清最近打开/翻译缓存——那是数据不是设置。
+  resetSettings: () => invoke<void>("reset_settings"),
 
   // ---- 对话框（Rust 参数 default_name 按 Tauri v2 默认 camelCase 匹配）----
   pickFile: () => invoke<string | null>("pick_file"),

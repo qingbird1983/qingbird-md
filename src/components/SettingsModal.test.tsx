@@ -611,8 +611,10 @@ describe("其余分类", () => {
     expect(seal.getAttribute("aria-hidden")).toBe("true");
     expect(navs().some((b) => b.contains(seal))).toBe(false);
     expect(nav.firstElementChild).toBe(seal);
-    // 左栏文本 = 「青」+ 各分类名，中间**没有**任何附加说明文字
-    expect(nav.textContent).toBe("青" + navs().map((b) => b.textContent).join(""));
+    // 左栏文本 = 「青」+ 各分类名 + 底端一键恢复按钮（Task 12，功能按钮不是附加说明），
+    // 中间**没有**任何多余文字
+    const resetTxt = nav.querySelector(".set-nav-reset")!.textContent;
+    expect(nav.textContent).toBe("青" + navs().map((b) => b.textContent).join("") + resetTxt);
   });
 
   it("数据与维护：清除缓存 + 打开缓存目录都在；目录显示为环境变量形态", () => {
