@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-24
+
 翻译从「能看」走到「可信交付」：新增 **AI 语义核查**，让大模型逐条挑出术语、指代、语域这类
 只有读懂才看得出的问题，可单条接受或拒绝。预览侧另修了三处「内容看不见」：文首 YAML 元数据
 不再被吞，富文本编辑器粘进 Markdown 的表格/卡片不再整块消失，列表的层级关系多了一根发丝细的
@@ -54,7 +56,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   内存热层预热最新 1000 条）。收益：写盘不再随缓存规模线性膨胀、重启后 FIFO 淘汰顺序真实（旧
   JSON 版做不到）、读路径不写库。老用户首次启动时旧 JSON **一次性导入**空库，成功后原文件
   **重命名保留为 `qingbird-cache.json.imported-<时间戳>`（不删除，可回滚）**；`translate/` 保持同步、
-  缓存库不进 IPC 契约、`types/ipc.ts` 零改动。（代码完成、四道门禁全绿；真机冒烟验收待跑。）
+  缓存库不进 IPC 契约、`types/ipc.ts` 零改动。（真机冒烟验收通过）
 
 ## [0.2.3] - 2026-09-19
 
