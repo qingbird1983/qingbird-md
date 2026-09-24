@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::markdown;
-use crate::translate::cache::Cache;
+use crate::translate::cache::{Cache, CacheBackend};
 use crate::translate::engine::TargetLang;
 
 use super::events::TranslationDoneEvt;
@@ -52,7 +52,7 @@ pub(crate) fn html_payload_parts(
 /// 几行（用户实测 bug）；扫荡对让前端 merge+instant+canonical 重建一次
 /// 整屏瞬时替换（验收点 5）。未命中块不带回，维持原文走视口运行补齐。
 pub(super) fn sweep_cached_pairs(
-    snapshot: &Cache,
+    snapshot: &dyn CacheBackend,
     provider: &str,
     variant: &str,
     blocks: &[markdown::model::Block],
@@ -69,7 +69,7 @@ pub(super) fn sweep_cached_pairs(
         .filter_map(|(i, t)| {
             snapshot
                 .get(&Cache::key(provider, variant, &t))
-                .map(|s| (i, s.to_string()))
+                .map(|s| (i, s))
         })
         .collect()
 }

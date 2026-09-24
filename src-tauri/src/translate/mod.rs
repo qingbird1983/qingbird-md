@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod cache;
+pub mod cache_sqlite;
 pub mod check;
 pub mod cancel;
 pub mod engine;

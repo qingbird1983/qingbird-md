@@ -69,6 +69,26 @@ impl Cache {
         }
     }
 
+    /// Test-only size probes (production reads the map only through get/set).
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
+/// 已退役的 JSON 时代方法（S9 Step 3 切流后）。
+///
+/// 切流后 `Cache` 在生产里只剩两个身份：**每次运行的内存工作缓冲**（worker / commands
+/// 用 `new`+`get`+`set` 现建现用，`run` 通过 `CacheBackend` trait 派发）和**测试替身**。
+/// 下面这批「磁盘持久化 + 空闲收缩 + 脏标记」方法曾由 worker/commands 生产调用，切流后
+/// 全部改由 `SqliteCache`（`flush`/`shrink_to`/`clear`）承担，生产侧再无消费者。
+///
+/// 之所以**暂不删除**：`cache_sqlite.rs` 的对拍测试（尤其 `parity_shrink_preserves_same_set`）
+/// 仍以这套旧实现为「参照实现」验证 SQLite 后端的 FIFO/收缩语义逐条一致。删除会连回归
+/// 覆盖一起丢掉。用 `#[allow(dead_code)]` 显式标注为「保留的参照实现」，待 JSON 层彻底
+/// 下线时（后续独立清理步）连同这些方法与对应测试一并移除。
+#[allow(dead_code)]
+impl Cache {
     /// Drop oldest entries (front of FIFO) until `map.len() <= target`.
     ///
     /// Returns the number of entries actually removed. No-op when
@@ -110,12 +130,6 @@ impl Cache {
         self.dirty = false;
     }
 
-    /// Test-only size probes (production reads the map only through get/set).
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
     /// Production reader for size: bridge.rs needs it to decide whether to
     /// trigger idle-shrink. Read-only, no exposed mutation path.
     pub(crate) fn len_pub(&self) -> usize {
@@ -152,6 +166,41 @@ impl Cache {
         crate::atomic_write::write(path, self.to_json().as_bytes())?;
         self.mark_clean();
         Ok(())
+    }
+}
+
+/// 缓存后端边界（S9 Step 1）。把「存什么 / 怎么驱逐」的策略与「用什么介质持久化」
+/// 分离：`run` 与 `lookup` 只认这组方法，Step 2 的 `SqliteCache` 实现同一 trait
+/// 即可切流，调用点一行不改。
+///
+/// **Step 1 只收 `get` / `set`**——这是当前唯一被通过 trait 对象派发的两个动作
+/// （`run` 的缓存 pass/回写、`lookup` 的读写）。`shrink_to` / `clear` / `len` 今天
+/// 由具体持有者（worker / commands）直接调 `Cache` 固有方法，若现在写进 trait 就会
+/// 因「无人通过 trait 调它」触发 dead_code 告警、破 0 告警门禁 → 留到 Step 3 持有者
+/// 泛化成 `Arc<Mutex<dyn CacheBackend>>`、真正需要多态派发时再补进来。
+///
+/// **`get` 返回 `Option<String>`（owned，非借用）**：这是 Step 2 逼出的取舍。
+/// `SqliteCache` 的热层只预装最新 `WARM` 条，未预热的条目要在 `get` 时回查 DB 再
+/// 命中——DB 现读的值是 owned，Safe Rust 下无法作为 `&str` 借出返回。红线 3 的三条
+/// 真实约束**全部守住**：仍 `&self`、仍不写库（回查是只读、`accessed_at` 不更新）、
+/// LRU 年龄仍只在 `set` 改；只有「返回借用」降级为「返回 owned」。热命中多一次
+/// `clone`，而 `run` 命中路径本就把值 `.to_string()`，实际近乎零成本。
+///
+/// `Cache` 的**固有 `get` 仍返回 `Option<&str>`**（cache.rs 8 条契约测试与 worker.rs
+/// 具体调用直接用它，一字不动）；trait 版转发为 owned。`Send` 是因为 Step 3 后持有者
+/// 是 `Arc<Mutex<dyn CacheBackend>>`。
+pub trait CacheBackend: Send {
+    fn get(&self, key: &str) -> Option<String>;
+    /// 插入一条；返回是否为**新键**（覆盖返回 false）。
+    fn set(&mut self, key: String, value: String) -> bool;
+}
+
+impl CacheBackend for Cache {
+    fn get(&self, key: &str) -> Option<String> {
+        Cache::get(self, key).map(str::to_string)
+    }
+    fn set(&mut self, key: String, value: String) -> bool {
+        Cache::set(self, key, value)
     }
 }
 

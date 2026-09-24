@@ -211,6 +211,11 @@ pub fn cache_path() -> PathBuf {
     user_data_dir().join("qingbird-cache.json")
 }
 
+/// S9：SQLite 缓存库主路径，与 [`cache_path`]（JSON，现为迁移来源）并列（不新建子目录，见 C 计划 §九）。
+pub fn cache_db_path() -> PathBuf {
+    user_data_dir().join("qingbird-cache.db")
+}
+
 pub fn load_settings() -> Settings {
     load_settings_from(&settings_path())
 }
