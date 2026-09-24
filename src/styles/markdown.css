@@ -298,6 +298,8 @@ body[data-theme="dark"] .markdown-body {
    ③ 末项 `height` 只到自己的圆点：否则列表尾巴会垂一根多余的线头。
    ④ 线心落在圆点中线上：与圆点同取 `--md-marker-x`。引线定位的是**左缘**，
       故再左移半个线宽（0.5px，DPR 3 下正好 1.5 设备像素）让线心压到中线上。
+      取色与圆点同用 `currentColor`：同一枚墨，线不灰淡脱节。首项的线不再向上
+      出头——线头收在自己圆点的圆心（`top: 1em`，与 ::before 的圆心同值）。
    ⑤ 任务项不画（`.task`）：勾选框自带边框与底色，穿线收益低；要串的是圆点。
    ⑥ 关掉时整段不生成——不是 `opacity: 0`，避免留一层可命中的透明靶子。 */
 .markdown-body:not(.no-list-guide) ul > li:not(.task)::after {
@@ -307,13 +309,19 @@ body[data-theme="dark"] .markdown-body {
   top: 0;
   bottom: -1em;
   width: 1px;
-  background: var(--md-border);
+  background: currentColor;
   pointer-events: none;
 }
 
 .markdown-body:not(.no-list-guide) ul > li:not(.task):last-child::after {
   bottom: auto;
   height: 1em;
+}
+
+/* 首项的线从自己圆点圆心起笔（1em = ::before 圆点的 top 值，行盒中心，
+   两者改动必须同值），不再向上出头压过点。 */
+.markdown-body:not(.no-list-guide) ul > li:not(.task):first-child::after {
+  top: 1em;
 }
 
 /* ---- 引用块：青花灰左标细线 + 无底色（纸面引文，DESIGN.md mockup-v2 观感） ---- */

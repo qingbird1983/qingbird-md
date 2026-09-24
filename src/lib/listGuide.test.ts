@@ -84,6 +84,17 @@ describe("层级引线接线", () => {
     );
   });
 
+  it("引线同色同墨：与圆点同为 currentColor，且首项线头挂在自己圆心", () => {
+    const guide = bodyOf(GUIDE);
+    expect(guide, "线必须与圆点同一枚墨色（currentColor），否则灰淡脱节").toContain(
+      "background: currentColor",
+    );
+    const first = bodyOf(`${GUIDE_LI}:first-child::after`);
+    expect(first, "首项线头必须从自己圆点圆心（top: 1em，与 ::before 同值）起笔，不出头").toContain(
+      "top: 1em",
+    );
+  });
+
   it("勾号不落在盒子层：::before 一旦写 font-size，1.05em 的盒子会跟着缩", () => {
     // 旧版把 font-size:12px 写在画盒子的 ::before 上，em 换基准 → 完成态盒子缩成
     // 12.6px（比未完成态小一圈、还高 1px）。勾号挪到 ::after 才修得掉。
