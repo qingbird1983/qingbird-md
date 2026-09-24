@@ -110,19 +110,27 @@ fn delete_to_trash(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 给 explorer 的「选中文件」原始参数：`/select,"<完整路径>"`。
+/// 必须经 `CommandExt::raw_arg` 原样写进命令行——std 默认转义会给这枚
+/// 含空格+引号的参数再包一层壳，explorer 就解析不出目标了。
+pub(crate) fn reveal_select_arg(path: &str) -> String {
+    format!("/select,\"{path}\"")
+}
+
 /// 在资源管理器中定位：文件选中该文件，目录直接打开。
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     let p = std::path::Path::new(&path);
     if !p.exists() {
         return Err("路径不存在".into());
     }
-    let mut cmd = std::process::Command::new("explorer");
+    let mut cmd = std::process::Command::new("explorer.exe");
     if p.is_dir() {
         cmd.arg(&path);
     } else {
-        // explorer 需要 /select,"路径" 一整枚参数（路径含空格时手动补引号）
-        cmd.arg(format!("/select,\"{path}\""));
+        // /select,"路径" 必须整枚原样直达 explorer（见 reveal_select_arg）
+        cmd.raw_arg(reveal_select_arg(&path));
     }
     cmd.spawn().map_err(|e| format!("打开资源管理器失败：{e}"))?;
     Ok(())
@@ -290,5 +298,18 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&out);
+    }
+
+    #[test]
+    fn select_arg_keeps_verbatim_quoting_for_explorer() {
+        use super::reveal_select_arg;
+        // explorer 自己解析原始命令行：必须是 /select,"<path>" 这个裸形态。
+        // 旧实现交给 std 的 MSVCRT 转义（含空格参数被整枚再包一层引号、内引号变 \"），
+        // explorer 解析失败 → 打开默认位置而不是文件所在目录（2026-09-24 用户报障）。
+        assert_eq!(
+            reveal_select_arg(r#"C:\我的 文档\a.md"#),
+            r#"/select,"C:\我的 文档\a.md""#
+        );
+        assert_eq!(reveal_select_arg(r"C:\d\b.md"), r#"/select,"C:\d\b.md""#);
     }
 }

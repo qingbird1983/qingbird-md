@@ -106,6 +106,14 @@ pub struct Settings {
     /// **不改实时预览、不改译文表、不进 Cache**。
     #[serde(default = "default_true")]
     pub relayout_on_export: bool,
+    /// 截图翻译总开关。关 = 全局热键不注册、托盘菜单不触发（hotkeys.rs / tray.rs 双门控）。
+    /// `#[serde(default = "default_true")]` = 老配置文件读出来即「开」，升级零感知。
+    #[serde(default = "default_true")]
+    pub capture_enabled: bool,
+    /// 右上角「关闭」的行为：ask=每次询问（前端弹框）、tray=隐藏到托盘常驻、
+    /// exit=直接退出应用。default ask——升级后第一次关窗由用户自选并记忆。
+    #[serde(default = "default_ask")]
+    pub close_action: String,
 }
 
 impl Default for Settings {
@@ -129,6 +137,8 @@ impl Default for Settings {
             llm_active: String::new(),
             translate_target: String::new(),
             relayout_on_export: true,
+            capture_enabled: true,
+            close_action: "ask".to_string(),
         }
     }
 }
@@ -138,6 +148,9 @@ fn default_provider() -> String {
 }
 fn default_on() -> String {
     "on".to_string()
+}
+fn default_ask() -> String {
+    "ask".to_string()
 }
 
 /// 出厂快捷键。与前端 `src/lib/hotkeyRegistry.ts` 的 HOTKEYS 表逐条对应，
@@ -413,6 +426,10 @@ mod tests {
         assert_eq!(s2.hotkeys.get("capture").map(String::as_str), Some(""));
         // autostart 缺字段 → false
         assert!(!s2.autostart);
+        // capture_enabled 缺字段 → true（default_true：老配置升级即「开」，零感知）
+        assert!(s2.capture_enabled);
+        // close_action 缺字段 → "ask"（default_ask：升级后第一次关窗由用户自选并记忆）
+        assert_eq!(s2.close_action, "ask");
     }
 
     #[test]
@@ -426,6 +443,23 @@ mod tests {
         assert_eq!(s.hotkeys.get("bilingual").map(String::as_str), Some("Ctrl+Alt+3"));
         // 系统级注册只看这四个；应用内快捷键不在 Rust 侧登记
         assert_eq!(s.hotkeys.len(), 4);
+    }
+
+    /// Task 12 回归钉：一键恢复（commands::settings::reset_settings）就是
+    /// `Settings::default()` 整包写回，所以出厂值必须逐个盖住 Task 10/11 的
+    /// 「点即跑」字段——漏一个就是恢复只清了一半。另一半保险是编译期的：
+    /// 本文件的 Default 是手写 impl（结构体字面量穷尽校验），新增字段不补
+    /// 出厂值直接编译失败；本测试钉的是「补的值是对的」。
+    #[test]
+    fn default_settings_cover_point_and_go_fields() {
+        let s = Settings::default();
+        assert!(!s.autostart, "恢复后开机自启必须回「关」");
+        assert!(s.capture_enabled, "截图翻译出厂 = 开");
+        assert_eq!(s.close_action, "ask", "关闭行为出厂 = 每次询问");
+        assert!(s.relayout_on_export, "导出重排版出厂 = 开");
+        assert_eq!(s.theme, "", "明暗出厂 = 跟随系统");
+        assert_eq!(s.palette, "", "配色出厂 = 空串（前端归一化成 xuan）");
+        assert_eq!(s.translate_target, "", "方向出厂 = 空串（两侧归一化成 zh）");
     }
 
     /// 配置档案必须能原样落盘再读回——`save_settings` 走 serde 反序列化，

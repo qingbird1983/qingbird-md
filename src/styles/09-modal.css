@@ -189,3 +189,20 @@
   border-top: 1px solid var(--border);
   background: var(--bg2);
 }
+
+/* 关窗询问框（Task 11）的「记住我的选择」：checkbox 与文案竖排留距，
+   13px 与弹窗正文同级、用次级前景色——它是可选副作用，不该比问题本身显眼。 */
+.close-ask-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--fg2);
+  cursor: pointer;
+}
+
+.close-ask-remember input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}

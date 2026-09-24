@@ -129,7 +129,24 @@ export interface Settings {
    * 默认开；关掉即回到逐字导出。仅「另存为」时对译文施加。
    */
   relayout_on_export: boolean;
+  /**
+   * 截图翻译总开关（设置面板「常规」页）。关 = 全局热键不注册、托盘菜单不触发
+   * （hotkeys.rs / tray.rs 双门控）。默认开；老配置缺字段 → true。
+   * 同 `autostart`：整包 `save_settings` 走 serde 反序列化，字段没登记会被
+   * 静默丢成默认值——必须列在类型里。
+   */
+  capture_enabled: boolean;
+  /**
+   * 右上角「关闭」的行为（Task 11）：ask=每次询问（前端弹框）、tray=隐藏到
+   * 托盘常驻、exit=直接退出。default "ask"；老配置缺字段 → "ask"。
+   * 同 `autostart`：整包 `save_settings` 走 serde 反序列化，字段没登记会被
+   * 静默丢成默认值——必须列在类型里。
+   */
+  close_action: string;
 }
+
+/** `Settings.close_action` 的合法值（字符串字段照 TargetLang 先例配联合类型）。 */
+export type CloseAction = "ask" | "tray" | "exit";
 
 /**
  * lib.rs settings_broadcast_payload：settings-updated 事件的脱敏广播（SEC-3）。

@@ -6,7 +6,7 @@
 // 快照是 **initialState**（防 hydration 不一致），静态渲染下所有 selector 都读不到
 // setState 后的值，测出来的是「设置尚未加载」那一屏。客户端渲染才是真路径。
 //
-// 为什么要有这个测试：分类是条件渲染的五个分支，任一分支 JSX 写错 tsc 不一定拦得住，
+// 为什么要有这个测试：分类是条件渲染的六个分支，任一分支 JSX 写错 tsc 不一定拦得住，
 // 但挂上去就会炸；点一圈是最便宜的兜底。另外「关闭即保存」是行为约定而不是样式，
 // 只能靠这里钉住——它一旦退化成「关窗丢改动」，用户是事后才发现的。
 import { act } from "react-dom/test-utils";
@@ -85,6 +85,8 @@ const SEED: Settings = {
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
+  capture_enabled: true,
+  close_action: "ask",
 };
 
 let host: HTMLDivElement;
@@ -122,20 +124,47 @@ const seed = (patch: Partial<Settings> = {}) => {
   useSettingsStore.setState({ settings: s, theme: "light", palette: "qing" });
 };
 
-beforeEach(() => {
+// ---- act 卫生（Task 9 评审 2026-09-24：测试输出必须无 wrap-tests-with-act 噪音）----
+// 两条源头，都只在测试侧兜，Seg.tsx 的逐字实现不动：
+//   1. Seg 首帧「下一拍才允许过渡」走 requestAnimationFrame——happy-dom 的 rAF 是
+//      真定时器（~16ms），回调必然落在同步 act 之外 → setReady 触发警告。这里把
+//      rAF 桩成同步立即执行：setReady 就地落进当前 act()。断言只看类名/结构，
+//      seg-ready 只开 CSS transition，测试里没有动画时序可测，同步化不失真。
+//      （先例：lib/reviewPanel.test.ts、lib/streamFollow.test.ts 同样手工接管 rAF。）
+//   2. 挂载期三个 IPC promise（getProviders/userDataDir/dataDirLabel → setState）
+//      是微任务，同步 act 里等不到 → 评审前就有的存量噪音。渲染改异步 act 并
+//      排空一拍宏任务，让它们也在 act 内落地。（先例：ReviewPanel.test.tsx 的
+//      `await act(async () => nextFrame())`。）
+const origRaf = globalThis.requestAnimationFrame;
+
+/** 在 act 内排空 promise 微任务链（一个宏任务节拍足够）。 */
+const drain = () => new Promise((r) => setTimeout(r, 0));
+
+/** 挂载 + 排空：beforeEach 与测试内重挂共用，保证首帧更新全在 act 里落地。 */
+const renderModal = async () => {
+  await act(async () => {
+    root.render(<SettingsModal />);
+    await drain();
+  });
+};
+
+beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  }) as typeof globalThis.requestAnimationFrame;
   seed();
   useUiStore.setState({ settingsOpen: true });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => {
-    root.render(<SettingsModal />);
-  });
+  await renderModal();
 });
 
 afterEach(() => {
   act(() => root.unmount());
+  globalThis.requestAnimationFrame = origRaf;
   host.remove();
 });
 
@@ -158,8 +187,9 @@ describe("设置面板骨架", () => {
     expect(bar.parentElement!.className).toContain("set-main");
   });
 
-  it("五个分类 + 六张配色卡，默认落在外观页", () => {
+  it("六个分类 + 六张配色卡，默认落在常规页", () => {
     expect(navs().map((n) => n.textContent)).toEqual([
+      "常规",
       "外观",
       "翻译与模型",
       "快捷键",
@@ -168,14 +198,69 @@ describe("设置面板骨架", () => {
     ]);
     expect(host.querySelectorAll(".set-nav-item.on").length).toBe(1);
     expect(navs()[0]!.className).toContain("on");
+    // 「常规」页三节（2026-09-24 分类重整：正文宽度/列表自外观迁入、导出重排版自翻译迁入）
+    expect(pane().textContent).toContain("正文宽度");
+    expect(pane().textContent).toContain("层级引线");
+    expect(pane().textContent).toContain("导出时重排版");
+    goCat(1); // 配色卡在「外观」页
     expect(host.querySelectorAll(".pal-card").length).toBe(PALETTE_IDS.length);
     const on = host.querySelectorAll(".pal-card.on");
     expect(on.length).toBe(1);
     expect(on[0]!.textContent).toContain(PALETTES.qing.label);
   });
 
+  // Task 10「启动与截图」一节：两个开关走两条路——开机自启调专用命令
+  // set_autostart（插件 apply + 落盘，不经整包 save），截图翻译改的是
+  // settings.capture_enabled（整包 save，后端 hotkeys::sync 即时重注册）。
+  it("常规页首节「启动与截图」：开机自启调专用命令，截图翻译走整包 save", async () => {
+    const { api } = await import("../lib/ipc");
+    const rowSw = (label: string) =>
+      Array.from(pane().querySelectorAll<HTMLElement>(".setti"))
+        .find((r) => r.querySelector(".setti-label")?.textContent === label)!
+        .querySelector<HTMLButtonElement>(".sw")!;
+    // SEED：autostart=false / capture_enabled=true（受控组件，aria 跟着 store 走）
+    expect(pane().textContent).toContain("启动与截图");
+    expect(rowSw("开机自启").getAttribute("aria-checked")).toBe("false");
+    expect(rowSw("截图翻译").getAttribute("aria-checked")).toBe("true");
+
+    const setAuto = vi.spyOn(api, "setAutostart").mockResolvedValue(undefined);
+    await act(async () => {
+      rowSw("开机自启").click();
+      await drain();
+    });
+    expect(setAuto).toHaveBeenCalledWith(true);
+    // 命令成功后本地镜像翻转（不整包覆写草稿）
+    expect(useSettingsStore.getState().settings?.autostart).toBe(true);
+    setAuto.mockRestore();
+
+    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
+    act(() => rowSw("截图翻译").click());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0]![0] as Settings).capture_enabled).toBe(false);
+    save.mockRestore();
+  });
+
+  // Task 11「关闭行为」三档胶囊：点即生效走整包 save（后端关窗钩子每次现读盘，
+  // 下一次关窗即生效）。弹框本体链路是真机验收项，不在这里重复。
+  it("常规页「关闭行为」：三档胶囊默认选中每次询问，点击整包 save", () => {
+    const box = host.querySelector<HTMLElement>('[aria-label="关闭行为"]')!;
+    const btns = Array.from(box.querySelectorAll<HTMLButtonElement>("button"));
+    expect(btns.map((b) => b.textContent)).toEqual(["每次询问", "常驻托盘", "退出应用"]);
+    expect(btns[0]!.className).toContain("on");
+    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
+    act(() => btns[2]!.click());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect((save.mock.calls[0]![0] as Settings).close_action).toBe("exit");
+    save.mockRestore();
+  });
+
   it("搜索过滤分类；无命中时给空态", () => {
     const box = host.querySelector<HTMLInputElement>(".set-bar input")!;
+    // 「正文宽度」的搜索键已随这一节挪到「常规」分类
+    act(() => typeInto(box, "正文宽度"));
+    expect(navs().map((n) => n.textContent)).toEqual(["常规"]);
+    expect(pane().textContent).toContain("正文宽度");
+
     act(() => typeInto(box, "缓存"));
     expect(navs().map((n) => n.textContent)).toEqual(["数据与维护"]);
 
@@ -188,7 +273,7 @@ describe("设置面板骨架", () => {
   it("点关闭叉 = 自动保存 + 关窗（没有取消/保存按钮可点）", () => {
     const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
     // 改一处草稿类设置：划词翻译
-    goCat(1);
+    goCat(2);
     const sw = host.querySelector<HTMLButtonElement>(".sw")!;
     act(() => sw.click());
     act(() => host.querySelector<HTMLButtonElement>(".set-x")!.click());
@@ -200,12 +285,26 @@ describe("设置面板骨架", () => {
     save.mockRestore();
   });
 
-  it("关窗时 theme/palette 取 store 现值，不吃 draft 里的旧快照", () => {
-    // 打开弹窗后用户又去切了配色（真实路径：draft 是更早的快照）
-    useSettingsStore.setState({ settings: { ...SEED, palette: "tan" }, palette: "tan" });
+  it("关窗时点即生效字段取 store 现值，不吃 draft 里的旧快照", () => {
+    // 打开弹窗后用户又去切了配色 / 拨了常规页三个点即生效开关（真实路径：
+    // draft 是更早的快照）。
+    // setState 会驱动已挂载实例重渲（连带 Seg 重测量），必须在 act 里发生。
+    act(() => {
+      useSettingsStore.setState({
+        settings: { ...SEED, palette: "tan", autostart: true, capture_enabled: false, relayout_on_export: false, close_action: "tray" },
+        palette: "tan",
+      });
+    });
     const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
     act(() => host.querySelector<HTMLButtonElement>(".set-x")!.click());
-    expect((save.mock.calls[0]![0] as Settings).palette).toBe("tan");
+    const written = save.mock.calls[0]![0] as Settings;
+    expect(written.palette).toBe("tan");
+    // Task 10：不覆盖就会被旧草稿打回——开机自启尤其致命（插件已启用、盘上却 false）
+    expect(written.autostart).toBe(true);
+    expect(written.capture_enabled).toBe(false);
+    expect(written.relayout_on_export).toBe(false);
+    // Task 11：关窗询问弹窗勾「记住」也直写 store，同样不许被旧草稿打回
+    expect(written.close_action).toBe("tray");
     save.mockRestore();
   });
 });
@@ -219,7 +318,7 @@ describe("翻译与模型页", () => {
     )!;
 
   it("三分组分段控件 + 划词开关 + 连接测试", () => {
-    goCat(1);
+    goCat(2);
     const seg = segByText("免费源");
     expect(Array.from(seg.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
       "免费源",
@@ -237,7 +336,7 @@ describe("翻译与模型页", () => {
   // 切换行为本身（reset 索引空间 + 重译）由 useDocStore.direction.test.ts 覆盖，
   // 不在这份 UI 测试里重复。
   it("翻译方向：分段控件两个选项，默认选中译成中文", () => {
-    goCat(1);
+    goCat(2);
     const btns = Array.from(segByText("译成中文").querySelectorAll<HTMLButtonElement>("button"));
     expect(btns.map((b) => b.textContent)).toEqual(["译成中文", "译成英文"]);
     expect(btns[0]!.className).toContain("on");
@@ -247,7 +346,7 @@ describe("翻译与模型页", () => {
   // 用户第 1 条：LLM 组的下拉是「伪选择」（注册表里这一组只有一个源），
   // 换成协议胶囊；Anthropic 先占位、禁用。
   it("LLM 组用协议胶囊而非下拉，Anthropic 占位且禁用", () => {
-    goCat(1);
+    goCat(2);
     expect(host.querySelector("#set-provider")).toBeNull();
 
     const proto = Array.from(host.querySelectorAll<HTMLDivElement>(".setseg")).find((b) =>
@@ -269,7 +368,7 @@ describe("翻译与模型页", () => {
   });
 
   it("非 LLM 组仍走下拉（源多，下拉才是有意义的）", () => {
-    goCat(1);
+    goCat(2);
     const free = Array.from(
       host.querySelectorAll<HTMLButtonElement>(".setseg button"),
     ).find((b) => b.textContent === "免费源")!;
@@ -283,7 +382,7 @@ describe("翻译与模型页", () => {
   });
 
   it("划词翻译是胶囊开关，且左名称右开关（不再用 checkbox）", () => {
-    goCat(1);
+    goCat(2);
     expect(pane().querySelector(".modal-check")).toBeNull();
     const sw = host.querySelector<HTMLButtonElement>(".sw")!;
     expect(sw.getAttribute("role")).toBe("switch");
@@ -297,7 +396,7 @@ describe("翻译与模型页", () => {
   });
 
   it("连接测试左右对齐：说明在左、按钮在右", () => {
-    goCat(1);
+    goCat(2);
     const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find(
       (b) => b.textContent === "测试连接",
     )!;
@@ -309,7 +408,7 @@ describe("翻译与模型页", () => {
 
 describe("大模型配置档案", () => {
   it("升级迁移：providers.llm 里已有的凭据被收编成一套档案", () => {
-    goCat(1);
+    goCat(2);
     // SEED 的 providers.llm 非空、llm_profiles 为空 → 自动收编，不是「还没有配置」
     const rows = host.querySelectorAll(".prof");
     expect(rows.length).toBe(1);
@@ -319,20 +418,18 @@ describe("大模型配置档案", () => {
     expect(pane().textContent).not.toContain("还没有配置");
   });
 
-  it("没有历史凭据时显示空态而不是假装有一套配置", () => {
+  it("没有历史凭据时显示空态而不是假装有一套配置", async () => {
     act(() => root.unmount());
     seed({ providers: { llm: {} } });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
-    goCat(1);
+    await renderModal();
+    goCat(2);
     expect(host.querySelectorAll(".prof").length).toBe(0);
     expect(pane().textContent).toContain("还没有配置");
   });
 
   it("可以并存多套：新建 → 两行；点另一行切换「使用中」", () => {
-    goCat(1);
+    goCat(2);
     const sel = host.querySelector<HTMLSelectElement>("#set-llm-new")!;
     act(() => {
       sel.value = "https://api.deepseek.com";
@@ -350,7 +447,7 @@ describe("大模型配置档案", () => {
   });
 
   it("删除当前配置：行消失、凭据栏清空、不再有「使用中」", () => {
-    goCat(1);
+    goCat(2);
     act(() => host.querySelector<HTMLButtonElement>(".prof-del")!.click());
     expect(host.querySelectorAll(".prof").length).toBe(0);
     expect(pane().textContent).toContain("已删除当前配置");
@@ -358,7 +455,7 @@ describe("大模型配置档案", () => {
   });
 
   it("厂商预设不再是并行的下拉（翻译源与预设重复的问题）", () => {
-    goCat(1);
+    goCat(2);
     // 旧结构里有个 id="set-llm-preset" 的下拉，选中即覆盖 baseUrl
     expect(host.querySelector("#set-llm-preset")).toBeNull();
     // 预设改成了「新建配置」的模板入口
@@ -366,7 +463,7 @@ describe("大模型配置档案", () => {
   });
 
   it("拉取模型：清单写进当前档案并随关闭落盘，模型名可下拉选用", async () => {
-    goCat(1);
+    goCat(2);
     // 预设里正好含 deepseek-*，所以这里用一批「只可能来自拉取」的名字来断言
     const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find((b) =>
       (b.textContent ?? "").includes("拉取模型"),
@@ -393,7 +490,7 @@ describe("大模型配置档案", () => {
   });
 
   it("「保存此配置」当场落盘（不等关窗），并保留其它套档案", async () => {
-    goCat(1);
+    goCat(2);
     const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
     const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find(
       (b) => b.textContent === "保存此配置",
@@ -413,14 +510,14 @@ describe("快捷键页", () => {
   // 这里钉住「说明足够短」这个前提；CSS 侧另有 `.set-head-row > .modal-btn`
   // 的 nowrap/flex:none 兜底——两道保险，任一道松了都不会退化。
   it("说明压在一行内，不会把「恢复默认」挤成两行", () => {
-    goCat(2);
+    goCat(3);
     const head = pane().querySelector(".set-head-row")!;
     expect(head.querySelector(".set-sec-desc")!.textContent!.length).toBeLessThanOrEqual(24);
     expect(head.querySelector(".modal-btn")!.textContent).toBe("恢复默认");
   });
 
   it("全部快捷键都在，且都是统一宽度的键位框", () => {
-    goCat(2);
+    goCat(3);
     const boxes = Array.from(host.querySelectorAll(".hk-box"));
     // 可自定义的全表 + 固定的控件键
     expect(host.querySelectorAll("[id^='set-hk-']").length).toBe(HOTKEYS.length);
@@ -429,7 +526,7 @@ describe("快捷键页", () => {
   });
 
   it("生效值：录过的用用户值，没录过的回落到出厂默认", () => {
-    goCat(2);
+    goCat(3);
     expect(host.querySelector("#set-hk-original")!.textContent).toBe("Ctrl+1");
     // SEED 里 translation 是空串 = 用户主动禁用，不回填默认
     expect(host.querySelector("#set-hk-translation")!.textContent).toBe("未设置");
@@ -438,14 +535,14 @@ describe("快捷键页", () => {
   });
 
   it("每条快捷键一行、名称在左键位在右，行间靠 .setti 的细线分隔", () => {
-    goCat(2);
+    goCat(3);
     const row = host.querySelector("#set-hk-save")!.closest(".setti")!;
     expect(row.querySelector(".setti-label")!.textContent).toBe("保存文档");
     expect(row.querySelector(".setti-ctl")!.contains(host.querySelector("#set-hk-save"))).toBe(true);
   });
 
   it("「恢复默认」把整表写回出厂值", () => {
-    goCat(2);
+    goCat(3);
     const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find(
       (b) => b.textContent === "恢复默认",
     )!;
@@ -457,7 +554,7 @@ describe("快捷键页", () => {
   });
 
   it("录制：按下组合键写入草稿并回显；裸字母被拒并给出说明", () => {
-    goCat(2);
+    goCat(3);
     const box = host.querySelector<HTMLButtonElement>("#set-hk-italic")!;
     act(() => box.click());
     expect(box.textContent).toBe("按下快捷键…");
@@ -473,7 +570,7 @@ describe("快捷键页", () => {
   });
 
   it("Meta(Win) 组合当场拒绝，不写进配置", () => {
-    goCat(2);
+    goCat(3);
     act(() => host.querySelector<HTMLButtonElement>("#set-hk-italic")!.click());
     press({ code: "KeyJ", key: "j", metaKey: true });
     expect(pane().textContent).toContain("Meta(Win) 键不受支持");
@@ -482,22 +579,20 @@ describe("快捷键页", () => {
     expect(host.querySelector("#set-hk-italic")!.textContent).toBe("Ctrl+I");
   });
 
-  it("冲突的键位框会被标出来", () => {
+  it("冲突的键位框会被标出来", async () => {
     act(() => root.unmount());
     // italic 抢了 save 的默认键 Ctrl+S → 两项都该被标红
     seed({ hotkeys: { ...SEED.hotkeys, italic: "Ctrl+S" } });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
-    goCat(2);
+    await renderModal();
+    goCat(3);
     expect(host.querySelector("#set-hk-italic")!.className).toContain("bad");
     expect(host.querySelector("#set-hk-save")!.className).toContain("bad");
     expect(pane().textContent).toContain("快捷键冲突");
   });
 
   it("控件自带键单独一组、只读", () => {
-    goCat(2);
+    goCat(3);
     expect(pane().textContent).toContain("控件快捷键（固定）");
     const ro = host.querySelectorAll(".hk-box.ro");
     expect(ro.length).toBeGreaterThan(0);
@@ -516,12 +611,14 @@ describe("其余分类", () => {
     expect(seal.getAttribute("aria-hidden")).toBe("true");
     expect(navs().some((b) => b.contains(seal))).toBe(false);
     expect(nav.firstElementChild).toBe(seal);
-    // 左栏文本 = 「青」+ 各分类名，中间**没有**任何附加说明文字
-    expect(nav.textContent).toBe("青" + navs().map((b) => b.textContent).join(""));
+    // 左栏文本 = 「青」+ 各分类名 + 底端一键恢复按钮（Task 12，功能按钮不是附加说明），
+    // 中间**没有**任何多余文字
+    const resetTxt = nav.querySelector(".set-nav-reset")!.textContent;
+    expect(nav.textContent).toBe("青" + navs().map((b) => b.textContent).join("") + resetTxt);
   });
 
   it("数据与维护：清除缓存 + 打开缓存目录都在；目录显示为环境变量形态", () => {
-    goCat(3);
+    goCat(4);
     const labels = Array.from(pane().querySelectorAll(".modal-btn")).map((b) => b.textContent ?? "");
     expect(labels).toContain("清除翻译缓存");
     expect(labels.some((t) => t.includes("打开缓存目录"))).toBe(true);
@@ -541,7 +638,7 @@ describe("其余分类", () => {
       opened.push(u);
     });
 
-    goCat(4);
+    goCat(5);
     expect(host.querySelector(".about-seal")!.textContent).toBe("青");
     expect(host.querySelector(".about-name")!.textContent).toBe("青鸟 Markdown");
     expect(host.querySelector(".about-ver")!.textContent).toMatch(/^v\d+\.\d+\.\d+/);
@@ -557,8 +654,8 @@ describe("其余分类", () => {
     spy.mockRestore();
   });
 
-  it("五个分类逐个点开都能渲染出内容，高亮跟着走", () => {
-    const markers = ["配色", "翻译源", "快捷键", "清除翻译缓存", "青鸟 Markdown"];
+  it("六个分类逐个点开都能渲染出内容，高亮跟着走", () => {
+    const markers = ["正文宽度", "配色", "翻译源", "快捷键", "清除翻译缓存", "青鸟 Markdown"];
     markers.forEach((marker, i) => {
       goCat(i);
       expect(navs()[i]!.className).toContain("on");
@@ -567,14 +664,12 @@ describe("其余分类", () => {
     });
   });
 
-  it("设置未加载时不炸，给出提示", () => {
+  it("设置未加载时不炸，给出提示", async () => {
     // 必须重挂：draft 是挂载那一刻的快照，settings 事后变 null 不影响已渲染实例
     act(() => root.unmount());
     useSettingsStore.setState({ settings: null });
     root = createRoot(host);
-    act(() => {
-      root.render(<SettingsModal />);
-    });
+    await renderModal();
     expect(host.textContent).toContain("设置尚未加载");
   });
 });

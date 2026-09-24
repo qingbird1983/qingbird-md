@@ -34,7 +34,14 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "show" => wake_main_window(app),
-            "capture" => trigger_capture(app),
+            // 「截图翻译」总开关门控（与 hotkeys.rs 的注册门控同源，都读
+            // settings.capture_enabled）。本次会话内托盘勾选态可能与设置面板
+            // 短暂不同步（CheckMenuItem 构造时读盘），下次启动收敛——已接受。
+            "capture" => {
+                if storage::load_settings().capture_enabled {
+                    trigger_capture(app);
+                }
+            }
             "autostart" => toggle_autostart(app, &autostart_item),
             // 主动退出不保留休眠草稿：用户的意图是结束，不该在下次冷启动
             // 冒出旧内容（休眠中退出时磁盘上可能还留着一份）。

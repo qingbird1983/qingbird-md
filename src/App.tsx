@@ -14,11 +14,13 @@ import OutlinePanel from "./components/OutlinePanel";
 import ReviewPanel from "./components/ReviewPanel";
 import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
+import CloseAskDialog from "./components/CloseAskDialog";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/ToastContainer";
 import { PanelResizer } from "./components/PanelResizer";
 import { PanelHandle } from "./components/PanelHandle";
 import { runBootIntro } from "./lib/bootIntro";
+import { listenCloseRequested } from "./lib/ipc";
 import { INTRO_FROM_WIDTH, INTRO_ANIM_MS } from "./stores/useUiStore";
 import { useAppHotkeys } from "./hooks/useAppHotkeys";
 import { listenHibernateOnce } from "./hooks/useHibernate";
@@ -44,6 +46,9 @@ function App() {
     void useTranslationStore.getState().listenPartial();
     void useTranslationStore.getState().listenLookupDelta();
     void listenHibernateOnce();
+    // Task 11 关窗询问：close_action=ask 时后端拦下关闭请求后广播
+    // close-requested，这里唤起询问弹窗（与 listenHibernateOnce 同样只挂一次）。
+    void listenCloseRequested(() => useUiStore.getState().setCloseAskOpen(true));
   }, []);
 
   useEffect(
@@ -73,6 +78,7 @@ function App() {
   const reviewSide = useUiStore((s) => s.reviewSide);
   const reviewWidth = useUiStore((s) => s.reviewWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const closeAskOpen = useUiStore((s) => s.closeAskOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const introPhase = useUiStore((s) => s.introPhase);
   const toggleOutline = useUiStore((s) => s.toggleOutline);
@@ -262,6 +268,10 @@ function App() {
       <SelectionPopup />
       {/* T26 设置弹窗：ui.settingsOpen 门控，条件挂载保证每次打开都是新草稿 */}
       {settingsOpen && <SettingsModal />}
+      {/* Task 11 关窗询问框：ui.closeAskOpen 门控，条件挂载（同 SettingsModal）
+          保证每次弹出都是全新勾选态——remember 绝不跨开合残留；
+          close-requested 事件唤起；勾选「记住」直接落 close_action 不再弹框 */}
+      {closeAskOpen && <CloseAskDialog />}
       {/* T28 命令面板：ui.commandPaletteOpen 门控，条件挂载保证每次打开都是全新查询 */}
       {paletteOpen && <CommandPalette />}
       {/* T27 toast 容器：fixed 定位，随应用生命周期挂载 */}

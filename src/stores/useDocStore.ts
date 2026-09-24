@@ -75,6 +75,7 @@ export const useDocStore = create<DocState>()((set, get) => {
       const existing = get().tabs.find((t) => t.path === path);
       if (existing) {
         get().switchTab(existing.id);
+        useRecentStore.getState().push(path, existing.name); // 重开命中也登记置顶——修 2026-09-24「达上限后列表冻结」
         return;
       }
       // 打开时就按当前方向首渲：parse 里的 data-bi 占号要跟随后续翻译的同方向。
@@ -99,8 +100,7 @@ export const useDocStore = create<DocState>()((set, get) => {
           htmlCache: { contentKey: d.content, target, result: d.parse },
         };
         set((s) => commit([...s.tabs, tab], tab.id));
-        // 最近打开文档登记：这里是所有「按路径打开」的唯一漏斗，记在这儿才不漏
-        // （树点击 / Ctrl+O / 命令面板 / 文件关联 / 休眠交接 / 欢迎页 / 菜单）。
+        // 最近打开登记：openTab 是所有「按路径打开」的唯一漏斗（树点击 / Ctrl+O / 命令面板 / 文件关联 / 休眠交接 / 欢迎页 / 菜单），记在这儿才不漏。
         useRecentStore.getState().push(path, d.name);
       } catch (e) {
         useUiStore.getState().addToast("error", `打开失败：${errText(e)}`);

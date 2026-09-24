@@ -94,7 +94,6 @@
   font-weight: 700;
   line-height: 1;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 1px 3px rgba(179, 72, 58, 0.3);
-  transform: rotate(-3deg);
   transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
 }
 
@@ -113,7 +112,7 @@
 .seal-btn:hover .seal-face,
 .seal-btn:focus-visible .seal-face {
   opacity: 0;
-  transform: rotate(0deg) scale(0.85);
+  transform: scale(0.85);
 }
 
 .seal-btn:hover .seal-ico,

@@ -34,6 +34,47 @@ pub fn get_user_data_dir() -> String {
     storage::user_data_dir().to_string_lossy().into_owned()
 }
 
+/// 设置面板「开机自启」开关：apply 到 autostart 插件 + 落盘（插件为即时权威，
+/// settings.autostart 为持久化权威——与 tray.rs::toggle_autostart 同口径，
+/// 只是触发方从托盘菜单换成前端）。
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let al = app.autolaunch();
+    if enabled {
+        al.enable()
+    } else {
+        al.disable()
+    }
+    .map_err(|e| e.to_string())?;
+    let mut s = storage::load_settings();
+    s.autostart = enabled;
+    storage::save_settings(&s)
+}
+
+/// 关窗询问弹窗的回答：按选择执行「隐藏到托盘」或「退出应用」。
+#[tauri::command]
+pub fn apply_close_decision(app: AppHandle, decision: String) {
+    match decision.as_str() {
+        "exit" => crate::window_boot::quit_app(&app),
+        _ => crate::window_boot::to_tray(&app),
+    }
+}
+
+/// 一键恢复全局默认设置（设置面板左下角）：Settings 整包回出厂值，
+/// 开机自启同步关掉（插件是即时权威，别留一个盘外还活着的副作用），
+/// 热键重注册、广播收敛各窗口。不清缓存/最近打开——那是数据不是设置。
+#[tauri::command]
+pub fn reset_settings(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let _ = app.autolaunch().disable(); // 失败不阻断：盘上 autostart 已回 false，下次启动自正
+    let s = storage::Settings::default();
+    storage::save_settings(&s)?;
+    hotkeys::sync(&app, &s);
+    let _ = app.emit("settings-updated", storage::settings_broadcast_payload(&s));
+    Ok(())
+}
+
 /// 数据目录的**显示**形态（`%APPDATA%\qingbird-md`）——给界面文案用。
 /// 与 `get_user_data_dir` 分开是有意的：那个返回的是可执行的真路径
 /// （`reveal_path` 直接吃它），这个只给人看。
