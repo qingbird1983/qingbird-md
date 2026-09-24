@@ -9,9 +9,11 @@
 //   于是「忘了点保存」这种事故从设计上就不存在了。
 //
 // 两种语义，别混：
-//   ① 即时生效类（「外观」页：明暗 / 配色 / 正文宽度；「翻译」页：翻译方向）
-//      ——点即写盘，不进草稿。明暗与配色走 useSettingsStore.save；正文宽度是纯
-//      UI 偏好，走 useUiStore + localStorage（不进 Rust 设置文件）；翻译方向必须
+//   ① 即时生效类（「常规」页：正文宽度 / 层级引线 / 导出重排版；「外观」页：
+//      明暗 / 配色；「翻译」页：翻译方向）
+//      ——点即写盘，不进草稿。明暗 / 配色 / 导出重排版走 useSettingsStore.save；
+//      正文宽度与层级引线是纯 UI 偏好，走 useUiStore + localStorage（不进 Rust
+//      设置文件）；翻译方向必须
 //      走 useDocStore.setTranslateTarget（它带索引空间 reset + 重译，直调
 //      useSettingsStore.setTarget 会留下"方向变了、旧译文还在"的错位态）。
 //   ② 草稿类（翻译源 / 凭据 / 快捷键 / 划词 / 大模型档案）——改动进本地 draft，
@@ -24,10 +26,10 @@
 // 安全：凭据输入框一律 password 型（secret 字段），绝不打印 / toast 任何载荷。
 //
 // （P2-8c 拆分）草稿三件套与关窗落盘在 hooks/useSettingsDraft，大模型档案
-// CRUD 在 hooks/useLlmProfiles，快捷键录制在 hooks/useHotkeyRecorder；五个
+// CRUD 在 hooks/useLlmProfiles，快捷键录制在 hooks/useHotkeyRecorder；六个
 // 分类的详情在 components/settings/*Tab.tsx（JSX 逐字）。本文件只留导航、
-// 搜索、即时生效类订阅与跨页共享的临时状态（pvMode 等），并承载可复用的
-// Bar / SwitchRow 小件（不改动）。
+// 搜索、即时生效类订阅与跨页共享的临时状态（pvMode 等）；可复用的
+// Bar / SwitchRow 小件见 components/settings/SettingsParts.tsx（2026-09-24 迁出）。
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -36,8 +38,7 @@ import {
   Keyboard,
   Languages,
   Palette as PaletteIcon,
-  Search,
-  X,
+  SlidersHorizontal,
 } from "lucide-react";
 import Modal from "./Modal";
 import { api } from "../lib/ipc";
@@ -47,6 +48,8 @@ import { errText, useUiStore } from "../stores/useUiStore";
 import { useSettingsDraft } from "../hooks/useSettingsDraft";
 import { useLlmProfiles } from "../hooks/useLlmProfiles";
 import { useHotkeyRecorder } from "../hooks/useHotkeyRecorder";
+import { Bar } from "./settings/SettingsParts";
+import GeneralTab from "./settings/GeneralTab";
 import LookTab from "./settings/LookTab";
 import TranslateTab, { groupOf, type ProvGroup } from "./settings/TranslateTab";
 import HotkeysTab from "./settings/HotkeysTab";
@@ -54,14 +57,20 @@ import DataTab from "./settings/DataTab";
 import AboutTab from "./settings/AboutTab";
 
 /** 左栏大分类。id 同时也是「当前页」的唯一键。 */
-type CatId = "look" | "translate" | "reading" | "data" | "about";
+type CatId = "general" | "look" | "translate" | "reading" | "data" | "about";
 
 const CATS: Array<{ id: CatId; label: string; icon: typeof PaletteIcon; keys: string[] }> = [
+  {
+    id: "general",
+    label: "常规",
+    icon: SlidersHorizontal,
+    keys: ["常规", "正文宽度", "宽度", "列表", "引线", "导出", "重排", "开机自启", "截图", "关闭", "托盘"],
+  },
   {
     id: "look",
     label: "外观",
     icon: PaletteIcon,
-    keys: ["明暗", "主题", "深浅", "系统", "配色", "纸色", "正文宽度", "宽度", "语种"],
+    keys: ["明暗", "主题", "深浅", "系统", "配色", "纸色", "语种"],
   },
   {
     id: "translate",
@@ -104,16 +113,14 @@ export default function SettingsModal() {
   const setTheme = useSettingsStore((s) => s.setTheme);
   const palette = useSettingsStore((s) => s.palette);
   const setPalette = useSettingsStore((s) => s.setPalette);
-  const contentWidth = useUiStore((s) => s.contentWidth);
-  const customWidth = useUiStore((s) => s.customWidth);
-  const setContentWidth = useUiStore((s) => s.setContentWidth);
+  // 正文宽度/层级引线/导出重排版归「常规」页（GeneralTab 自取 store，不经这里）
   // 翻译方向同属「点即生效」：它要连带 reset 索引空间 + 重译，所以只能走
   // `useDocStore.setTranslateTarget`（`useSettingsStore.setTarget` 只负责落盘，
   // 直调会造出「方向变了、旧译文还在」的错位态，见那个 store 的注释）。
   const translateTarget = useSettingsStore((s) => s.target);
 
   // ---- 导航 + 搜索 ----
-  const [cat, setCat] = useState<CatId>("look");
+  const [cat, setCat] = useState<CatId>("general");
   const [query, setQuery] = useState("");
 
   const [metas, setMetas] = useState<ProviderInfo[]>([]);
@@ -317,6 +324,8 @@ export default function SettingsModal() {
               <div className="set-empty">没有找到与「{query.trim()}」相关的设置项。</div>
             )}
 
+            {activeCat === "general" && <GeneralTab />}
+
             {activeCat === "look" && (
               <LookTab
                 theme={theme}
@@ -325,9 +334,6 @@ export default function SettingsModal() {
                 setPalette={setPalette}
                 pvMode={pvMode}
                 setPvMode={setPvMode}
-                contentWidth={contentWidth}
-                customWidth={customWidth}
-                setContentWidth={setContentWidth}
               />
             )}
 
@@ -384,71 +390,6 @@ export default function SettingsModal() {
         </div>
       </div>
     </Modal>
-  );
-}
-
-/** 详情栏顶部的工具条：胶囊搜索框 + 关闭叉。
- *  它长在 .set-main 里面而不是横跨整框——用户要的「分割线只占右边宽度、
- *  不通到左边」就是靠这条 border-bottom 落在右栏容器上实现的。 */
-export function Bar({
-  query,
-  setQuery,
-  onClose,
-}: {
-  query: string;
-  setQuery: (v: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="set-bar">
-      <div className="set-search">
-        <Search size={14} />
-        <input
-          type="search"
-          value={query}
-          placeholder="搜索设置项"
-          aria-label="搜索设置项"
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      <button type="button" className="set-x" onClick={onClose} aria-label="关闭设置" title="关闭（改动自动保存）">
-        <X size={16} />
-      </button>
-    </div>
-  );
-}
-
-/** 统一的「左名称+说明 / 右胶囊开关」行（划词翻译等布尔项）。 */
-export function SwitchRow({
-  label,
-  desc,
-  checked,
-  onChange,
-}: {
-  label: string;
-  desc?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="setti">
-      <div className="setti-info">
-        <div className="setti-label">{label}</div>
-        {desc && <div className="setti-desc">{desc}</div>}
-      </div>
-      <div className="setti-ctl">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          aria-label={label}
-          className={`sw${checked ? " on" : ""}`}
-          onClick={() => onChange(!checked)}
-        >
-          <span className="sw-thumb" />
-        </button>
-      </div>
-    </div>
   );
 }
 

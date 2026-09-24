@@ -112,7 +112,8 @@ describe("层级引线接线", () => {
   });
 
   it("设置面板有开关且绑定 store（纯外观偏好，不走草稿/不进 Rust 设置）", () => {
-    const tab = read("../components/settings/LookTab.tsx");
+    // 2026-09-24 分类重整：这一节随「层级引线」一起从 LookTab 迁到 GeneralTab
+    const tab = read("../components/settings/GeneralTab.tsx");
     expect(tab, "设置面板缺开关 → 用户无法关闭").toContain("SwitchRow");
     expect(tab).toContain("层级引线");
     expect(tab).toContain("useUiStore((s) => s.listGuide)");

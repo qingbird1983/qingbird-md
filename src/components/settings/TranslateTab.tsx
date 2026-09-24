@@ -6,7 +6,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { LlmProfile, ProviderInfo, Settings, TargetLang } from "../../types/ipc";
 import { useDocStore } from "../../stores/useDocStore";
 import { LLM_PRESETS } from "../../hooks/useLlmProfiles";
-import { SwitchRow } from "../SettingsModal";
+import { SwitchRow } from "./SettingsParts";
 
 /** 大模型接口协议。**只有 OpenAI 兼容这一种真能用**；Anthropic 先占位。
  *
@@ -338,7 +338,8 @@ export default function TranslateTab({
         </section>
       )}
 
-      {/* 划词翻译归在本页（它复用上面这份翻译凭据，和快捷键不是一类事） */}
+      {/* 划词翻译归在本页（它复用上面这份翻译凭据，和快捷键不是一类事）；
+          「导出时重排版」已迁去「常规」页并改为点即生效（2026-09-24） */}
       <section className="set-sec">
         <SwitchRow
           label="划词翻译"
@@ -346,14 +347,6 @@ export default function TranslateTab({
           checked={draft.selection_translate}
           onChange={(v) =>
             setDraft((d) => (d ? { ...d, selection_translate: v } : d))
-          }
-        />
-        <SwitchRow
-          label="导出时重排版"
-          desc="另存为 .md 时对译文施加确定性排版：中英间距、标点全/半角、省略号、破折号。只影响导出文件，不改屏幕上的译文。"
-          checked={draft.relayout_on_export}
-          onChange={(v) =>
-            setDraft((d) => (d ? { ...d, relayout_on_export: v } : d))
           }
         />
       </section>
