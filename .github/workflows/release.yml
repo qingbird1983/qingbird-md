@@ -30,7 +30,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: pnpm
+          # 不用 cache: pnpm：pnpm 9 对本仓库的 pnpm-workspace.yaml（仅 allowBuilds，无 packages）
+          # 在 `store path` 阶段即报 packages field missing；Node 依赖缓存收益小，直接跳过
 
       # dtolnay/rust-toolchain 的 "stable" 是分支而非 tag，pin 分支头快照
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-19
@@ -112,6 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      checks: write  # audit-check 上报 check-run 需要；缺了报 Resource not accessible by integration
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
