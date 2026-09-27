@@ -22,10 +22,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 本仓库 pnpm-only（lockfileVersion 9.0）；setup-node 的 cache: pnpm 依赖本步先行
+      # 本仓库 pnpm-only，lockfileVersion 9.0；本地全局 pnpm 11.5.3 实测安装正常
+      # （pnpm 9 会因 pnpm-workspace.yaml 仅含 allowBuilds 而在 store path / install 即炸）
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
-          version: 9
+          version: 11
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
