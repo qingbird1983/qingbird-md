@@ -22,19 +22,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 本仓库 pnpm-only（lockfileVersion 9.0）；setup-node 的 cache: pnpm 依赖本步先行
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
-          cache: npm
+          node-version: 22
+          cache: pnpm
 
       # dtolnay/rust-toolchain 的 "stable" 是分支而非 tag，pin 分支头快照
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-19
 
+      # cargo workspace 根在仓库根（target/ 在根，非 src-tauri/target/）→ 用默认 workspaces
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Resolve tag
         id: tag
@@ -73,10 +77,10 @@ jobs:
             --changelog CHANGELOG.md \
             --output "${{ runner.temp }}/release-notes.md"
 
+      # 与本地发布流程一致（PowerShell subprocess 不套 PATHEXT 的坑只在本机 agent 环境）
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
-        with:
-          tauriScript: npx tauri
+        shell: bash
+        run: npx tauri build
 
       - name: Rename installer to ASCII filename
         shell: bash
@@ -84,7 +88,8 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
-          cd src-tauri/target/release/bundle/nsis
+          # bundle 产物在仓库根 target/（cargo workspace 根），不是 src-tauri/target/
+          cd target/release/bundle/nsis
           for f in *.exe; do
             [ -f "$f" ] || continue
             mv "$f" "qingbird-md-setup-${VERSION}-x64.exe"
@@ -97,7 +102,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           body_path: ${{ runner.temp }}/release-notes.md
           files: |
-            src-tauri/target/release/bundle/nsis/qingbird-md-setup-*.exe
+            target/release/bundle/nsis/qingbird-md-setup-*.exe
           fail_on_unmatched_files: true
           generate_release_notes: false
 
