@@ -1,0 +1,14 @@
+# cargo-audit 项目级豁免配置（CI 的 rustsec/audit-check 在仓库根调 `cargo audit --file Cargo.lock` 时读取）。
+# 原则：只豁免「实际攻击面不成立」的条目，且必须写明理由与复核条件；真漏洞一律升级修复不豁免。
+
+[advisories]
+ignore = [
+    # quick-xml 0.28.2 两条（RUSTSEC-2026-0194 属性重复检查二次方复杂度 / RUSTSEC-2026-0195
+    # namespace 声明无界分配 DoS）：0.28.2 仅被 Linux Wayland 构建链引入
+    # （wayland-scanner 0.30.1 ← wayland-client/protocols 0.30.x ← winit/tao 上游，非本项目直接依赖），
+    # 且 quick-xml 在该链路里只做**编译期**本地 Wayland 协议 XML 的代码生成解析，
+    # 不解析任何不可信/网络输入 —— 漏洞的不可信输入前提不成立。
+    # 复核条件：tauri/winit 上游升级使 wayland 0.30 链从 Cargo.lock 消失后，移除本条并验证 audit 变绿。
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

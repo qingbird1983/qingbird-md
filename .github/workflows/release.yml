@@ -110,14 +110,21 @@ jobs:
 
   # SEC-6：依赖漏洞扫描。独立 job、与 release 并行，不阻塞发布；
   # 有漏洞时本 job 变红以供查看。扫描对象是仓库根的 Cargo.lock。
+  # 豁免策略在仓库根 audit.toml（先 cp 到 ~/.cargo/——cargo-audit 0.22 只读全局配置，
+  # 不读 CWD；本机已实测 0.22.2：CWD/audit.toml 不生效，~/.cargo/audit.toml 生效）。
   cargo-audit:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write  # audit-check 上报 check-run 需要；缺了报 Resource not accessible by integration
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # 0.22.2 与本机实测同版本；audit-check action 封装不读项目豁免配置，故改为直跑
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Apply project audit policy
+        run: cp audit.toml ~/.cargo/audit.toml
+
+      - name: Run cargo audit
+        run: cargo audit --file Cargo.lock

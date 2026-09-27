@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-09-27
+
+### Security
+
+- 升级 rustls 0.23.43 → 0.23.45（RUSTSEC-2026-0285：TLS 1.3 握手消息可跨加密级别边界被错误接受；本应用的 LLM 网络请求走此库）。
+- 依赖审计建立豁免策略（`audit.toml`）：quick-xml 0.28.2 的两条通告（RUSTSEC-2026-0194/0195）仅由 Linux Wayland 构建链引入、仅做编译期本地协议 XML 的代码生成解析、不解析任何不可信输入——豁免并在配置内注明移除条件；rustls 这类真漏洞一律升级、不豁免。
+- CI 依赖审计 job 从 audit-check action 改为直跑 cargo-audit 0.22.2 并安装项目豁免配置（action 封装读不到项目级配置）。
+
 ## [0.2.6] - 2026-09-27
 
 ### Fixed
