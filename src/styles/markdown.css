@@ -216,10 +216,20 @@ body[data-theme="dark"] .markdown-body {
 }
 
 /* 圆点：中心恒在 --md-marker-x（与引线同一条中线）。
-   尺寸/取色刻意对齐原生的 disc：0.387em 直径、currentColor —— 视觉上换不掉。 */
+   尺寸刻意对齐原生的 disc（0.387em 直径）—— 视觉上换不掉。
+   取色走 --md-marker（淡墨），不再用满墨 currentColor：正文墨的点是给「读」用的，
+   不是给「看结构」用的，压到正文同深会把缩进槽填得太实。2026-09-27 用户反馈降淡。 */
 .markdown-body ul > li:not(.task) {
   position: relative;
   list-style: none;
+  /* 标记墨 = 本项文字色向纸面淡出 55%，圆点与层级引线共用这一枚。
+     两点为什么这样写：
+     ① 混向 `var(--bg)` 而不是留 alpha —— 引线 1px 正好穿过圆点圆心，半透明色在
+        重叠处会二次混色，点心里留下一道更深的竖印。混出实色，线叠点永远同色。
+     ② 声明在 `li` 上而不是 `.markdown-body` 上 —— 自定义属性按声明元素的
+        `currentColor` 求值，写在这里，引用块里的点就跟引文墨（--md-quote-fg）淡，
+        写在外层就全体按正文墨定死。 */
+  --md-marker: color-mix(in srgb, currentColor 45%, var(--bg));
 }
 
 .markdown-body ul > li:not(.task)::before {
@@ -230,7 +240,7 @@ body[data-theme="dark"] .markdown-body {
   width: 0.387em;
   height: 0.387em;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--md-marker);
   transform: translate(-50%, -50%); /* 把「点」而不是「盒左上角」放到中线上 */
   pointer-events: none;
 }
@@ -296,20 +306,30 @@ body[data-theme="dark"] .markdown-body {
       逃逸量——即现有样式中最大的那档代码卡，再大就该重算这个值了。
       非末项多探出的一段与下一项自己的线**同 x 同色**，天然无缝。
    ③ 末项 `height` 只到自己的圆点：否则列表尾巴会垂一根多余的线头。
-   ④ 线心落在圆点中线上：与圆点同取 `--md-marker-x`。引线定位的是**左缘**，
-      故再左移半个线宽（0.5px，DPR 3 下正好 1.5 设备像素）让线心压到中线上。
-      取色与圆点同用 `currentColor`：同一枚墨，线不灰淡脱节。首项的线不再向上
-      出头——线头收在自己圆点的圆心（`top: 1em`，与 ::before 的圆心同值）。
+   ④ 线心落在圆点中线上：与圆点**同一套居中机制**——`left` 直接取 `--md-marker-x`，
+      再用 `transform: translateX(-50%)` 把自身挪回正中（圆点是 `translate(-50%, -50%)`）。
+      不要退回「左缘 = 中线 − 半线宽」那种手让法：Chrome 会把**未加 transform 的**
+      1px 矩形吸附到整设备像素列，而带 transform 的圆点走的是另一条不吸附的绘制路径，
+      于是「CSS 恒等式成立、屏幕上却差半像素」。实测（Playwright 逐像素量质心，
+      2026-09-27）：手让法在 dpr 1 / 1.25 / 1.5 / 2 下分别偏 **+0.443 / +0.439 /
+      +0.539 / +0.437 CSS px**，且偏的方向随该层缩进的小数位置翻转（同一文档里
+      一级偏右、二级偏左 —— 用户看到的「有的偏左有的偏右」）；改同机制后
+      |偏差| ≤ 0.008px。代价是 dpr=1 下线摊到相邻两列各半墨（发丝更软一档），
+      换来的是它与圆点永远同心 —— 总墨量不变。
+      取色与圆点同用 `--md-marker`（淡墨）：同一枚墨，线不灰淡脱节；且必须是
+      **实色**而非半透明——线从圆点圆心穿过，alpha 在重叠处会二次混色。
+      首项的线不再向上出头——线头收在自己圆点的圆心（`top: 1em`，与 ::before 同值）。
    ⑤ 任务项不画（`.task`）：勾选框自带边框与底色，穿线收益低；要串的是圆点。
    ⑥ 关掉时整段不生成——不是 `opacity: 0`，避免留一层可命中的透明靶子。 */
 .markdown-body:not(.no-list-guide) ul > li:not(.task)::after {
   content: "";
   position: absolute;
-  left: calc(var(--md-marker-x) - 0.5px);
+  left: var(--md-marker-x);
   top: 0;
   bottom: -1em;
   width: 1px;
-  background: currentColor;
+  background: var(--md-marker);
+  transform: translateX(-50%); /* 与圆点同一套居中机制：见上方要点④ */
   pointer-events: none;
 }
 

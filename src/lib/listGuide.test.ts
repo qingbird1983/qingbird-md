@@ -63,17 +63,25 @@ describe("层级引线接线", () => {
     expect(bodyOf(".markdown-body ul > li:not(.task)")).toContain("list-style: none");
   });
 
-  it("三个标记共线：左缘偏移 == 自身宽度的一半（改宽度不改偏移即变红）", () => {
+  it("三个标记共线：引线与圆点用同一套居中机制，勾选框左缘偏移恰为半盒宽", () => {
     const mx = /--md-marker-x:\s*(-?[\d.]+)em/.exec(bodyOf(".markdown-body"))?.[1];
     expect(mx, "缺 --md-marker-x（三者共同的中线）").toBeTruthy();
 
-    // 引线：定位的是左缘 → 左移半个线宽，线心才压在中线上
+    // 引线：**必须**与圆点同机制（left 取中线 + translateX(-50%) 自居中）。
+    // 写成「左缘 = 中线 − 半线宽」在 CSS 里同样成立，但 Chrome 会把未加 transform
+    // 的 1px 矩形吸附到整设备像素列，圆点却走 transform 的不吸附路径 → 屏幕上差
+    // 半像素，且方向随各层缩进的小数位置翻转（2026-09-27 用户报「有的偏左有的偏右」，
+    // 实测偏 +0.44~+0.54 CSS px）。故这里钉机制，不钉算式。
     const guide = bodyOf(GUIDE);
     const gw = Number(/width:\s*([\d.]+)px/.exec(guide)?.[1]);
     expect(Number.isFinite(gw) && gw > 0, `引线宽度读不到: ${guide}`).toBe(true);
-    expect(guide, "引线左缘必须是「中线 - 半线宽」，否则线心偏出圆点").toContain(
-      `left: calc(var(--md-marker-x) - ${gw / 2}px)`,
+    expect(guide, "引线 left 必须直接取中线（半线宽交给 transform，不手让）").toContain(
+      "left: var(--md-marker-x)",
     );
+    expect(guide, "引线必须 translateX(-50%) 自居中，否则与圆点不同路径、会差半像素").toContain(
+      "translateX(-50%)",
+    );
+    expect(guide).not.toMatch(/left:\s*calc\(var\(--md-marker-x\)\s*-/);
 
     // 勾选框：同理，左缘 = 中线 - 半盒宽
     const cb = bodyOf(".markdown-body li.task::before");
@@ -84,10 +92,22 @@ describe("层级引线接线", () => {
     );
   });
 
-  it("引线同色同墨：与圆点同为 currentColor，且首项线头挂在自己圆心", () => {
+  it("引线同色同墨：与圆点共用淡墨 --md-marker，且首项线头挂在自己圆心", () => {
+    // 「同色」是这里的不变量（线灰淡脱节就难看）；具体那枚墨多深可以调，
+    // 2026-09-27 用户反馈满墨 currentColor 太深 → 收进 --md-marker 一枚令牌。
     const guide = bodyOf(GUIDE);
-    expect(guide, "线必须与圆点同一枚墨色（currentColor），否则灰淡脱节").toContain(
-      "background: currentColor",
+    const dot = bodyOf(".markdown-body ul > li:not(.task)::before");
+    expect(guide, "线必须走 --md-marker").toContain("background: var(--md-marker)");
+    expect(dot, "圆点必须走 --md-marker").toContain("background: var(--md-marker)");
+    // 令牌本身：淡墨 = 本项文字色混向纸面，且**只声明在 li 上**（外层声明会让
+    // currentColor 按正文墨定死，引用块里的点就不跟引文淡了）。
+    const decl = bodyOf(".markdown-body ul > li:not(.task)");
+    expect(decl, "缺 --md-marker 令牌（圆点与引线共用的那枚淡墨）").toContain("--md-marker:");
+    expect(decl, "标记墨必须是淡墨：向纸面混色，不得退回满墨 currentColor 直接作色").toMatch(
+      /--md-marker:\s*color-mix\(in srgb,\s*currentColor\s+\d+%,\s*var\(--bg\)\)/,
+    );
+    expect(decl, "必须是实色而非 alpha——线穿过圆心，半透明会在重叠处二次混色").not.toMatch(
+      /--md-marker:[^;]*transparent/,
     );
     const first = bodyOf(`${GUIDE_LI}:first-child::after`);
     expect(first, "首项线头必须从自己圆点圆心（top: 1em，与 ::before 同值）起笔，不出头").toContain(
