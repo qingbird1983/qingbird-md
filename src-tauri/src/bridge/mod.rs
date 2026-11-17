@@ -18,8 +18,8 @@ mod worker;
 // lib.rs 以 `bridge::X` 注册 9 个命令（全仓 use 零改动约束）——经此处再导出
 // 保住旧路径。
 pub use commands::{
-    check_translation, export_translation, get_providers, llm_list_models, lookup_word,
-    render_translated, review_semantic, stop_translation, translate_document, translate_text,
+    export_translation, get_providers, render_translated, stop_translation, translate_document,
+    translate_text,
 };
 
 // `#[tauri::command]` 会为每个 pub 命令在定义模块内生成隐藏伴随宏（`__cmd__X`
@@ -28,13 +28,9 @@ pub use commands::{
 // lib.rs 的注册路径才能原样工作。
 #[doc(hidden)]
 pub use commands::{
-    __cmd__check_translation, __cmd__export_translation, __cmd__get_providers,
-    __cmd__llm_list_models, __cmd__lookup_word, __cmd__render_translated,
-    __cmd__review_semantic, __cmd__stop_translation, __cmd__translate_document,
-    __cmd__translate_text, __tauri_command_name_check_translation,
+    __cmd__export_translation, __cmd__get_providers, __cmd__render_translated,
+    __cmd__stop_translation, __cmd__translate_document, __cmd__translate_text,
     __tauri_command_name_export_translation, __tauri_command_name_get_providers,
-    __tauri_command_name_llm_list_models, __tauri_command_name_lookup_word,
-    __tauri_command_name_render_translated, __tauri_command_name_review_semantic,
-    __tauri_command_name_stop_translation, __tauri_command_name_translate_document,
-    __tauri_command_name_translate_text,
+    __tauri_command_name_render_translated, __tauri_command_name_stop_translation,
+    __tauri_command_name_translate_document, __tauri_command_name_translate_text,
 };

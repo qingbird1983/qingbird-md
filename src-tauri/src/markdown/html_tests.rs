@@ -8,11 +8,7 @@ use std::collections::HashMap;
 /// 而它们**本来就全是 zh 方向**。收成一个影子函数（局部定义优先于
 /// `use super::*` 的 glob 导入）后，测试读起来更清楚，生产调用点则仍然
 /// **被迫显式传方向**，不会出现"忘了传就用默认"的坑。
-fn render_html(
-    content: &str,
-    trans: &HashMap<usize, String>,
-    bilingual: bool,
-) -> ParseResult {
+fn render_html(content: &str, trans: &HashMap<usize, String>, bilingual: bool) -> ParseResult {
     super::render_html(content, trans, bilingual, TargetLang::Zh)
 }
 
@@ -29,8 +25,14 @@ fn render_html_dir(
 #[test]
 fn original_mode_renders_basic_markdown() {
     let r = render_html("# Ti\n\ntext **b**.", &HashMap::new(), false);
-    assert!(r.html.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#));
-    assert!(r.html.contains(r#"<strong><span data-ri="2">b</span></strong>"#));
+    assert!(
+        r.html
+            .contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#)
+    );
+    assert!(
+        r.html
+            .contains(r#"<strong><span data-ri="2">b</span></strong>"#)
+    );
     assert_eq!(r.outline.len(), 1);
     assert_eq!(r.outline[0].text, "Ti");
 }
@@ -71,11 +73,13 @@ fn bilingual_heading_and_paragraph_indexes_align() {
     m.insert(0usize, "中文标题".into());
     m.insert(1usize, "正文译文".into());
     let r = render_html("# Title\n\nBody text", &m, true);
-    assert!(r.html.contains("</h1>\n<div class=\"tr-box\">中文标题</div>"));
     assert!(
         r.html
-            .contains(r#"<p data-bi="1"><span data-ri="1">Body text</span></p><div class="tr-box">正文译文</div>"#)
+            .contains("</h1>\n<div class=\"tr-box\">中文标题</div>")
     );
+    assert!(r.html.contains(
+        r#"<p data-bi="1"><span data-ri="1">Body text</span></p><div class="tr-box">正文译文</div>"#
+    ));
 }
 
 #[test]
@@ -127,7 +131,11 @@ fn substituted_keeps_bold_wrapper_around_translated_run() {
 
 #[test]
 fn multicol_table_single_thead_row() {
-    let r = render_html("| a | b |\n| --- | --- |\n| 1 | 2 |", &HashMap::new(), false);
+    let r = render_html(
+        "| a | b |\n| --- | --- |\n| 1 | 2 |",
+        &HashMap::new(),
+        false,
+    );
     // Exactly one <tr> in thead, holding BOTH th cells ("a"/"b" 可翻译：
     // 开标签带 data-bi，内文为 data-ri span；"1"/"2" 不可翻译，td 无 data-bi).
     assert!(
@@ -193,8 +201,14 @@ fn unknown_lang_code_block_lines_newline_separated() {
     // 无 lang 时头栏标签回退 "text"。
     let r = render_html("```\nalpha\nbeta\n```", &HashMap::new(), false);
     assert!(r.html.contains(r#"<span class="code-lang">text</span>"#));
-    assert!(r.html.contains("<span class=\"ln\">1</span><span class=\"lc\">alpha\n</span></span>"));
-    assert!(r.html.contains(r#"<span class="ln">2</span><span class="lc">beta</span></span>"#));
+    assert!(
+        r.html
+            .contains("<span class=\"ln\">1</span><span class=\"lc\">alpha\n</span></span>")
+    );
+    assert!(
+        r.html
+            .contains(r#"<span class="ln">2</span><span class="lc">beta</span></span>"#)
+    );
     let body = r
         .html
         .split(r#"<pre class="code-block"><code style="--ln-digits:1">"#)
@@ -205,8 +219,10 @@ fn unknown_lang_code_block_lines_newline_separated() {
         .unwrap();
     assert_eq!(body.matches(r#"<span class="cl">"#).count(), 2);
     // 逐行 .lc 拼接即源码 alpha\nbeta（前端 codeTextFrom 的实现依据）
-    assert!(body.contains(r#"<span class="lc">alpha
-</span></span><span class="cl"><span class="ln">2</span><span class="lc">beta</span>"#));
+    assert!(body.contains(
+        r#"<span class="lc">alpha
+</span></span><span class="cl"><span class="ln">2</span><span class="lc">beta</span>"#
+    ));
 }
 
 #[test]
@@ -230,9 +246,11 @@ fn code_block_ln_digits_is_digit_count_not_line_count() {
 fn code_block_mermaid_emits_placeholder() {
     let r = render_html("```mermaid\ngraph TD\nA-->B\n```", &HashMap::new(), false);
     assert!(
-        r.html.contains(r#"<div class="mermaid" data-source="graph TD
+        r.html.contains(
+            r#"<div class="mermaid" data-source="graph TD
 A--&gt;B
-"></div>"#),
+"></div>"#
+        ),
         "mermaid block must emit data-source placeholder: {}",
         r.html
     );
@@ -242,7 +260,8 @@ A--&gt;B
 fn inline_dollar_math_emits_placeholder() {
     let r = render_html("Hello $x^2$ world", &HashMap::new(), false);
     assert!(
-        r.html.contains(r#"<span class="math inline" data-source="x^2"></span>"#),
+        r.html
+            .contains(r#"<span class="math inline" data-source="x^2"></span>"#),
         "inline math must emit inline placeholder: {}",
         r.html
     );
@@ -252,17 +271,21 @@ fn inline_dollar_math_emits_placeholder() {
 fn block_math_fenced_or_dollar_pair() {
     let r1 = render_html("```math\n\\sum_i\n```", &HashMap::new(), false);
     assert!(
-        r1.html.contains(r#"<div class="math block" data-source="\sum_i
-"></div>"#),
+        r1.html.contains(
+            r#"<div class="math block" data-source="\sum_i
+"></div>"#
+        ),
         "math fenced must emit block placeholder: {}",
         r1.html
     );
     let r2 = render_html("$$\n\\sum_i\n$$", &HashMap::new(), false);
     assert!(
         // pulldown 0.13 的 DisplayMath tex 保留 $$ 内侧的首尾换行
-        r2.html.contains(r#"<div class="math block" data-source="
+        r2.html.contains(
+            r#"<div class="math block" data-source="
 \sum_i
-"></div>"#),
+"></div>"#
+        ),
         "math dollar-pair must emit block placeholder: {}",
         r2.html
     );
@@ -310,16 +333,22 @@ fn display_math_standalone_and_inline_both_emit_placeholders() {
     let r1 = render_html("$$\n\\sum_i\n$$", &HashMap::new(), false);
     // pulldown 保留 $$ 内侧首尾换行到 data-source："\n\sum_i\n"
     assert!(
-        r1.html.contains("<div class=\"math block\" data-source=\"\n\\sum_i\n\"></div>"),
+        r1.html
+            .contains("<div class=\"math block\" data-source=\"\n\\sum_i\n\"></div>"),
         "standalone $$...$$ must upgrade to Block::Math and emit div: {}",
         r1.html
     );
-    assert!(!r1.html.contains("<p>"), "must not wrap in <p>: {}", r1.html);
+    assert!(
+        !r1.html.contains("<p>"),
+        "must not wrap in <p>: {}",
+        r1.html
+    );
 
     // (b) 行文中段：保留 paragraph 包裹，$$...$$ 部分按 inline span 渲染。
     let r2 = render_html("see $$x^2$$ here", &HashMap::new(), false);
     assert!(
-        r2.html.contains(r#"<span class="math inline" data-source="x^2"></span>"#),
+        r2.html
+            .contains(r#"<span class="math inline" data-source="x^2"></span>"#),
         "mid-paragraph $$...$$ must render as inline span: {}",
         r2.html
     );
@@ -384,19 +413,35 @@ fn footnote_renders_refs_and_end_section() {
     let r = render_html(md, &HashMap::new(), false);
     // 首个引用带锚点 id，后续引用复用编号但不重复 id
     assert!(
-        r.html.contains(
-            r##"<sup class="fn-ref" id="fnref-a"><a href="#fn-a">1</a></sup>"##
-        ),
+        r.html
+            .contains(r##"<sup class="fn-ref" id="fnref-a"><a href="#fn-a">1</a></sup>"##),
         "{}",
         r.html
     );
-    assert!(r.html.contains(r##"<sup class="fn-ref"><a href="#fn-a">1</a></sup>"##));
+    assert!(
+        r.html
+            .contains(r##"<sup class="fn-ref"><a href="#fn-a">1</a></sup>"##)
+    );
     // 定义聚合到文末脚注区
-    let tail = r.html.split(r#"<section class="footnotes">"#).nth(1).unwrap();
-    assert!(tail.contains(r#"<li id="fn-a"><span class="fn-num">1</span>"#), "{}", tail);
+    let tail = r
+        .html
+        .split(r#"<section class="footnotes">"#)
+        .nth(1)
+        .unwrap();
+    assert!(
+        tail.contains(r#"<li id="fn-a"><span class="fn-num">1</span>"#),
+        "{}",
+        tail
+    );
     assert!(tail.contains(r##"<a class="fn-back" href="#fnref-a""##));
     assert!(tail.contains("The note."));
-    assert!(!r.html.split("<section class=\"footnotes\">").next().unwrap().contains("The note."));
+    assert!(
+        !r.html
+            .split("<section class=\"footnotes\">")
+            .next()
+            .unwrap()
+            .contains("The note.")
+    );
 }
 
 #[test]
@@ -405,7 +450,12 @@ fn footnote_dangling_ref_renders_literal_label() {
     // pulldown-cmark 对未定义引用不发 FootnoteReference 事件：
     // `[^nope]` 按字面文本渲染（`[` 作潜在链接起始被劈成多个 Text run，
     // 对应多个 data-ri span，故逐片段断言）
-    assert!(r.html.contains(r#">[</span><span data-ri="2">^nope</span><span data-ri="3">]</span>"#), "{}", r.html);
+    assert!(
+        r.html
+            .contains(r#">[</span><span data-ri="2">^nope</span><span data-ri="3">]</span>"#),
+        "{}",
+        r.html
+    );
     assert!(!r.html.contains("fn-ref"), "{}", r.html);
     assert!(!r.html.contains("footnotes"));
 }
@@ -413,7 +463,12 @@ fn footnote_dangling_ref_renders_literal_label() {
 #[test]
 fn mark_renders_mark_element() {
     let r = render_html("==hi== now", &HashMap::new(), false);
-    assert!(r.html.contains("<mark><span data-ri=\"0\">hi</span></mark>"), "{}", r.html);
+    assert!(
+        r.html
+            .contains("<mark><span data-ri=\"0\">hi</span></mark>"),
+        "{}",
+        r.html
+    );
 }
 
 #[test]
@@ -421,9 +476,24 @@ fn table_alignment_styles() {
     let md = "| l | c | r |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |";
     let r = render_html(md, &HashMap::new(), false);
     // 居中/右对齐各出现在 th 与 td 上；左对齐（:---）不发 style
-    assert_eq!(r.html.matches("style=\"text-align:center\"").count(), 2, "{}", r.html);
-    assert_eq!(r.html.matches("style=\"text-align:right\"").count(), 2, "{}", r.html);
-    assert!(r.html.contains(r#"<th data-bi="0"><span data-ri="0">l</span></th>"#), "{}", r.html);
+    assert_eq!(
+        r.html.matches("style=\"text-align:center\"").count(),
+        2,
+        "{}",
+        r.html
+    );
+    assert_eq!(
+        r.html.matches("style=\"text-align:right\"").count(),
+        2,
+        "{}",
+        r.html
+    );
+    assert!(
+        r.html
+            .contains(r#"<th data-bi="0"><span data-ri="0">l</span></th>"#),
+        "{}",
+        r.html
+    );
 }
 
 #[test]
@@ -434,19 +504,33 @@ fn front_matter_renders_as_key_value_table() {
     let md = "---\nname: ask-matt\ndescription: Router over skills.\n\
               disable-model-invocation: true\n---\n\nBody";
     let r = render_html(md, &HashMap::new(), false);
-    assert!(r.html.contains("<table class=\"front-matter\"><tbody>"), "{}", r.html);
-    assert!(r.html.contains("<tr><th>name</th><td>ask-matt</td></tr>"), "{}", r.html);
     assert!(
-        r.html.contains("<tr><th>description</th><td>Router over skills.</td></tr>"),
+        r.html.contains("<table class=\"front-matter\"><tbody>"),
         "{}",
         r.html
     );
     assert!(
-        r.html.contains("<tr><th>disable-model-invocation</th><td>true</td></tr>"),
+        r.html.contains("<tr><th>name</th><td>ask-matt</td></tr>"),
         "{}",
         r.html
     );
-    assert!(!r.html.contains("---"), "分隔符是语法，不进渲染: {}", r.html);
+    assert!(
+        r.html
+            .contains("<tr><th>description</th><td>Router over skills.</td></tr>"),
+        "{}",
+        r.html
+    );
+    assert!(
+        r.html
+            .contains("<tr><th>disable-model-invocation</th><td>true</td></tr>"),
+        "{}",
+        r.html
+    );
+    assert!(
+        !r.html.contains("---"),
+        "分隔符是语法，不进渲染: {}",
+        r.html
+    );
     assert!(r.html.contains("Body"));
 }
 
@@ -457,7 +541,11 @@ fn front_matter_occupies_a_source_line_anchor() {
     // 分栏同步就按错行号找块了。
     let md = "---\ntitle: T\n---\n\nBody";
     let r = render_html(md, &HashMap::new(), false);
-    assert!(r.html.contains("<!--sl:1--><table class=\"front-matter\">"), "{}", r.html);
+    assert!(
+        r.html.contains("<!--sl:1--><table class=\"front-matter\">"),
+        "{}",
+        r.html
+    );
     // 正文段是可译块，故带 data-bi（恒占号）；这里只关心锚点行号落在 5
     assert!(r.html.contains("<!--sl:5--><p "), "{}", r.html);
     assert_eq!(
@@ -544,15 +632,30 @@ fn demo_doc_renders_mermaid_and_math_placeholders() {
     // 截图的取景对象）里那节「图表与公式」必须真能出占位符——它只是 markdown
     // 文本，改了围栏语言/公式写法就会静默退化成普通代码块与纯文本。
     // 路径按 CARGO_MANIFEST_DIR 定位，不依赖 cargo test 的调用目录。
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../docs/screenshots/demo.md");
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/screenshots/demo.md");
     let md = std::fs::read_to_string(&p)
         .unwrap_or_else(|e| panic!("读不到示例文档 {}: {e}", p.display()));
     let r = render_html(&md, &HashMap::new(), false);
-    assert_eq!(r.html.matches(r#"<div class="mermaid" data-source=""#).count(), 1);
-    assert!(r.html.contains("flowchart LR"), "mermaid 源码没进 data-source");
-    assert_eq!(r.html.matches(r#"<div class="math block" data-source=""#).count(), 1);
-    assert!(r.html.matches("math inline").count() >= 1, "行内公式应有占位符");
+    assert_eq!(
+        r.html
+            .matches(r#"<div class="mermaid" data-source=""#)
+            .count(),
+        1
+    );
+    assert!(
+        r.html.contains("flowchart LR"),
+        "mermaid 源码没进 data-source"
+    );
+    assert_eq!(
+        r.html
+            .matches(r#"<div class="math block" data-source=""#)
+            .count(),
+        1
+    );
+    assert!(
+        r.html.matches("math inline").count() >= 1,
+        "行内公式应有占位符"
+    );
 }
 
 #[test]
@@ -570,7 +673,10 @@ fn data_bi_parity_with_footnotes_and_marks() {
     }
     let blocks = crate::markdown::parse_blocks(md);
     let collected: Vec<usize> =
-        crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh).iter().map(|&(i, _)| i).collect();
+        crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh)
+            .iter()
+            .map(|&(i, _)| i)
+            .collect();
     assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
 }
 
@@ -585,7 +691,8 @@ fn reference_section_blocks_have_no_bi_anchor() {
     let r = render_html(md, &HashMap::new(), false);
     // 区段内段落无 data-bi 无 tr-box
     assert!(
-        r.html.contains(r#"<p><span data-ri="2">Smith 2020.</span></p>"#),
+        r.html
+            .contains(r#"<p><span data-ri="2">Smith 2020.</span></p>"#),
         "区段内段落无 data-bi 无 tr-box: {}",
         r.html
     );
@@ -597,7 +704,8 @@ fn reference_section_blocks_have_no_bi_anchor() {
         r.html
     );
     assert!(
-        r.html.contains(r#"<p data-bi="2"><span data-ri="4">Thanks.</span></p>"#),
+        r.html
+            .contains(r#"<p data-bi="2"><span data-ri="4">Thanks.</span></p>"#),
         "{}",
         r.html
     );
@@ -627,7 +735,10 @@ fn data_bi_sequence_matches_collect_translatable_with_skip() {
     }
     let blocks = crate::markdown::parse_blocks(md);
     let collected: Vec<usize> =
-        crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh).iter().map(|&(i, _)| i).collect();
+        crate::markdown::units::collect_translatable(&blocks, TargetLang::Zh)
+            .iter()
+            .map(|&(i, _)| i)
+            .collect();
     assert_eq!(rendered, collected, "渲染占号与收集索引必须逐位一致");
 }
 
@@ -679,10 +790,11 @@ fn zh_to_en_lockstep_holds_too() {
     for target in [TargetLang::Zh, TargetLang::En] {
         let r = render_html_dir(md, &HashMap::new(), false, target);
         let rendered_bi = data_bi_sequence(&r.html);
-        let collected_bi: Vec<usize> = crate::markdown::units::collect_translatable(&blocks, target)
-            .iter()
-            .map(|&(i, _)| i)
-            .collect();
+        let collected_bi: Vec<usize> =
+            crate::markdown::units::collect_translatable(&blocks, target)
+                .iter()
+                .map(|&(i, _)| i)
+                .collect();
         assert_eq!(
             rendered_bi, collected_bi,
             "{target:?} 方向下 渲染 data-bi 序列 与 collect_translatable 必须逐位一致"
@@ -698,4 +810,4 @@ fn zh_to_en_lockstep_holds_too() {
     let zh_ri = data_ri_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::Zh).html);
     let en_ri = data_ri_sequence(&render_html_dir(md, &HashMap::new(), false, TargetLang::En).html);
     assert_eq!(zh_ri, en_ri, "run 空间方向无关：占号只跟 walk 走");
-}
+}

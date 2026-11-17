@@ -21,8 +21,12 @@ export default function TitleBar() {
   // 启动动画起始态：工作区在屏幕上是 480 宽，标签条要跟那条可见分割线对齐，
   // 而不是跟 store 里已实测出的终态最小宽。开演那一帧二者一起切回，margin 与
   // 面板宽度共用 --panel-anim 过渡，天然同步滑回。
-  const introArmed = useUiStore((s) => s.introPhase) === "idle";
-  const effShowNav = introArmed || showNav;
+  const introPhase = useUiStore((s) => s.introPhase);
+  const introArmed = introPhase === "idle";
+  const introPlaying = introPhase === "playing";
+  // playing 期把侧栏视作收起，让标签条从 armed 的 480 位置随面板一起滑回 0，
+  // 而不是停在终态最小宽处、等动画播完再二次归位。
+  const effShowNav = !introPlaying && (introArmed || showNav);
   const effSidebarWidth = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
   // ── 标签条起点跟随工作区分割线 ──
   // 下方工作区右缘分割线的窗口 x = sidebarWidth + 7（col1 面板 + col2 resizer 热区，

@@ -3,7 +3,10 @@
 use winit::dpi::PhysicalPosition;
 
 /// 归一化拖拽矩形：任意起终点 → (x, y, w, h)，负坐标钳到 0。
-pub(super) fn normalize_rect(a: PhysicalPosition<f64>, b: PhysicalPosition<f64>) -> (u32, u32, u32, u32) {
+pub(super) fn normalize_rect(
+    a: PhysicalPosition<f64>,
+    b: PhysicalPosition<f64>,
+) -> (u32, u32, u32, u32) {
     let x1 = a.x.min(b.x).max(0.0) as u32;
     let y1 = a.y.min(b.y).max(0.0) as u32;
     let x2 = a.x.max(b.x).max(0.0) as u32;

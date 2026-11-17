@@ -11,7 +11,6 @@ import EditorToolbar from "./components/EditorToolbar";
 import MainArea from "./components/MainArea";
 import Sidebar from "./components/Sidebar";
 import OutlinePanel from "./components/OutlinePanel";
-import ReviewPanel from "./components/ReviewPanel";
 import SelectionPopup from "./components/SelectionPopup";
 import SettingsModal from "./components/SettingsModal";
 import CloseAskDialog from "./components/CloseAskDialog";
@@ -44,7 +43,6 @@ function App() {
     void useTranslationStore.getState().listenProgress();
     void useTranslationStore.getState().listenDone();
     void useTranslationStore.getState().listenPartial();
-    void useTranslationStore.getState().listenLookupDelta();
     void listenHibernateOnce();
     // Task 11 关窗询问：close_action=ask 时后端拦下关闭请求后广播
     // close-requested，这里唤起询问弹窗（与 listenHibernateOnce 同样只挂一次）。
@@ -74,9 +72,6 @@ function App() {
   const outlineSide = useUiStore((s) => s.outlineSide);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const outlineWidth = useUiStore((s) => s.outlineWidth);
-  const showReview = useUiStore((s) => s.showReview);
-  const reviewSide = useUiStore((s) => s.reviewSide);
-  const reviewWidth = useUiStore((s) => s.reviewWidth);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const closeAskOpen = useUiStore((s) => s.closeAskOpen);
   const paletteOpen = useUiStore((s) => s.commandPaletteOpen);
@@ -89,27 +84,27 @@ function App() {
   // startIntro 那一帧才生效——否则隐藏期里就会先演一半。
   const navVisible = introArmed || showNav;
   const outlineVisible = introArmed || showOutline;
-  // armed 期宽度语义："比终态宽一些"的展开态。
-  // 侧栏用 INTRO_FROM_WIDTH（= PANEL_MAX 480），比默认 240 宽 240px，
-  // "展开最大化"语义足；窗口通常够放（1296 常见窗口下 480 + 主区 ≥800）。
-  // 大纲栏 armed 期 width 用 outlineWidth（默认 200）——若也用 480，1296 窗口
-  // 下 480 侧栏 + 480 大纲栏 + 边距 ≈ 990 > 主区可用宽度，会把主区压成 0 宽
-  // 露出 outline-panel 纯白盖住欢迎页。armed 用 outlineWidth，playing 用
-  // 专属 keyframes 从 --panel-w 变量（armed 时已写好）收到 0。
-  const navPanelW = introArmed ? INTRO_FROM_WIDTH : sidebarWidth;
-  const outlinePanelW = outlineWidth;
+  // armed 期宽度语义："两栏都展开到最宽"的起始态。
+  // 左栏 sidebar 与右栏 outline 统一用 INTRO_FROM_WIDTH（= PANEL_MAX 480），
+  // 起手时两栏各占 480 向窗口两侧铺开；playing 由对称 keyframes 从 --panel-w
+  // 收到 0（左栏朝左收尽、右栏朝右收尽），终帧只剩中间欢迎页。
+  // --panel-w 必须在 armed 与 playing 两帧都钉在 480，keyframes 0% 才不会跳变；
+  // done 后恢复各自 store 宽度（此时两栏已隐藏，width 归 0 不受影响）。
+  const introWide = introArmed || introPlaying;
+  const navPanelW = introWide ? INTRO_FROM_WIDTH : sidebarWidth;
+  const outlinePanelW = introWide ? INTRO_FROM_WIDTH : outlineWidth;
 
-  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 左外槽（核查高栏）/
+  // 网格（7 列）：col1 文件栏 / col2 文件栏拖宽条 / col3 左空槽 /
   // col4 左内槽（大纲左停靠让位列）/ col5 主区(1fr) / col6 右内槽（大纲右停靠
-  // 让位列）/ col7 右外槽（核查高栏）。拖宽条已内嵌进各槽，col4/col6 只在
-  // 「大纲让位」时才有内容，其余时刻恒 0 宽。
+  // 让位列）/ col7 右外槽（大纲右停靠）。拖宽条已内嵌进各槽，col3/col6 恒 0 宽。
+  // （原核查高栏已随 AI 功能移除，col3/col7 只留大纲单宿主。）
   // 工作区隐藏时主内容区左缘直接顶到 col1；这样 TabBar/EditorToolbar/MainArea
   // 一起左移，不会出现「左侧 4 列留白、右侧才是内容」的撕裂。CSS 读 --col-main
   // 与 --main-span：--main-span=1 时 main-area 占 col5 一列（1fr）；
   // --main-span=5 时 main-area 占 col1-5（吸收掉隐藏的侧栏、拖宽条与空列）。
   // 面板改为常挂载 + 宽度过渡后，跨列切换必须等收起动画播完（navGone），
   // 否则主区提前跨列会盖住正在收缩的侧栏——动画就看不见了。
-  // 左槽有实体面板时（大纲或核查左停靠），不能再跨列吸收（会被主区盖住），
+  // 左槽有实体面板时（大纲左停靠），不能再跨列吸收（会被主区盖住），
   // 此时主区固定占 col5，靠空列自然收窄。
   // 收缩延迟随动画时长走：intro 播放时面板过渡被拉到 INTRO_ANIM_MS，
   // 主区跨列吸收空列也必须等这么久，否则会在收缩中途盖住侧栏。
@@ -117,40 +112,26 @@ function App() {
     !navVisible,
     introPlaying ? INTRO_ANIM_MS : PANEL_ANIM_MS,
   );
-  // 大纲/核查槽同一铁律（常挂载 + 宽度过渡后）：让位「展开当帧生效、收回等
+  // 大纲槽同一铁律（常挂载 + 宽度过渡后）：让位「展开当帧生效、收回等
   // 收起动画播完」（同 navGone）——否则主区提前跨列吸收/大纲提前挪列，会叠进
   // 正在收缩的槽里。xGone 在面板可见或收缩中恒 false，收完后才翻 true；
   // 占位 = 可见 || 未收完（展开首帧 xGone 还没来得及翻，补上可见项）。
   const outlineGone = useSettled(!outlineVisible, PANEL_ANIM_MS);
-  const reviewGone = useSettled(!showReview, PANEL_ANIM_MS);
   const outlineOccupied = outlineVisible || !outlineGone;
-  const reviewOccupied = showReview || !reviewGone;
-  // 左槽被占用（大纲或核查任一左停靠）时不能吸收。
-  // review 不参与 intro armed（首屏不显示核查面板），所以不加 introArmed 门。
-  const outlineDockedLeft = !introArmed && outlineOccupied && outlineSide === "left";
-  const reviewDockedLeft = reviewOccupied && reviewSide === "left";
-  const leftSlotOccupied = outlineDockedLeft || reviewDockedLeft;
-  const absorb = navGone && !leftSlotOccupied;
-  // 同侧共存（§8.2 二轮，2026-09-19）：核查与大纲同侧时，核查是「外一级」
-  // 高栏——占外侧列（右 col7 / 左 col3）且跨 row 2-4（上抵标签栏下）；
-  // 大纲栏让位内移一列（右 →col6 / 左 →col4）。分侧时各回原列（7/3）。
-  // 推移而非覆盖、也不翻对侧（旧版 toggleReview 的自动翻边已删）。
-  // 让位时机 = 占位时机：核查展开当帧大纲就内移（此刻核查还 0 宽，两列位置
-  // 重合，视觉无跳）；核查收完（occupied 翻 false）大纲才回外列，同理无跳。
-  const reviewOccRight = reviewOccupied && reviewSide === "right";
-  const reviewOccLeft = reviewDockedLeft;
-  const outlineCol = outlineSide === "right" ? (reviewOccRight ? 6 : 7) : reviewOccLeft ? 4 : 3;
+  // 左槽被占用（大纲左停靠）时不能吸收。
+  // intro 全程（含 playing）大纲栏固定在 armed 那一列，避免左停靠时从右列
+  // 瞬移到左列再收缩；done 后恢复用户偏好的停靠侧。
+  const outlineDockedLeft = !introWide && outlineOccupied && outlineSide === "left";
+  const absorb = navGone && !outlineDockedLeft;
+  // 大纲栏单宿主：右停靠占 col7、左停靠占 col3（不再是"让位内移"，
+  // 让位列 col4/col6 恒空）。
+  const outlineCol = outlineSide === "right" ? 7 : 3;
   const mainStyle = {
     ["--col-main" as string]: String(absorb ? 1 : 5),
     ["--main-span" as string]: String(absorb ? 5 : 1),
     // 工具条左缘：与「工作区带」左端对齐（侧栏拖宽条之后，含左停靠大纲栏），
     // 右端 -1 覆盖到窗口右缘（第 2 行只有侧栏与工具条，无面板占位冲突）。
     ["--col-ws" as string]: String(absorb ? 1 : 3),
-    // 核查高栏占住 row 2 一角时工具栏让位（见 03-toolbar.css）：
-    // 右同侧止于 col7 线前，左同侧从 col4 起（col3 被核查栏占住）。
-    // 时机 = 占位时机：展开当帧就让，收起等动画播完再收回。
-    ...(reviewOccRight ? { ["--tb-end" as string]: "7" } : {}),
-    ...(reviewOccLeft ? { ["--tb-start" as string]: "4" } : {}),
     // intro 播放期间把面板过渡时长整体拉长（侧栏/大纲栏/拖宽条/标签条都继承
     // 这一个变量），三处动画共用同一时长 → 同时落定，不需要按距离分别算。
     ...(introPlaying
@@ -178,8 +159,10 @@ function App() {
       <nav
         className="sidebar"
         style={{
-          width: navVisible ? navPanelW : 0,
-          opacity: navVisible ? 1 : 0,
+          // playing 期不内联 width/opacity，交给 sidebar-collapse keyframes 与
+          // 右栏对称地收缩（左栏朝左收尽、带微弱回弹）；--panel-w 仍是 480 起手宽。
+          width: introPlaying ? undefined : navVisible ? navPanelW : 0,
+          opacity: introPlaying ? undefined : navVisible ? 1 : 0,
           ["--panel-w" as string]: `${navPanelW}px`,
         }}
       >
@@ -194,7 +177,7 @@ function App() {
         <MainArea />
       </main>
       {/* T19 OutlinePanel 挂入点；ui.showOutline 折叠（同 Sidebar 常挂载 + 过渡）。
-          §8.2 同侧共存：核查同侧时本槽内移一列（outlineCol），核查栏占外侧高栏。
+          右停靠占 col7 / 左停靠占 col3。
           宽度/透明度 inline style 落在 .panel-unit（intro keyframes 同改这一层，
           见 12-welcome.css）；把手挂在槽上（不在 unit 内）——贴发丝线主区那侧、
           收起时贴窗缘，两种状态同一几何，永不被 unit 的 opacity 收走。
@@ -228,38 +211,6 @@ function App() {
             <div className="panel-clip">
               <OutlinePanel />
             </div>
-          </aside>
-        </div>
-      </div>
-      {/* AI 核查面板（§八）：与大纲各自独立选边；同侧时核查占外侧列 + row 2/4
-          （高栏，上抵标签栏下），大纲让位内移——推移而非覆盖。列号/行号内联，
-          线的朝向交给 .panel-slot[data-side] CSS。2026-09-24 收展统一：槽与
-          侧栏/大纲同款常挂载 + width/opacity 过渡（.panel-unit，回弹曲线同源）；
-          内容随占位挂载——收完即卸，停掉面板内的防抖查词，首开语义不变。
-          AI 栏不设把手——开合只走状态栏开关（用户拍板）；拖宽热区保留。 */}
-      <div
-        className="panel-slot review-slot"
-        data-side={reviewSide}
-        data-open={showReview}
-        style={{
-          gridColumn: reviewSide === "right" ? 7 : 3,
-          gridRow: "2 / 4",
-        }}
-      >
-        <PanelResizer
-          place={reviewSide === "right" ? "review-right" : "review-left"}
-          hidden={!showReview}
-        />
-        <div
-          className="panel-unit"
-          style={{
-            width: showReview ? reviewWidth : 0,
-            opacity: showReview ? 1 : 0,
-            ["--panel-w" as string]: `${reviewWidth}px`,
-          }}
-        >
-          <aside className="review-panel">
-            <div className="panel-clip">{reviewOccupied && <ReviewPanel />}</div>
           </aside>
         </div>
       </div>

@@ -48,13 +48,12 @@ const SEED: Settings = {
   nav: "on",
   theme: "light",
   palette: "xuan",
-  llm_profiles: [],
-  llm_active: "",
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
   capture_enabled: true,
   close_action: "ask",
+  tab_mode: "multi",
 };
 
 const CONTENT = "# 标题\n\n正文段落";

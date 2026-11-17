@@ -31,8 +31,18 @@ const MYMEMORY: ProviderMeta = ProviderMeta {
 };
 
 const YOUDAO_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "appKey", label: "App Key", secret: false, placeholder: "" },
-    FieldDef { key: "appSecret", label: "App Secret", secret: true, placeholder: "" },
+    FieldDef {
+        key: "appKey",
+        label: "App Key",
+        secret: false,
+        placeholder: "",
+    },
+    FieldDef {
+        key: "appSecret",
+        label: "App Secret",
+        secret: true,
+        placeholder: "",
+    },
 ];
 
 const YOUDAO: ProviderMeta = ProviderMeta {
@@ -45,9 +55,24 @@ const YOUDAO: ProviderMeta = ProviderMeta {
 };
 
 const TENCENT_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "secretId", label: "SecretId", secret: false, placeholder: "" },
-    FieldDef { key: "secretKey", label: "SecretKey", secret: true, placeholder: "" },
-    FieldDef { key: "region", label: "Region", secret: false, placeholder: "ap-beijing" },
+    FieldDef {
+        key: "secretId",
+        label: "SecretId",
+        secret: false,
+        placeholder: "",
+    },
+    FieldDef {
+        key: "secretKey",
+        label: "SecretKey",
+        secret: true,
+        placeholder: "",
+    },
+    FieldDef {
+        key: "region",
+        label: "Region",
+        secret: false,
+        placeholder: "ap-beijing",
+    },
 ];
 
 const TENCENT: ProviderMeta = ProviderMeta {
@@ -60,8 +85,18 @@ const TENCENT: ProviderMeta = ProviderMeta {
 };
 
 const BAIDU_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "appid", label: "APP ID", secret: false, placeholder: "" },
-    FieldDef { key: "key", label: "密钥", secret: true, placeholder: "" },
+    FieldDef {
+        key: "appid",
+        label: "APP ID",
+        secret: false,
+        placeholder: "",
+    },
+    FieldDef {
+        key: "key",
+        label: "密钥",
+        secret: true,
+        placeholder: "",
+    },
 ];
 
 const BAIDU: ProviderMeta = ProviderMeta {
@@ -71,54 +106,6 @@ const BAIDU: ProviderMeta = ProviderMeta {
     max_concurrency: 12,
     fields: BAIDU_FIELDS,
     note: "百度通用翻译 API，单条上限 6000 字符。",
-};
-
-const LLM_FIELDS: &[FieldDef] = &[
-    FieldDef {
-        key: "baseUrl",
-        label: "API 地址 (Base URL)",
-        secret: false,
-        placeholder: "https://api.deepseek.com 或 http://127.0.0.1:11434/v1",
-    },
-    FieldDef {
-        key: "apiKey",
-        label: "API Key",
-        secret: true,
-        placeholder: "本地服务（如 Ollama）可留空",
-    },
-    FieldDef {
-        key: "model",
-        label: "模型名",
-        secret: false,
-        placeholder: "如 deepseek-v4-flash、qwen2.5:7b",
-    },
-    FieldDef {
-        key: "lookup_model",
-        label: "查词模型（可选，留空同翻译模型）",
-        secret: false,
-        placeholder: "如 deepseek-v4-flash；划词查词走这个模型",
-    },
-    FieldDef {
-        key: "review_model",
-        label: "核查模型（可选，留空同翻译模型）",
-        secret: false,
-        placeholder: "AI 语义核查走这个模型，可另配更强的",
-    },
-];
-
-const LLM: ProviderMeta = ProviderMeta {
-    label: "自定义大模型（OpenAI 兼容）",
-    needs_key: false,
-    max_len: 3000,
-    // Streaming makes a request decode-bound rather than connection-bound, so
-    // the old cap of 3 left most of the document's latency on the table.
-    max_concurrency: 6,
-    fields: LLM_FIELDS,
-    // 用户要求「说明简洁点，重点讲只支持 OpenAI 兼容」（2026-09-14 第四轮）。
-    // 协议本身在界面上由胶囊选择器表达，这里只留最必要的两句：填什么、
-    // 本机 Ollama 怎么填。流式/缓存失效那些行为描述删了——它们是「用起来自然
-    // 会发现」的东西，不该占设置页的版面。
-    note: "目前仅支持 OpenAI 兼容接口：填接口地址 + Key + 模型名即可；本机 Ollama 填 http://127.0.0.1:11434/v1（Key 留空）。",
 };
 
 const TRANSMART: ProviderMeta = ProviderMeta {
@@ -154,7 +141,6 @@ pub const REGISTRY: &[(&str, ProviderMeta)] = &[
     ("youdao", YOUDAO),
     ("tencent", TENCENT),
     ("baidu", BAIDU),
-    ("llm", LLM),
     ("transmart", TRANSMART),
     ("iciba", ICIBA),
     ("auto", AUTO),
@@ -200,15 +186,12 @@ mod tests {
     #[test]
     fn providers_info_roundtrip() {
         let v = all_infos();
-        assert_eq!(v.len(), 8);
+        assert_eq!(v.len(), 7);
         let auto = v.iter().find(|p| p.key == "auto").unwrap();
         assert!(!auto.needs_key);
         assert_eq!(auto.max_concurrency, 3);
         // 平铺序 = REGISTRY 序；字段转换无损（label/fields 完整搬出）
         assert_eq!(v[0].key, "mymemory");
-        let llm = v.iter().find(|p| p.key == "llm").unwrap();
-        // S5 加 review_model 后 5 个字段（S3 前 3 个，S3 加 lookup_model 第 4 个）
-        assert_eq!(llm.fields.len(), 5);
         assert!(get("nope").is_none());
     }
 }

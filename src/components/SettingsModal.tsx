@@ -27,11 +27,11 @@
 //
 // 安全：凭据输入框一律 password 型（secret 字段），绝不打印 / toast 任何载荷。
 //
-// （P2-8c 拆分）草稿三件套与关窗落盘在 hooks/useSettingsDraft，大模型档案
-// CRUD 在 hooks/useLlmProfiles，快捷键录制在 hooks/useHotkeyRecorder；六个
-// 分类的详情在 components/settings/*Tab.tsx（JSX 逐字）。本文件只留导航、
-// 搜索、即时生效类订阅与跨页共享的临时状态（pvMode 等）；可复用的
-// Bar / SwitchRow / ResetAllButton 小件见 components/settings/SettingsParts.tsx（2026-09-24 迁出）。
+// （P2-8c 拆分）草稿三件套与关窗落盘在 hooks/useSettingsDraft，快捷键录制
+// 在 hooks/useHotkeyRecorder；六个分类的详情在 components/settings/*Tab.tsx
+// （JSX 逐字）。本文件只留导航、搜索、即时生效类订阅与跨页共享的临时状态
+// （pvMode 等）；可复用的 Bar / SwitchRow / ResetAllButton 小件见
+// components/settings/SettingsParts.tsx（2026-09-24 迁出）。
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -48,7 +48,6 @@ import type { ProviderInfo } from "../types/ipc";
 import { isDarkTheme, useSettingsStore } from "../stores/useSettingsStore";
 import { errText, useUiStore } from "../stores/useUiStore";
 import { useSettingsDraft } from "../hooks/useSettingsDraft";
-import { useLlmProfiles } from "../hooks/useLlmProfiles";
 import { useHotkeyRecorder } from "../hooks/useHotkeyRecorder";
 import { Bar, ResetAllButton } from "./settings/SettingsParts";
 import GeneralTab from "./settings/GeneralTab";
@@ -79,8 +78,8 @@ const CATS: Array<{ id: CatId; label: string; icon: typeof PaletteIcon; keys: st
     label: "翻译与模型",
     icon: Languages,
     keys: [
-      "翻译源", "引擎", "免费", "专业", "llm", "大模型", "模型", "凭据",
-      "密钥", "api", "地址", "配置", "档案", "划词", "连接测试", "测试",
+      "翻译源", "引擎", "免费", "专业", "凭据",
+      "密钥", "api", "划词", "连接测试", "测试",
     ],
   },
   {
@@ -106,7 +105,6 @@ export default function SettingsModal() {
     setFormProvider,
     formCreds,
     setFormCreds,
-    latest,
     saveAndClose,
   } = useSettingsDraft();
 
@@ -192,38 +190,32 @@ export default function SettingsModal() {
     };
   }, []);
 
-  // ── 大模型配置档案 + 快捷键录制 ──
-  const {
-    profiles,
-    activeId,
-    activeProfile,
-    llmMsg,
-    setLlmMsg,
-    testResult,
-    setTestResult,
-    testing,
-    fetching,
-    useProfile,
-    createProfile,
-    renameProfile,
-    deleteProfile,
-    saveProfile,
-    testConn,
-    fetchModels,
-    modelOptions,
-  } = useLlmProfiles({ draft, setDraft, formProvider, setFormProvider, formCreds, setFormCreds, latest });
+  // ── 连接测试（通用：用当前源试翻一句话）+ 快捷键录制 ──
+  const [testResult, setTestResult] = useState("");
+  const [testing, setTesting] = useState(false);
   const { recording, setRecording, hkMsg, setHkMsg, eff, conflicts, resetHotkeys } =
     useHotkeyRecorder(draft, setDraft);
 
   const meta = metas.find((m) => m.key === formProvider) ?? null;
-  const isLlm = formProvider === "llm";
 
   const changeProvider = (k: string) => {
     setFormProvider(k);
-    // 切回大模型时若无生效档案但有历史凭据，仍以 providers 里的那份为准
     setFormCreds(draft?.providers[k] ?? {});
     setTestResult("");
-    setLlmMsg("");
+  };
+
+  /** 连接测试：用一句话试翻，确认当前源的凭据可用。 */
+  const testConn = async () => {
+    setTesting(true);
+    setTestResult("测试中…");
+    try {
+      const out = await api.translateText("Hello, this is a translation test.", formProvider, formCreds);
+      setTestResult(`成功：${out}`);
+    } catch (e) {
+      setTestResult(`失败：${errText(e)}`);
+    } finally {
+      setTesting(false);
+    }
   };
 
   /** 切分组：直接选中该组第一个源（凭据/连接测试都跟着它走）。
@@ -306,7 +298,6 @@ export default function SettingsModal() {
                 setRecording(null);
                 setHkMsg("");
                 setTestResult("");
-                setLlmMsg("");
                 setCat(id);
               }}
             >
@@ -349,23 +340,10 @@ export default function SettingsModal() {
                 changeProvider={changeProvider}
                 metas={metas}
                 meta={meta}
-                isLlm={isLlm}
                 draft={draft}
                 setDraft={setDraft}
                 formCreds={formCreds}
-                profiles={profiles}
-                activeId={activeId}
-                activeProfile={activeProfile}
-                useProfile={useProfile}
-                renameProfile={renameProfile}
-                deleteProfile={deleteProfile}
-                createProfile={createProfile}
-                saveProfile={saveProfile}
                 setFormCreds={setFormCreds}
-                fetching={fetching}
-                fetchModels={fetchModels}
-                modelOptions={modelOptions}
-                llmMsg={llmMsg}
                 testing={testing}
                 testConn={testConn}
                 testResult={testResult}

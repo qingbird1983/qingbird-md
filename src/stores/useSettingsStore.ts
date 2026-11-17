@@ -2,7 +2,7 @@
 // 每次变更即持久化（save_settings 成功后后端广播 settings-updated，
 // 本 store 的监听回调只在 theme 变化时收敛 theme 并提示——绝不回写，防广播风暴）。
 import { create } from "zustand";
-import type { Settings, SettingsBroadcast, TargetLang } from "../types/ipc";
+import type { Settings, SettingsBroadcast, TabMode, TargetLang } from "../types/ipc";
 import { api } from "../lib/ipc";
 import { normalizePalette, type PaletteId } from "../lib/paletteSeeds";
 import { useUiStore, errText } from "./useUiStore";
@@ -48,6 +48,12 @@ const normalizeTheme = (t: string): Theme => (t === "light" || t === "dark" ? t 
 export const normalizeTarget = (t: string | undefined): TargetLang => (t === "en" ? "en" : "zh");
 
 /**
+ * 标签页模式归一化：只认 "single"，其余（空串/未知/"multi"）一律 "multi"（多标签）。
+ * 与 Rust Settings::tab_mode 的默认值口径一致——老配置读出来就是改动前的多标签行为。
+ */
+export const normalizeTabMode = (t: string | undefined): TabMode => (t === "single" ? "single" : "multi");
+
+/**
  * 跨源同步（监听回调专用，不落盘）：广播来的设置只收敛「外观」两项
  * （theme / palette），不整包覆写 settings——否则会打翻正在编辑的表单草稿。
  * SEC-3 起广播 payload 本身就只有这两项（SettingsBroadcast，后端
@@ -77,8 +83,7 @@ let listening = false;
 
 // credsFor 的空兜底必须是**共享单例**，不能写 `?? {}`：zustand v5 的 selector
 // 走 React useSyncExternalStore，要求 getSnapshot 结果引用稳定——每次调用
-// 返回新对象时，把 credsFor 用作 selector 的常驻组件（StatusBar / ReviewPanel
-// 的 `useSettingsStore((s) => s.credsFor("llm"))`）会在 settings 加载完成前
+// 返回新对象时，把 credsFor 用作 selector 的常驻组件会在 settings 加载完成前
 // 陷入无限重渲染，React 崩溃、整窗白屏（2026-09-19 启动白屏即此因）。
 const EMPTY_CREDS: Record<string, string> = {};
 

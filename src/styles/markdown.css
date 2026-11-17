@@ -17,7 +17,10 @@
   --md-muted: var(--fg3); /* 原写死 #6e6a5e（比 --fg3 深半档），归一到弱墨 */
   --md-border: var(--border);
   --md-link: var(--accent-strong); /* 原值 #285677 == accent-strong，天然对齐 */
-  --md-code-bg: var(--zhu-wash); /* 行内代码：朱砂浅底（原值即 zhu-wash） */
+  /* 行内代码（`` `pnpm install` `` 这种反引号包裹的 token）：
+     字色跟随正文（不单独上色），底只是一层微弱的中性半透明高亮——
+     既把 code 从行文中轻轻托出，又不引入任何单独色相（2026-11-18 用户诉求）。 */
+  --md-code-bg: rgba(127, 127, 127, 0.13);
   --md-stripe: var(--bg2);
   --md-th-bg: var(--bg2);
   --md-quote-fg: var(--fg3);
@@ -371,7 +374,7 @@ body[data-theme="dark"] .markdown-body {
   font-family: var(--font-mono);
   font-size: 80%;
   background: var(--md-code-bg);
-  color: var(--zhu); /* 行内代码朱砂字：mockup-v2 词典感（暗色 --zhu 换档） */
+  color: inherit; /* 常规正文墨色；不再给行内代码单独上色（2026-11-18 用户诉求） */
   border-radius: 5px;
   overflow-wrap: anywhere; /* 长 token 在句中断行，不撑破段落/表格 */
 }

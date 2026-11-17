@@ -60,7 +60,9 @@ pub fn parse_blocks(md: &str) -> Vec<Block> {
     // 文首 front matter 成为**独立块**（阅读器要显示它，见 Block::Metadata
     // 的注释）。它只可能出现在最前，故前置即可，块序仍是文档序。
     if let Some(raw) = front_matter_raw(md) {
-        blocks.push(Block::Metadata { raw: raw.to_string() });
+        blocks.push(Block::Metadata {
+            raw: raw.to_string(),
+        });
     }
     let parser = Parser::new_ext(md, options());
     let mut it = parser;
@@ -107,17 +109,26 @@ fn skip_metadata<'a>(it: &mut impl Iterator<Item = Event<'a>>) {
 ///
 /// `depth` 是本块的容器嵌套深度（顶层为 1）；超过 [`MAX_NESTING_DEPTH`]
 /// 时不再递归建块，整棵子树压成一个纯文本段落（SEC-5，防恶意文件爆栈）。
-fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>, depth: usize) -> Block {
+fn consume_block<'a>(
+    tag: &Tag<'a>,
+    it: &mut impl Iterator<Item = Event<'a>>,
+    depth: usize,
+) -> Block {
     if depth > MAX_NESTING_DEPTH {
         // 降级路径：collect_raw_text 迭代收文本（自身无递归），并消费掉
         // 本块自己的 End——与正常路径的边界语义一致。
-        return Block::Paragraph { text: vec![Inline::Text(collect_raw_text(it))] };
+        return Block::Paragraph {
+            text: vec![Inline::Text(collect_raw_text(it))],
+        };
     }
     match tag {
         Tag::Paragraph => paragraph_block(collect_inlines(it, 1)),
         Tag::Heading { level, .. } => {
             let text = collect_inlines(it, 1);
-            Block::Heading { level: *level as u8, text }
+            Block::Heading {
+                level: *level as u8,
+                text,
+            }
         }
         Tag::CodeBlock(kind) => {
             let code = collect_code(it);
@@ -135,7 +146,11 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>, de
             let ordered = start.is_some();
             let start = start.unwrap_or(1) as u32;
             let items = collect_items(it, depth + 1);
-            Block::List { ordered, start, items }
+            Block::List {
+                ordered,
+                start,
+                items,
+            }
         }
         Tag::Table(aligns) => {
             let mut b = consume_table(it);
@@ -159,7 +174,9 @@ fn consume_block<'a>(tag: &Tag<'a>, it: &mut impl Iterator<Item = Event<'a>>, de
         // 而块里的事件已被 consume_block「认领」却没消费——后续 Event::Html 行
         // 在 parse_blocks 主循环里被当 stray 丢掉，整块内容静默消失（tiptap 表格
         // 就是这么丢的）。这里把原文抓进 Block::Html，渲染/导出各自决定怎么用。
-        Tag::HtmlBlock => Block::Html { raw: collect_html(it) },
+        Tag::HtmlBlock => Block::Html {
+            raw: collect_html(it),
+        },
         _ => Block::Paragraph { text: Vec::new() },
     }
 }
@@ -172,11 +189,17 @@ fn paragraph_block(text: Vec<Inline>) -> Block {
     if text.len() == 1 {
         match &text[0] {
             Inline::Image { alt, src } => {
-                return Block::Image { alt: alt.clone(), src: src.clone() };
+                return Block::Image {
+                    alt: alt.clone(),
+                    src: src.clone(),
+                };
             }
             Inline::DisplayMath(tex) => {
                 // $$...$$ 独立成段（pulldown 实测总是 Paragraph 包裹）
-                return Block::Math { display: true, tex: tex.clone() };
+                return Block::Math {
+                    display: true,
+                    tex: tex.clone(),
+                };
             }
             _ => {}
         }
@@ -324,7 +347,11 @@ fn consume_table<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> Block {
         }
     }
     // aligns 由 consume_block 从 Table tag 填充（此处拿不到）。
-    Block::Table { headers, rows, aligns: Vec::new() }
+    Block::Table {
+        headers,
+        rows,
+        aligns: Vec::new(),
+    }
 }
 
 fn collect_cells<'a>(it: &mut impl Iterator<Item = Event<'a>>, end: TagEnd) -> Vec<Vec<Inline>> {
@@ -382,7 +409,8 @@ mod tests {
         // pulldown-cmark tight lists (no blank line between items) emit bare
         // inline events WITHOUT a Paragraph wrapper. Regression: collect_item
         // dropped them, rendering empty <li> bullets (README 功能 list).
-        let blocks = parse_blocks("- **加粗**：正文 `code` [链](https://e.com)\n- 纯文本项\n  - 嵌套项");
+        let blocks =
+            parse_blocks("- **加粗**：正文 `code` [链](https://e.com)\n- 纯文本项\n  - 嵌套项");
         let list = match &blocks[0] {
             Block::List { items, .. } => items,
             other => panic!("expected list, got {other:?}"),
@@ -405,8 +433,11 @@ mod tests {
         )));
         // Nested list under a tight item must survive, not be swallowed by
         // inline collection.
-        assert!(list[1].blocks.iter().any(
-            |b| matches!(b, Block::List { items, .. } if items.len() == 1)),
+        assert!(
+            list[1]
+                .blocks
+                .iter()
+                .any(|b| matches!(b, Block::List { items, .. } if items.len() == 1)),
             "nested list under tight item must be kept"
         );
     }
@@ -455,7 +486,10 @@ mod tests {
         let md = format!("---\n\n{table}\n\n# 标题\n");
         let blocks = parse_blocks(&md);
 
-        assert!(matches!(blocks[0], Block::Rule), "首行 `---` 仍是分割线: {blocks:?}");
+        assert!(
+            matches!(blocks[0], Block::Rule),
+            "首行 `---` 仍是分割线: {blocks:?}"
+        );
         assert!(
             matches!(&blocks[1], Block::Html { raw } if raw.trim() == table),
             "HTML 块须**逐字**保留原文（class/colgroup 都在）: {blocks:?}"
@@ -494,7 +528,9 @@ mod tests {
             other => panic!("应为列表: {other:?}"),
         };
         assert!(
-            inner.iter().any(|b| matches!(b, Block::Html { raw } if raw.contains("卡内内容"))),
+            inner
+                .iter()
+                .any(|b| matches!(b, Block::Html { raw } if raw.contains("卡内内容"))),
             "列表项里的 HTML 块不得被吞: {inner:?}"
         );
     }
@@ -516,13 +552,18 @@ mod tests {
             other => panic!("文首应是 Metadata 块，实得 {other:?}"),
         }
         assert_eq!(
-            blocks.iter().filter(|b| matches!(b, Block::Paragraph { text }
-                if text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("Hello"))))).count(),
+            blocks
+                .iter()
+                .filter(|b| matches!(b, Block::Paragraph { text }
+                if text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("Hello")))))
+                .count(),
             1,
             "正文段落恰一个: {blocks:?}"
         );
         assert!(
-            !blocks.iter().any(|b| matches!(b, Block::Rule | Block::Heading { .. })),
+            !blocks
+                .iter()
+                .any(|b| matches!(b, Block::Rule | Block::Heading { .. })),
             "front matter 不得泄漏成 Rule/伪标题: {blocks:?}"
         );
         // 元数据块不携带 Inline → 既不占 run/bi 号也不进翻译空间
@@ -532,7 +573,10 @@ mod tests {
         );
         // 文中后置的独立 `---` 不受影响，仍是 Rule（整体索引因多出元数据块 +1）
         let blocks = parse_blocks("---\ntitle: T\n---\n\nA\n\n---\n\nB");
-        assert!(matches!(blocks[2], Block::Rule), "正文中的 --- 仍是分割线: {blocks:?}");
+        assert!(
+            matches!(blocks[2], Block::Rule),
+            "正文中的 --- 仍是分割线: {blocks:?}"
+        );
     }
 
     #[test]
@@ -558,7 +602,9 @@ mod tests {
         let mut max = 0usize;
         for b in blocks {
             let d = match b {
-                Block::Quote { blocks } | Block::FootnoteDef { blocks, .. } => 1 + block_depth(blocks),
+                Block::Quote { blocks } | Block::FootnoteDef { blocks, .. } => {
+                    1 + block_depth(blocks)
+                }
                 Block::List { items, .. } => items
                     .iter()
                     .map(|it| 1 + block_depth(&it.blocks))
@@ -594,7 +640,8 @@ mod tests {
         }
         match cur {
             Block::Paragraph { text } => assert!(
-                text.iter().any(|i| matches!(i, Inline::Text(t) if t.contains("deep tail"))),
+                text.iter()
+                    .any(|i| matches!(i, Inline::Text(t) if t.contains("deep tail"))),
                 "超限内容必须按纯文本保留: {text:?}"
             ),
             other => panic!("引用链最深处应为降级纯文本段落: {other:?}"),
@@ -623,6 +670,10 @@ mod tests {
             shallow.push_str("- x\n");
         }
         // 50 层列表 + 最内层 item 的段落叶子 = 51；远低于上限，结构完整
-        assert_eq!(block_depth(&parse_blocks(&shallow)), 51, "正常浅嵌套不得受封顶影响");
+        assert_eq!(
+            block_depth(&parse_blocks(&shallow)),
+            51,
+            "正常浅嵌套不得受封顶影响"
+        );
     }
 }

@@ -21,6 +21,6 @@ pub use handoff::{
     can_emit_document, mark_frontend_ready, push_pending_open, reset_frontend_ready,
     take_pending_open,
 };
-pub use session::{clear_snapshot, load_snapshot, save_snapshot, SessionSnapshot};
+pub use session::{SessionSnapshot, clear_snapshot, load_snapshot, save_snapshot};
 pub use state::{mark_ready, schedule};
-pub use window::{ensure_main_window, MAIN_LABEL};
+pub use window::{MAIN_LABEL, ensure_main_window};

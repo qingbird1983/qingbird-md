@@ -25,8 +25,11 @@ pub fn save_settings(app: AppHandle, settings: storage::Settings) -> Result<(), 
     // T29：设置落盘后同步全局热键（unregister_all + 按新值重注册）。
     // 同步命令跑在主线程，满足 RegisterHotKey 的线程约束。
     hotkeys::sync(&app, &settings);
-    app.emit("settings-updated", storage::settings_broadcast_payload(&settings))
-        .map_err(|e| e.to_string())
+    app.emit(
+        "settings-updated",
+        storage::settings_broadcast_payload(&settings),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -41,12 +44,7 @@ pub fn get_user_data_dir() -> String {
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let al = app.autolaunch();
-    if enabled {
-        al.enable()
-    } else {
-        al.disable()
-    }
-    .map_err(|e| e.to_string())?;
+    if enabled { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
     let mut s = storage::load_settings();
     s.autostart = enabled;
     storage::save_settings(&s)

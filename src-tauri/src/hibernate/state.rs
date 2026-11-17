@@ -1,9 +1,9 @@
 //! 休眠状态机：计时线程、与前端握手落草稿、销毁收口（含 P1-11 TOCTOU
 //! 复检与 abandon_cancelled_hibernate 统一收尾——逻辑原样）。
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager};
@@ -55,7 +55,11 @@ pub fn schedule(app: &tauri::AppHandle) {
 
 /// 任一唤醒路径（托盘 / 热键 / 单实例 handoff）调用：取消待卸载计时。
 pub fn cancel() {
-    let had_pending = HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+    let had_pending = HIBERNATE_AT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .is_some();
     if had_pending {
         eprintln!("[hibernate] 唤醒：取消待卸载计时");
     }
@@ -75,16 +79,18 @@ fn start_watcher(app: tauri::AppHandle) {
     }
     let spawned = std::thread::Builder::new()
         .name("hibernate-watch".into())
-        .spawn(move || loop {
-            let due = {
-                let at = HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner());
-                should_hibernate(Instant::now(), *at)
-            };
-            if due {
-                *HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                do_hibernate(&app);
+        .spawn(move || {
+            loop {
+                let due = {
+                    let at = HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner());
+                    should_hibernate(Instant::now(), *at)
+                };
+                if due {
+                    *HIBERNATE_AT.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    do_hibernate(&app);
+                }
+                std::thread::sleep(TICK);
             }
-            std::thread::sleep(TICK);
         });
     if let Err(e) = spawned {
         // spawn 失败必须复位标记，否则后续 schedule 再也不会重试
@@ -147,11 +153,7 @@ fn do_hibernate(app: &tauri::AppHandle) {
 
 /// 前端落完草稿后调用（唤醒 [`do_hibernate`] 的等待）。
 pub fn mark_ready() -> Result<(), String> {
-    match READY_TX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-    {
+    match READY_TX.lock().unwrap_or_else(|e| e.into_inner()).take() {
         Some(tx) => tx.send(()).map_err(|e| format!("休眠握手信道已关闭: {e}")),
         None => Err("当前没有待处理的休眠握手".into()),
     }

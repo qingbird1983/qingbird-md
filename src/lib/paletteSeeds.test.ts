@@ -1,6 +1,6 @@
 // 主题配色守卫（2026-09-14）。改配色只改 paletteSeeds.ts，这个文件负责拦住
 // 三类翻车：
-//   ① 对比度退化——6 套 × 明暗 2 档 × 9 项指标，任一项低于门槛即失败；
+//   ① 对比度退化——7 套 × 明暗 2 档 × 9 项指标，任一项低于门槛即失败；
 //   ② 忘了跑生成——磁盘上的 palettes.css 必须逐行等于 paletteCss() 的输出；
 //   ③ 默认外观漂移——xuan 一档必须与 theme.css 的 :root / dark 块逐令牌相等
 //      （没有 data-palette 时走 theme.css，两者一旦不一致，挂不挂属性会变色）。
@@ -109,8 +109,8 @@ describe("彩头与朱砂必须可分辨", () => {
 // ────────────────────────── 结构完整性 ──────────────────────────
 
 describe("令牌结构完整", () => {
-  it("六套配色 id 与顺序固定，默认档合法", () => {
-    expect(PALETTE_IDS).toEqual(["xuan", "su", "qing", "tan", "ci", "ye"]);
+  it("七套配色 id 与顺序固定，默认档合法", () => {
+    expect(PALETTE_IDS).toEqual(["xuan", "su", "qing", "tan", "ci", "ye", "hui"]);
     expect(PALETTE_IDS).toContain(DEFAULT_PALETTE);
   });
 

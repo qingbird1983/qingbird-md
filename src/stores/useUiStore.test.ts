@@ -17,9 +17,6 @@ const reset = () => {
     showOutline: false,
     outlineSide: "right",
     outlineWidth: 200,
-    showReview: false,
-    reviewSide: "right",
-    reviewWidth: 320,
   });
 };
 
@@ -106,52 +103,6 @@ describe("useUiStore 首次启动的默认面板形态", () => {
   });
 });
 
-// AI 核查面板开关：2026-09-19 二轮定案——同侧共存，**不翻边**。同侧时渲染层
-// 让核查占外侧列 + row 2/4 高栏、大纲栏顺势内移一列（App.tsx outlineCol），
-// store 里 side 纯属各自偏好，互不干涉。
-describe("useUiStore AI 核查面板开关与停靠侧（同侧共存，不翻边）", () => {
-  beforeEach(reset);
-
-  it("默认收起、右停靠、宽 320", () => {
-    const s = useUiStore.getState();
-    expect(s.showReview).toBe(false);
-    expect(s.reviewSide).toBe("right");
-    expect(s.reviewWidth).toBe(320);
-  });
-
-  it("toggleReview 纯开关：开起时即便与大纲同侧，也不动大纲", () => {
-    useUiStore.setState({ showOutline: true, reviewSide: "right" });
-    useUiStore.getState().setOutlineSide("right"); // 走真动作，先让 localStorage 有值
-    useUiStore.getState().toggleReview();
-    const s = useUiStore.getState();
-    expect(s.showReview).toBe(true);
-    expect(s.outlineSide).toBe("right"); // 不翻边：同侧共存由渲染层化解
-    expect(localStorage.getItem("qb.outline-side")).toBe("right"); // 未被改写
-  });
-
-  it("toggleReview 关起不动大纲", () => {
-    useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "left" });
-    useUiStore.getState().toggleReview();
-    expect(useUiStore.getState().showReview).toBe(false);
-    expect(useUiStore.getState().outlineSide).toBe("left");
-  });
-
-  it("reviewSide 持久化（localStorage）", () => {
-    useUiStore.getState().setReviewSide("left");
-    expect(useUiStore.getState().reviewSide).toBe("left");
-    expect(localStorage.getItem("qb.review-side")).toBe("left");
-  });
-
-  it("setReviewSide 只改自己，outlineSide 与大纲开关都不受牵连", () => {
-    useUiStore.setState({ showReview: true, showOutline: true, outlineSide: "right" });
-    useUiStore.getState().setReviewSide("right");
-    const s = useUiStore.getState();
-    expect(s.reviewSide).toBe("right");
-    expect(s.outlineSide).toBe("right"); // 同侧合法，不翻边
-    expect(s.showOutline).toBe(true);
-  });
-});
-
 // 启动仪式感动画状态机：乱序调用只能空转，不能把界面拽回起始态。
 describe("useUiStore 启动动画 introPhase 状态机", () => {
   beforeEach(reset);
@@ -163,8 +114,18 @@ describe("useUiStore 启动动画 introPhase 状态机", () => {
   it("正常路径 idle → playing → done", () => {
     useUiStore.getState().startIntro();
     expect(useUiStore.getState().introPhase).toBe("playing");
+    // 起手时不收侧栏（分隔线要随面板一起收缩）
+    expect(useUiStore.getState().showNav).toBe(true);
     useUiStore.getState().finishIntro();
     expect(useUiStore.getState().introPhase).toBe("done");
+    // 动画播完收起工作区栏：终帧只留中间欢迎页
+    expect(useUiStore.getState().showNav).toBe(false);
+  });
+
+  it("finishIntro 收侧栏只在 playing→done 生效：idle 下调用不动 showNav", () => {
+    useUiStore.getState().finishIntro();
+    expect(useUiStore.getState().introPhase).toBe("idle");
+    expect(useUiStore.getState().showNav).toBe(true);
   });
 
   it("skipIntro：idle → skipped，之后 start/finish 都无效", () => {
@@ -218,7 +179,6 @@ describe("useUiStore localStorage 异常兜底（隐私模式不白屏）", () =
     expect(s.contentWidth).toBe("normal");
     expect(s.customWidth).toBeNull();
     expect(s.outlineSide).toBe("right");
-    expect(s.reviewSide).toBe("right");
     expect(s.listGuide).toBe(true); // 读不出来 → 回默认开，不炸模块
   });
 
@@ -233,8 +193,6 @@ describe("useUiStore localStorage 异常兜底（隐私模式不白屏）", () =
     expect(fresh.useUiStore.getState().contentWidth).toBe("full"); // wide 的下一档
     expect(() => store.setOutlineSide("left")).not.toThrow();
     expect(fresh.useUiStore.getState().outlineSide).toBe("left");
-    expect(() => store.setReviewSide("left")).not.toThrow();
-    expect(fresh.useUiStore.getState().reviewSide).toBe("left");
     expect(() => store.setCustomWidth(900)).not.toThrow();
     expect(fresh.useUiStore.getState().customWidth).toBe(900);
     expect(() => store.setListGuide(false)).not.toThrow();

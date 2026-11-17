@@ -22,7 +22,8 @@ export type ContentWidth = "compact" | "normal" | "wide" | "full";
 /**
  * 启动动画状态机（2026-09-15 欢迎页仪式感动画）：
  * - idle：初始。窗口还没 show，面板读 introFromWidth 摆出「两栏展开到最宽」起始态。
- * - playing：已放行 show 且起始帧上屏，宽度切回终值，CSS 过渡开始收缩。
+ * - playing：已放行 show 且起始帧上屏，两栏开始向终态收缩；同时收起工作区栏
+ *   （showNav=false），终帧只剩中间欢迎页。
  * - skipped：本次不演（静默启动 / 带文件参数 / 恢复出文档 / 看门狗抢先），直接终态。
  * - done：动画播完（时长见 --intro-anim），摘除 intro 状态避免后续面板操作误走进起始态。
  */
@@ -48,13 +49,6 @@ interface UiState {
   outlineSide: PanelSide;
   sidebarWidth: number;
   outlineWidth: number;
-  // AI 核查面板（§八）：与大纲栏共用两个侧栏槽（col3/col4 左、col6/col7 右）。
-  // 不新增网格列——只是把「大纲专属列」泛化为「槽位双宿主」。
-  // 每面板各自记忆 side/width，互不耦合（§9.7）；show 跨启动由 Rust 休眠快照带，
-  // side 走 localStorage（同 outlineSide 先例，不进快照避免动契约）。
-  showReview: boolean;
-  reviewSide: PanelSide;
-  reviewWidth: number;
   // 侧栏最小宽度：由 TitleBar 实测写入（baseX - RESIZER_W，见 TitleBar.tsx）——
   // 拉到最小时侧栏那条分割线正好与标题栏的竖线共线。初值 160 兜底（测量完成前一帧）。
   minSidebarWidth: number;
@@ -86,10 +80,6 @@ interface UiState {
 
   toggleNav(): void;
   toggleOutline(): void;
-  toggleReview(): void;
-  /** 显式开合。`toggleReview` 做不到「确保打开」——S4 #14 的
-   *  `ensureReviewPanelOpen()` 需要幂等语义（already open 时不能再翻成关）。 */
-  setReviewOpen(open: boolean): void;
   setContentWidth(w: ContentWidth): void;
   setCustomWidth(px: number): void;
   setListGuide(v: boolean): void;
@@ -104,8 +94,6 @@ interface UiState {
   setSidebarWidth(w: number): void;
   setOutlineWidth(w: number): void;
   setOutlineSide(s: PanelSide): void;
-  setReviewWidth(w: number): void;
-  setReviewSide(s: PanelSide): void;
   setSplitRatio(r: number): void;
   setMinSidebarWidth(px: number): void;
   /** 首次启动回填侧栏宽度（只在「无宽度记忆」时生效一次，见实现）。 */
@@ -115,8 +103,9 @@ interface UiState {
 /** 启动动画起始态两栏宽度（= 拖宽上限 PANEL_MAX，App.tsx 同值）：「展开最大化」。 */
 export const INTRO_FROM_WIDTH = 480;
 /** 启动动画时长：左右栏收缩与欢迎内容放大共用，三者同时落定（CSS 变量 --intro-anim 同值）。
- *  2026-09-15 二轮调优：从 760 提到 1280（用户反馈"一闪而过"，且需要留足尾部回弹空间）。 */
-export const INTRO_ANIM_MS = 1280;
+ *  2026-11-18 三轮调优：从 1280 降到 780——用户反馈"过慢"，两栏改为都从 480 最宽收尽，
+ *  缩短时长才不会拖沓（armed 停留同步从 1000 降到 560）。 */
+export const INTRO_ANIM_MS = 780;
 
 let toastSeq = 0;
 
@@ -126,9 +115,7 @@ const WIDTH_KEY = "qb.content-width";
 const CUSTOM_WIDTH_KEY = "qb.content-width-custom";
 const LEGACY_WIDE_KEY = "qb.wide-content";
 // 大纲栏停靠侧：纯 UI 偏好，走 localStorage（不进 Rust 会话快照，避免动契约）
-const OUTLINE_SIDE_KEY = "qb.outline-side";// AI 核查面板停靠侧：同上先例，走 localStorage。review 与 outline 各自独立
-// 记忆 side、互不干涉——同侧时由渲染层「外一级高栏 + 大纲让位」化解（App.tsx）。
-const REVIEW_SIDE_KEY = "qb.review-side";
+const OUTLINE_SIDE_KEY = "qb.outline-side";
 // 层级引线开关（列表竖线）：纯外观偏好，与正文宽度同口径走 localStorage。
 const LIST_GUIDE_KEY = "qb.list-guide";
 
@@ -138,14 +125,6 @@ const LIST_GUIDE_KEY = "qb.list-guide";
 function loadOutlineSide(): PanelSide {
   try {
     return localStorage.getItem(OUTLINE_SIDE_KEY) === "left" ? "left" : "right";
-  } catch {
-    return "right";
-  }
-}
-
-function loadReviewSide(): PanelSide {
-  try {
-    return localStorage.getItem(REVIEW_SIDE_KEY) === "left" ? "left" : "right";
   } catch {
     return "right";
   }
@@ -193,12 +172,6 @@ export const useUiStore = create<UiState>()((set) => ({
   outlineSide: loadOutlineSide(),
   sidebarWidth: 240,
   outlineWidth: 200,
-  // AI 核查面板默认收起（与大纲同口径：首屏空白页不需要它）；默认右停靠
-  // （§9.5 状态栏 AI 钮入口 + §8.2 参考图右栏）。宽度默认 320（§10：面板
-  // 首次打开时槽宽 <320 提到 320，这里直接给 320 兜底）。
-  showReview: false,
-  reviewSide: loadReviewSide(),
-  reviewWidth: 320,
   minSidebarWidth: 160,
   bootWidthPending: true,
   splitRatio: 0.5,
@@ -215,15 +188,16 @@ export const useUiStore = create<UiState>()((set) => ({
   // 不能把已演完的界面拽回起始态。
   startIntro: () => set((s) => (s.introPhase === "idle" ? { introPhase: "playing" } : {})),
   skipIntro: () => set((s) => (s.introPhase === "idle" ? { introPhase: "skipped" } : {})),
-  finishIntro: () => set((s) => (s.introPhase === "playing" ? { introPhase: "done" } : {})),
+  // finishIntro 同时收起工作区栏：两栏都从 480 向边缘收尽后，终帧只剩欢迎页。
+  // 放在动画播完而非起手，是为了让分隔线随面板一起收缩、不在起手瞬间消失。
+  // 用户想再唤出侧栏点标题栏印章即可（showNav 重新变 true）。
+  finishIntro: () =>
+    set((s) =>
+      s.introPhase === "playing" ? { introPhase: "done", showNav: false } : {},
+    ),
 
   toggleNav: () => set((s) => ({ showNav: !s.showNav })),
   toggleOutline: () => set((s) => ({ showOutline: !s.showOutline })),
-  // AI 核查面板开关。与大纲同侧时**不翻边**（2026-09-19 二轮，用户实测定案）：
-  // 渲染层让核查占外侧列 + row 2/4 高栏、大纲栏顺势内移一列——推移而非覆盖，
-  // 形如左贴边大纲栏与主区的关系。旧版「开起时把大纲翻到对侧」已删。
-  toggleReview: () => set((s) => ({ showReview: !s.showReview })),
-  setReviewOpen: (open) => set({ showReview: open }),
   setContentWidth: (w) => {
     try {
       localStorage.setItem(WIDTH_KEY, w);
@@ -281,17 +255,6 @@ export const useUiStore = create<UiState>()((set) => ({
     }
     return set({ outlineSide: s });
   },
-  // AI 核查 side 变更同 outline：写 localStorage + 改 state。side 纯属偏好，
-  // 与大纲选边互不干涉（同侧共存由渲染层的列让位化解，见 App.tsx outlineCol）。
-  setReviewSide: (s) => {
-    try {
-      localStorage.setItem(REVIEW_SIDE_KEY, s);
-    } catch {
-      /* ignore */
-    }
-    return set({ reviewSide: s });
-  },
-  setReviewWidth: (w) => set({ reviewWidth: w }),
   setSplitRatio: (r) => set({ splitRatio: r }),
   setMinSidebarWidth: (px) => set({ minSidebarWidth: px }),
 

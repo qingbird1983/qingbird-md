@@ -2,14 +2,14 @@
 //! boot 握手命令、关窗隐藏钩子、`document-changed` wire 载荷，以及
 //! Builder 装配 `run()`——时序逐行保持。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::commands;
 use crate::AppTxn;
+use crate::commands;
 use crate::{bridge, capture, fileopen, hibernate, hotkeys, single_instance, storage, tray};
 
 /// 首帧就绪后显示主窗口的一次性闩（`visible:false` 配置的补偿）。
@@ -194,9 +194,7 @@ pub fn run() {
             {
                 let h = wv.app_handle().clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        BOOT_SHOW_WATCHDOG_MS,
-                    ));
+                    std::thread::sleep(std::time::Duration::from_millis(BOOT_SHOW_WATCHDOG_MS));
                     show_main_window(&h);
                 });
             }
@@ -243,9 +241,6 @@ pub fn run() {
             // Task 8: 翻译（编排与事件见 bridge.rs）
             bridge::get_providers,
             bridge::translate_text,
-            // 选区查词（2026-08-29 spec）
-            bridge::lookup_word,
-            bridge::llm_list_models,
             bridge::translate_document,
             bridge::stop_translation,
             // Task 5: 会话收口重建（用前端累积 translations 渲染整树 canonical html）
@@ -253,10 +248,6 @@ pub fn run() {
             // Step 2: 译文另存为（translations → Markdown 文本；落盘走
             // pick_save_path + save_file，与「导出 HTML」同一套路，零新 IO 命令）
             bridge::export_translation,
-            // Step 3 #15: 确定性检查（漏译 / 标记丢失 / 结构不对等 / 代码被侵入）。
-            bridge::check_translation,
-            // S5 #17-20: AI 语义核查（锁 llm、不进 Cache，进度走 review-progress）。
-            bridge::review_semantic,
             // Task 9: 对话框
             commands::dialogs::pick_file,
             commands::dialogs::pick_folder,
@@ -286,38 +277,40 @@ pub fn run() {
             // Task 10: 单实例 handoff——轮询第二实例写入的 pending 文件并转成
             // document-changed 事件推给前端；纯本地小文件 IO，独立线程不占主循环。
             let h = app.handle().clone();
-            std::thread::spawn(move || loop {
-                if let Some(p) = single_instance::take_pending() {
-                    // 单实例 handoff："show" 哨兵=仅唤醒窗口（不发事件）；文件
-                    // 路径=先派发 document-changed，再把主窗口从最小化/后台拉回
-                    // 前台（静默驻留被第二实例唤醒时窗口弹出）。
-                    if !single_instance::is_show_wake(&p) {
-                        if hibernate::can_emit_document(&h) {
-                            let _ = h.emit("document-changed", changed_payload(&p));
-                        } else {
-                            // 两类「发出去就等于丢」的窗口期，一律缓冲：
-                            // 1. 已休眠——根本没有 WebView 能接收（无缓冲/重放）；
-                            // 2. 刚冷重建——窗口对象已有，但页面在加载、前端的
-                            //    document-changed 监听还没挂上。
-                            // 存下来等前端启动阶段用 take_pending_open 取走。
-                            hibernate::push_pending_open(p.to_string_lossy().into_owned());
+            std::thread::spawn(move || {
+                loop {
+                    if let Some(p) = single_instance::take_pending() {
+                        // 单实例 handoff："show" 哨兵=仅唤醒窗口（不发事件）；文件
+                        // 路径=先派发 document-changed，再把主窗口从最小化/后台拉回
+                        // 前台（静默驻留被第二实例唤醒时窗口弹出）。
+                        if !single_instance::is_show_wake(&p) {
+                            if hibernate::can_emit_document(&h) {
+                                let _ = h.emit("document-changed", changed_payload(&p));
+                            } else {
+                                // 两类「发出去就等于丢」的窗口期，一律缓冲：
+                                // 1. 已休眠——根本没有 WebView 能接收（无缓冲/重放）；
+                                // 2. 刚冷重建——窗口对象已有，但页面在加载、前端的
+                                //    document-changed 监听还没挂上。
+                                // 存下来等前端启动阶段用 take_pending_open 取走。
+                                hibernate::push_pending_open(p.to_string_lossy().into_owned());
+                            }
+                        }
+                        // 唤醒唯一入口：活着就拉回前台，已休眠就冷重建（坑 4）。
+                        // 必须回主线程：本循环跑在后台线程，而冷重建是
+                        // create_window（后台线程下只异步派发到事件循环）+ 紧随其
+                        // 后的 create_webview（同步查窗口表）两步，后台线程下第二步
+                        // 会查不到刚派发的窗口而报 WindowNotFound。
+                        let h2 = h.clone();
+                        if let Err(e) = h.run_on_main_thread(move || {
+                            if let Err(e) = hibernate::ensure_main_window(&h2) {
+                                eprintln!("wake main window: {e}");
+                            }
+                        }) {
+                            eprintln!("run_on_main_thread: {e}");
                         }
                     }
-                    // 唤醒唯一入口：活着就拉回前台，已休眠就冷重建（坑 4）。
-                    // 必须回主线程：本循环跑在后台线程，而冷重建是
-                    // create_window（后台线程下只异步派发到事件循环）+ 紧随其
-                    // 后的 create_webview（同步查窗口表）两步，后台线程下第二步
-                    // 会查不到刚派发的窗口而报 WindowNotFound。
-                    let h2 = h.clone();
-                    if let Err(e) = h.run_on_main_thread(move || {
-                        if let Err(e) = hibernate::ensure_main_window(&h2) {
-                            eprintln!("wake main window: {e}");
-                        }
-                    }) {
-                        eprintln!("run_on_main_thread: {e}");
-                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(500));
             });
             // Task 29: 启动时按已持久化设置注册全局热键（未聚焦也能换阅读模式）
             hotkeys::sync(app.handle(), &storage::load_settings());

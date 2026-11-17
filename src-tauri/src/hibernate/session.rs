@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// 新增 `#[serde(default)]` 字段属于向后兼容变更（旧快照缺失字段时取默认值），
 /// 不必 bump——bump 的后果是用户那一次未保存的草稿被丢弃。
 /// 历史：v1 含 show_nav / show_outline / sidebar_width / outline_width / split_ratio；
-/// v1 后续补 show_review / review_width（AI 核查面板，2026-09-19）仍为 v1——
-/// 每字段都带 `#[serde(default)]`，旧文件能正常反序列化。
+/// v1 后续曾补 show_review / review_width（AI 核查面板），该面板已移除（2026-11-18），
+/// 旧快照里这两个多余字段由 serde 忽略，仍为 v1——每字段带 `#[serde(default)]`
+/// 兜住兼容性。
 pub const SESSION_VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -51,12 +52,6 @@ pub struct SessionUi {
     pub outline_width: f64,
     #[serde(default)]
     pub split_ratio: f64,
-    // AI 核查面板（§八）：与大纲栏共用两个侧栏槽，各自独立 show/width。
-    // side 走前端 localStorage（不进快照，同 outlineSide 先例）。
-    #[serde(default)]
-    pub show_review: bool,
-    #[serde(default)]
-    pub review_width: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -89,10 +84,7 @@ pub fn session_path() -> std::path::PathBuf {
     crate::storage::user_data_dir().join("qingbird-session.json")
 }
 
-pub fn save_snapshot_to(
-    path: &std::path::Path,
-    snap: &SessionSnapshot,
-) -> Result<(), String> {
+pub fn save_snapshot_to(path: &std::path::Path, snap: &SessionSnapshot) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -106,9 +98,7 @@ pub fn save_snapshot(snap: &SessionSnapshot) -> Result<(), String> {
 }
 
 /// 读快照：文件不存在 → `Ok(None)`；版本不符 → `Ok(None)`（旧文件作废，不阻塞启动）。
-pub fn load_snapshot_from(
-    path: &std::path::Path,
-) -> Result<Option<SessionSnapshot>, String> {
+pub fn load_snapshot_from(path: &std::path::Path) -> Result<Option<SessionSnapshot>, String> {
     let s = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -183,8 +173,6 @@ mod tests {
                 sidebar_width: 240.0,
                 outline_width: 200.0,
                 split_ratio: 0.5,
-                show_review: false,
-                review_width: 320.0,
             }),
         }
     }
@@ -215,23 +203,21 @@ mod tests {
         assert!(v["tabs"][0].get("cursor_sel").is_some());
         assert!(v["tabs"][0].get("scroll_top").is_some());
         assert!(v["ui"].get("sidebar_width").is_some());
-        assert!(v["ui"].get("show_review").is_some());
-        assert!(v["ui"].get("review_width").is_some());
         assert!(v.get("workspace_root").is_some());
     }
 
     #[test]
-    fn old_snapshot_without_review_fields_still_deserializes() {
-        // v1 旧快照的 ui 缺 show_review / review_width——
-        // 不 bump SESSION_VERSION 的前提是 serde(default) 兜住兼容性。
+    fn old_snapshot_with_removed_review_fields_still_deserializes() {
+        // 旧快照 ui 里可能残留已移除的 show_review / review_width——
+        // serde 默认忽略未知字段，不 bump SESSION_VERSION 也能正常反序列化。
         let v: SessionSnapshot = serde_json::from_str(
-            r#"{"version":1,"ui":{"show_nav":true,"show_outline":false,"sidebar_width":240.0,"outline_width":200.0,"split_ratio":0.5}}"#,
+            r#"{"version":1,"ui":{"show_nav":true,"show_outline":false,"sidebar_width":240.0,"outline_width":200.0,"split_ratio":0.5,"show_review":true,"review_width":320.0}}"#,
         )
         .unwrap();
         assert!(v.ui.is_some());
         let ui = v.ui.unwrap();
-        assert!(ui.show_review == false); // default: false
-        assert_eq!(ui.review_width, 0.0); // default: 0.0
+        assert!(ui.show_nav);
+        assert_eq!(ui.split_ratio, 0.5);
     }
 
     #[test]

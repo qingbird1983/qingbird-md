@@ -34,14 +34,25 @@ pub(crate) fn html_payload_parts(
     trans: &HashMap<usize, String>,
     bilingual_batch: bool,
     target: TargetLang,
-) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<markdown::html::OutlineItem>,
+) {
     // ⚠️ 三次 render_html 传**同一个** target：orig 里的 data-bi 锚点会被前端
     // 当作 partial 事件的 key，方向与收集侧不一致就会错位。
     let orig = markdown::html::render_html(content, &HashMap::new(), false, target);
     let (html_translation, html_bilingual) = if bilingual_batch {
-        (None, Some(markdown::html::render_html(content, trans, true, target).html))
+        (
+            None,
+            Some(markdown::html::render_html(content, trans, true, target).html),
+        )
     } else {
-        (Some(markdown::html::render_html(content, trans, false, target).html), None)
+        (
+            Some(markdown::html::render_html(content, trans, false, target).html),
+            None,
+        )
     };
     (orig.html, html_translation, html_bilingual, orig.outline)
 }
@@ -106,7 +117,12 @@ pub(super) fn cached_done_evt(
     } else {
         let (html_original, html_translation, html_bilingual, outline) =
             html_payload_parts(content, &map, bilingual_batch, target);
-        (Some(html_original), html_translation, html_bilingual, Some(outline))
+        (
+            Some(html_original),
+            html_translation,
+            html_bilingual,
+            Some(outline),
+        )
     };
     Some(TranslationDoneEvt {
         r#gen: 0,
@@ -138,7 +154,12 @@ mod tests {
         content: &str,
         trans: &HashMap<usize, String>,
         bilingual_batch: bool,
-    ) -> (String, Option<String>, Option<String>, Vec<markdown::html::OutlineItem>) {
+    ) -> (
+        String,
+        Option<String>,
+        Option<String>,
+        Vec<markdown::html::OutlineItem>,
+    ) {
         super::html_payload_parts(content, trans, bilingual_batch, ZH)
     }
 
@@ -188,8 +209,7 @@ mod tests {
         assert_eq!(err.as_deref(), Some("已取消"));
         assert_eq!(pairs, vec![(5usize, "五".into()), (9usize, "九".into())]);
 
-        let (_, pairs2, _) =
-            done_payload_parts(&[3usize, 1], &[Ok("乙".into()), Ok("甲".into())]);
+        let (_, pairs2, _) = done_payload_parts(&[3usize, 1], &[Ok("乙".into()), Ok("甲".into())]);
         assert_eq!(pairs2, vec![(1usize, "甲".into()), (3usize, "乙".into())]);
     }
 
@@ -218,34 +238,71 @@ mod tests {
         assert!(evt.html_bilingual.is_none());
         assert!(evt.html_original.is_some());
         assert!(evt.outline.is_some());
-        let evt2 = cached_done_evt("p", "", &c, &[0], &["a".into()], "a", true, false)
-            .expect("全命中");
+        let evt2 =
+            cached_done_evt("p", "", &c, &[0], &["a".into()], "a", true, false).expect("全命中");
         assert!(evt2.html_bilingual.is_some() && evt2.html_translation.is_none());
         assert!(
-            cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "x".into()], "# t", false, false)
-                .is_none()
+            cached_done_evt(
+                "p",
+                "",
+                &c,
+                &[0, 1],
+                &["a".into(), "x".into()],
+                "# t",
+                false,
+                false
+            )
+            .is_none()
         );
-        assert!(
-            cached_done_evt("q", "", &c, &[0], &["a".into()], "# t", false, false).is_none()
-        );
+        assert!(cached_done_evt("q", "", &c, &[0], &["a".into()], "# t", false, false).is_none());
         c.set(Cache::key("llm", "old-model@v1", "a"), "旧译文".into());
         assert!(
-            cached_done_evt("llm", "old-model@v1", &c, &[0], &["a".into()], "# t", false, false)
-                .is_some()
+            cached_done_evt(
+                "llm",
+                "old-model@v1",
+                &c,
+                &[0],
+                &["a".into()],
+                "# t",
+                false,
+                false
+            )
+            .is_some()
         );
         assert!(
-            cached_done_evt("llm", "new-model@v1", &c, &[0], &["a".into()], "# t", false, false)
-                .is_none(),
+            cached_done_evt(
+                "llm",
+                "new-model@v1",
+                &c,
+                &[0],
+                &["a".into()],
+                "# t",
+                false,
+                false
+            )
+            .is_none(),
             "换模型必须 miss"
         );
         assert!(cached_done_evt("p", "", &c, &[], &[].to_vec(), "# t", false, false).is_some());
-        let evt_w = cached_done_evt("p", "", &c, &[0, 1], &["a".into(), "b".into()], "# t\n\na b", false, true)
-            .expect("窗口化全命中");
+        let evt_w = cached_done_evt(
+            "p",
+            "",
+            &c,
+            &[0, 1],
+            &["a".into(), "b".into()],
+            "# t\n\na b",
+            false,
+            true,
+        )
+        .expect("窗口化全命中");
         assert!(evt_w.html_original.is_none());
         assert!(evt_w.html_translation.is_none());
         assert!(evt_w.html_bilingual.is_none());
         assert!(evt_w.outline.is_none());
-        assert_eq!(evt_w.translations, Some(vec![(0usize, "甲".into()), (1usize, "乙".into())]));
+        assert_eq!(
+            evt_w.translations,
+            Some(vec![(0usize, "甲".into()), (1usize, "乙".into())])
+        );
     }
 
     #[test]
@@ -260,14 +317,22 @@ mod tests {
         c.set(Cache::key("p", "", "Three"), "丙".into());
         assert_eq!(
             sweep_cached_pairs(&c, "p", "", &blocks, false),
-            vec![(0usize, "甲".into()), (1usize, "乙".into()), (2usize, "丙".into())]
+            vec![
+                (0usize, "甲".into()),
+                (1usize, "乙".into()),
+                (2usize, "丙".into())
+            ]
         );
         // 部分命中：只带回缓存过的单元，未命中块留给滚动触发的视口运行
         let mut c2 = Cache::new();
         c2.set(Cache::key("p", "", "Two"), "乙".into());
-        assert_eq!(sweep_cached_pairs(&c2, "p", "", &blocks, false), vec![(1usize, "乙".into())]);
+        assert_eq!(
+            sweep_cached_pairs(&c2, "p", "", &blocks, false),
+            vec![(1usize, "乙".into())]
+        );
         // bilingual：块空间（data-bi）索引；跳过区段/纯中文块不出现
-        let blocks_b = markdown::parse_blocks("# Eng\n\nAnother one\n\n## References\n\n**X** 2020.");
+        let blocks_b =
+            markdown::parse_blocks("# Eng\n\nAnother one\n\n## References\n\n**X** 2020.");
         let mut c3 = Cache::new();
         c3.set(Cache::key("p", "", "Eng"), "标题".into());
         c3.set(Cache::key("p", "", "Another one"), "另一段".into());
@@ -288,8 +353,9 @@ mod tests {
         m.insert(3usize, "更多".into());
         let (html_original, tr, bi, outline) =
             html_payload_parts("# Ti\n\nHello **world** more", &m, false);
-        assert!(html_original
-            .contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#));
+        assert!(
+            html_original.contains(r#"<h1 id="h-1" data-bi="0"><span data-ri="0">Ti</span></h1>"#)
+        );
         assert!(html_original.contains(
             r#"<p data-bi="1"><span data-ri="1">Hello </span><strong><span data-ri="2">world</span></strong><span data-ri="3"> more</span></p>"#
         ));
@@ -306,8 +372,7 @@ mod tests {
         let mut b = HashMap::new();
         b.insert(0usize, "中文标题".into());
         b.insert(1usize, "中文正文".into());
-        let (orig2, tr2, bi2, _) =
-            html_payload_parts("# Ti\n\nHello **world** more", &b, true);
+        let (orig2, tr2, bi2, _) = html_payload_parts("# Ti\n\nHello **world** more", &b, true);
         assert!(tr2.is_none());
         let bi2 = bi2.expect("bilingual batch must carry bilingual form");
         assert!(bi2.contains(r#"<div class="tr-box">中文标题</div>"#));

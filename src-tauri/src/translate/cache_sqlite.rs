@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use super::cache::CacheBackend;
 
@@ -160,9 +160,7 @@ impl SqliteCache {
         let drop_n = count - target as i64;
         let doomed: HashSet<String> = self
             .conn
-            .prepare_cached(
-                "SELECT key FROM translation_cache ORDER BY seq ASC LIMIT ?1",
-            )
+            .prepare_cached("SELECT key FROM translation_cache ORDER BY seq ASC LIMIT ?1")
             .and_then(|mut s| {
                 let rows = s.query_map(params![drop_n], |r| r.get::<_, String>(0))?;
                 rows.collect::<rusqlite::Result<HashSet<String>>>()
@@ -333,7 +331,10 @@ mod tests {
                 CacheBackend::get(&sqlite, &key).as_deref(),
                 "get 结果必须逐条相等 @ {i}"
             );
-            assert_eq!(CacheBackend::get(&sqlite, &key).as_deref(), Some(format!("v{i}").as_str()));
+            assert_eq!(
+                CacheBackend::get(&sqlite, &key).as_deref(),
+                Some(format!("v{i}").as_str())
+            );
         }
         let _ = std::fs::remove_dir_all(db.parent().unwrap());
     }
@@ -405,11 +406,25 @@ mod tests {
         }
         let sqlite = SqliteCache::open_or_create(&db).unwrap();
         // 预热只取最新 WARM=1000（t4000..t4999）；最老的 t0 一定不在热层。
-        assert_eq!(sqlite.hot.borrow().len(), WARM, "重开后热层只装最新 WARM 条");
-        assert!(!sqlite.hot.borrow().contains_key(&k("t0")), "t0 不该在预热热层里");
-        assert_eq!(CacheBackend::get(&sqlite, &k("t0")).as_deref(), Some("v0"), "未预热仍可命中");
+        assert_eq!(
+            sqlite.hot.borrow().len(),
+            WARM,
+            "重开后热层只装最新 WARM 条"
+        );
+        assert!(
+            !sqlite.hot.borrow().contains_key(&k("t0")),
+            "t0 不该在预热热层里"
+        );
+        assert_eq!(
+            CacheBackend::get(&sqlite, &k("t0")).as_deref(),
+            Some("v0"),
+            "未预热仍可命中"
+        );
         // 回查命中后被灌进热层（下次读走内存）。
-        assert!(sqlite.hot.borrow().contains_key(&k("t0")), "回查命中后应回填热层");
+        assert!(
+            sqlite.hot.borrow().contains_key(&k("t0")),
+            "回查命中后应回填热层"
+        );
         let _ = std::fs::remove_dir_all(db.parent().unwrap());
     }
 
@@ -422,11 +437,20 @@ mod tests {
             sqlite.set(k(&format!("t{i}")), format!("v{i}"));
         }
         // 覆盖最早的一条：值变了，但它仍是「最老」，收缩时该第一个被丢。
-        assert!(!sqlite.set(k("t0"), "CHANGED".into()), "覆盖 t0 应返回非新键");
+        assert!(
+            !sqlite.set(k("t0"), "CHANGED".into()),
+            "覆盖 t0 应返回非新键"
+        );
         sqlite.flush().unwrap();
-        assert_eq!(CacheBackend::get(&sqlite, &k("t0")).as_deref(), Some("CHANGED"));
+        assert_eq!(
+            CacheBackend::get(&sqlite, &k("t0")).as_deref(),
+            Some("CHANGED")
+        );
         sqlite.shrink_to(9); // 丢最老的一条 → 应是 t0
-        assert!(CacheBackend::get(&sqlite, &k("t0")).is_none(), "覆盖不刷新插入序，t0 仍最老先被丢");
+        assert!(
+            CacheBackend::get(&sqlite, &k("t0")).is_none(),
+            "覆盖不刷新插入序，t0 仍最老先被丢"
+        );
         assert!(CacheBackend::get(&sqlite, &k("t1")).is_some(), "t1 应还在");
         let _ = std::fs::remove_dir_all(db.parent().unwrap());
     }
@@ -444,15 +468,29 @@ mod tests {
         std::fs::write(&json, serde_json::to_string(&m).unwrap()).unwrap();
 
         let mut sqlite = SqliteCache::open_or_create(&db).unwrap();
-        assert_eq!(sqlite.import_json_if_empty(&json).unwrap(), 2, "空库应导入全部 2 条");
+        assert_eq!(
+            sqlite.import_json_if_empty(&json).unwrap(),
+            2,
+            "空库应导入全部 2 条"
+        );
         assert_eq!(sqlite.len(), 2);
-        assert_eq!(CacheBackend::get(&sqlite, &k("hello")).as_deref(), Some("你好"));
+        assert_eq!(
+            CacheBackend::get(&sqlite, &k("hello")).as_deref(),
+            Some("你好")
+        );
         // 第二次调用：库已非空 → 返回 0，绝不重复灌（防重启叠加）。
-        assert_eq!(sqlite.import_json_if_empty(&json).unwrap(), 0, "非空库不得再导入");
+        assert_eq!(
+            sqlite.import_json_if_empty(&json).unwrap(),
+            0,
+            "非空库不得再导入"
+        );
         assert_eq!(sqlite.len(), 2);
         // 无旧文件：全新用户路径返回 0，不报错。
         let mut fresh = SqliteCache::open_in_memory().unwrap();
-        assert_eq!(fresh.import_json_if_empty(&dir.join("nope.json")).unwrap(), 0);
+        assert_eq!(
+            fresh.import_json_if_empty(&dir.join("nope.json")).unwrap(),
+            0
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use super::super::model::Block;
-use super::inline::escape_html;
 use super::Ctx;
+use super::inline::escape_html;
 
 /// 递归收集脚注定义 label（文档顺序），编号 1 起。
 pub(super) fn collect_fn_labels(blocks: &[Block], nums: &mut HashMap<String, usize>) {

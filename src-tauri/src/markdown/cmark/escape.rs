@@ -11,7 +11,9 @@ pub(super) fn block_start(s: &str) -> String {
         Some('-') | Some('+') | Some('=') => format!("\\{s}"),
         Some(c) if c.is_ascii_digit() => {
             let rest = &s[1..];
-            let nd = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+            let nd = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
             let after = &rest[nd..];
             let ordered = (after.starts_with('.') || after.starts_with(')'))
                 && matches!(after[1..].chars().next(), Some(' ') | Some('\t'));
@@ -33,8 +35,10 @@ pub(super) fn block_start(s: &str) -> String {
 pub(super) fn escape_md(s: &str, in_table: bool) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '~' | '#')
-            || (in_table && c == '|')
+        if matches!(
+            c,
+            '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '~' | '#'
+        ) || (in_table && c == '|')
         {
             out.push('\\');
         }

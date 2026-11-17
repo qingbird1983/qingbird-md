@@ -43,13 +43,12 @@ const SEED: Settings = {
   nav: "on",
   theme: "light",
   palette: "qing",
-  llm_profiles: [],
-  llm_active: "",
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
   capture_enabled: true,
   close_action: "ask",
+  tab_mode: "multi",
 };
 
 /** 出厂值镜像：与 Rust storage::Settings::default() 逐字段一致（hotkeyRegistry 同表）。 */
@@ -64,13 +63,12 @@ const DEFAULTS: Settings = {
   nav: "on",
   theme: "",
   palette: "",
-  llm_profiles: [],
-  llm_active: "",
   autostart: false,
   translate_target: "",
   relayout_on_export: true,
   capture_enabled: true,
   close_action: "ask",
+  tab_mode: "multi",
 };
 
 let host: HTMLDivElement;

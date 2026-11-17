@@ -4,9 +4,9 @@
 //! Pooling matters more than it looks: the previous code called the top-level
 //! `ureq::post()` helpers, which build a throwaway agent per call — meaning a
 //! fresh DNS lookup, TCP handshake and TLS handshake (100–400 ms) on *every*
-//! request, including every selection lookup.
+//! request.
 
-use std::io::{BufRead, BufReader, Cursor, Read};
+use std::io::Read;
 use std::time::Duration;
 
 /// A finished HTTP response: status code + response body text.
@@ -14,13 +14,6 @@ use std::time::Duration;
 pub struct HttpResp {
     pub status: u16,
     pub body: String,
-}
-
-/// 流式 POST 响应：状态码 + 可逐行读的响应体（SSE 用）。错误状态码时
-/// reader 内是错误体文本，由调用方 read_to_string 后报错。
-pub struct StreamResp {
-    pub status: u16,
-    pub reader: Box<dyn BufRead + Send>,
 }
 
 /// Small HTTP surface used by providers. Tests provide a `MockClient`.
@@ -62,70 +55,6 @@ pub trait HttpClient: Send + Sync {
         let _ = (headers, timeout_ms);
         self.get(url)
     }
-
-    /// POST JSON 并返回可流式读取的响应体（SSE 渐进渲染用）。
-    ///
-    /// `timeout_ms` 对流式响应**不是**整包 deadline（ureq 的 `Request::timeout`
-    /// 会覆盖逐读超时、把仍在正常收流的长批次在到点时掐断），而是语义为：
-    /// 空闲(idle)保护回落到 agent 的 `timeout_read`，外加 `STREAM_TOTAL_FACTOR`
-    /// × `timeout_ms` 的整包宽松兜底。
-    fn post_json_stream(
-        &self,
-        url: &str,
-        body: &str,
-        headers: &[(&str, &str)],
-        timeout_ms: u64,
-    ) -> Result<StreamResp, String>;
-}
-
-/// 流式整包宽松兜底倍数：总时长上限 = 倍数 × timeout_ms。批量翻译传
-/// 120 s → 兜底 20 分钟；期间只要流没断（单次读不超 agent 的 30 s 空闲），
-/// 长流可以一直收。
-const STREAM_TOTAL_FACTOR: u64 = 10;
-
-/// base_url scheme 校验（SEC-4）：`https` 一律放行；`http` 仅放行本机地址
-/// （localhost / 127.0.0.0/8 / ::1 / 未指定地址 / *.localhost），其余拒绝——
-/// 非本机明文 http 会让 Bearer key 裸奔过网。无 scheme 的地址原样发给 ureq
-/// 也必然失败，这里提前给出可读错误。
-pub fn validate_base_url_scheme(base_url: &str) -> Result<(), String> {
-    let b = base_url.trim();
-    if b.starts_with("https://") {
-        return Ok(());
-    }
-    let Some(rest) = b.strip_prefix("http://") else {
-        return Err(format!(
-            "API 地址需以 https:// 开头（本机服务可用 http://localhost）：{b}"
-        ));
-    };
-    // host 位置：第一个 /、?、# 之前；剥离 userinfo（user@host）、端口与
-    // IPv6 方括号（[::1]:11434 → ::1）。
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    let authority = authority.rsplit('@').next().unwrap_or(authority);
-    let host = if let Some(v6) = authority.strip_prefix('[') {
-        v6.split(']').next().unwrap_or(v6)
-    } else {
-        authority.split(':').next().unwrap_or(authority)
-    };
-    let host = host.split('%').next().unwrap_or(host); // IPv6 zone id
-    let lower = host.to_ascii_lowercase();
-    let is_local = lower == "localhost"
-        || lower.ends_with(".localhost") // RFC 6761：*.localhost 恒指本机
-        || host
-            .parse::<std::net::Ipv4Addr>()
-            .map(|ip| ip.is_loopback() || ip.is_unspecified())
-            .unwrap_or(false)
-        || host
-            .parse::<std::net::Ipv6Addr>()
-            .map(|ip| ip.is_loopback() || ip.is_unspecified())
-            .unwrap_or(false);
-    if is_local {
-        Ok(())
-    } else {
-        Err(format!(
-            "API 地址使用了明文 http://（{host}）。为保护 API 密钥，仅本机地址 \
-             （localhost / 127.x.x.x / ::1）允许 http，请改用 https://"
-        ))
-    }
 }
 
 /// 整包读入响应体并设硬上限：超出 `cap` 即报错，防畸形端点把内存吃穿。
@@ -144,45 +73,9 @@ fn bounded_body(reader: impl Read, cap: usize) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// 非流式响应体的硬上限：模型列表 / 词典 / 翻译 API 的响应都是 KB 量级，
+/// 非流式响应体的硬上限：词典 / 翻译 API 的响应都是 KB 量级，
 /// 16 MiB 已极宽裕。
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
-
-/// 流式读取的整包宽松兜底：只在每次 read 之间检查总时长，不干预单次读取
-/// （空闲保护由 agent 的 `timeout_read` 提供）。与 ureq 的整包 deadline 的
-/// 区别在于后者把"读超时"直接改写成"距 deadline 的剩余时间"，长流必被掐断。
-struct LooseDeadlineReader<R> {
-    inner: R,
-    deadline: std::time::Instant,
-}
-
-impl<R: Read> Read for LooseDeadlineReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if std::time::Instant::now() >= self.deadline {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "流式响应总时长超过兜底上限",
-            ));
-        }
-        self.inner.read(buf)
-    }
-}
-
-impl<R: BufRead> BufRead for LooseDeadlineReader<R> {
-    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-        if std::time::Instant::now() >= self.deadline {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "流式响应总时长超过兜底上限",
-            ));
-        }
-        self.inner.fill_buf()
-    }
-
-    fn consume(&mut self, amt: usize) {
-        self.inner.consume(amt);
-    }
-}
 
 /// Pooled client. Cloning is cheap (the pool and TLS config are behind an
 /// `Arc`), so one instance can serve every background worker.
@@ -196,8 +89,7 @@ impl UreqClient {
         let agent = ureq::AgentBuilder::new()
             // Fail fast on an unreachable host instead of hanging a worker.
             .timeout_connect(Duration::from_secs(5))
-            // Per-read timeout: LLM streams pause while decoding, so this must
-            // be generous, but it still catches a silently dropped connection.
+            // Per-read timeout: catches a silently dropped connection.
             .timeout_read(Duration::from_secs(30))
             .max_idle_connections(16)
             .max_idle_connections_per_host(8)
@@ -207,10 +99,9 @@ impl UreqClient {
 
     /// Process-wide shared client. The whole point of a pooled agent is that
     /// idle connections survive between requests — a fresh `UreqClient` per
-    /// call drops them, so every lookup pays DNS + TCP + TLS again
-    /// (100–400 ms, which for a selection lookup is half the budget).
-    /// Cloning is cheap but *keeping one alive* is what actually reuses
-    /// connections, so all call sites must go through this.
+    /// call drops them, so every request pays DNS + TCP + TLS again
+    /// (100–400 ms). Cloning is cheap but *keeping one alive* is what actually
+    /// reuses connections, so all call sites must go through this.
     pub fn shared() -> &'static UreqClient {
         static SHARED: std::sync::OnceLock<UreqClient> = std::sync::OnceLock::new();
         SHARED.get_or_init(UreqClient::new)
@@ -223,12 +114,6 @@ impl Default for UreqClient {
     }
 }
 
-/// Streaming responses must not be compressed: a gzip decoder buffers, which
-/// turns incremental SSE deltas into one lump delivered at the end — silently
-/// defeating the entire point of streaming. `ureq` enables gzip by default and
-/// advertises it, so we have to opt out explicitly.
-const IDENTITY_ENCODING: (&str, &str) = ("Accept-Encoding", "identity");
-
 impl HttpClient for UreqClient {
     fn get(&self, url: &str) -> Result<HttpResp, String> {
         map(self.agent.get(url).call())
@@ -236,12 +121,11 @@ impl HttpClient for UreqClient {
 
     fn post_form(&self, url: &str, params: &[(String, String)]) -> Result<HttpResp, String> {
         let body = form_encode(params);
-        map(
-            self.agent
-                .post(url)
-                .set("Content-Type", "application/x-www-form-urlencoded")
-                .send_string(&body),
-        )
+        map(self
+            .agent
+            .post(url)
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_string(&body))
     }
 
     fn post_json(
@@ -277,50 +161,14 @@ impl HttpClient for UreqClient {
         headers: &[(&str, &str)],
         timeout_ms: u64,
     ) -> Result<HttpResp, String> {
-        let mut req = self.agent.get(url).timeout(Duration::from_millis(timeout_ms));
+        let mut req = self
+            .agent
+            .get(url)
+            .timeout(Duration::from_millis(timeout_ms));
         for (k, v) in headers {
             req = req.set(k, v);
         }
         map(req.call())
-    }
-
-    fn post_json_stream(
-        &self,
-        url: &str,
-        body: &str,
-        headers: &[(&str, &str)],
-        timeout_ms: u64,
-    ) -> Result<StreamResp, String> {
-        // SEC-4：不设整包 deadline——ureq 的 Request::timeout 会覆盖逐读
-        // 超时（stream.rs 以"距 deadline 的剩余时间"作为 read timeout），仍在
-        // 正常收流的长批次会在到点时被掐断。改为：
-        //   空闲(idle)保护：回落到 agent 的 timeout_read(30s)，单次读超过即断；
-        //   宽松兜底：总时长上限 = STREAM_TOTAL_FACTOR × timeout_ms，由
-        //   LooseDeadlineReader 在每次 read 之间检查，防"细水长流"永不终止。
-        let mut req = self
-            .agent
-            .post(url)
-            .set("Content-Type", "application/json")
-            .set(IDENTITY_ENCODING.0, IDENTITY_ENCODING.1);
-        for (k, v) in headers {
-            req = req.set(k, v);
-        }
-        let total_deadline = std::time::Instant::now()
-            + Duration::from_millis(timeout_ms.saturating_mul(STREAM_TOTAL_FACTOR));
-        match req.send_string(body) {
-            Ok(r) => {
-                let status = r.status();
-                let reader =
-                    LooseDeadlineReader { inner: BufReader::new(r.into_reader()), deadline: total_deadline };
-                Ok(StreamResp { status, reader: Box::new(reader) })
-            }
-            Err(ureq::Error::Status(code, r)) => {
-                // 错误响应体设限读入后以 Cursor 兜底，调用方按 status 报错
-                let text = bounded_body(r.into_reader(), MAX_BODY_BYTES).unwrap_or_default();
-                Ok(StreamResp { status: code, reader: Box::new(Cursor::new(text.into_bytes())) })
-            }
-            Err(e) => Err(e.to_string()),
-        }
     }
 }
 
@@ -357,7 +205,9 @@ fn form_escape(s: &str) -> String {
     let mut out = String::new();
     for b in s.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(*b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
             b' ' => out.push('+'),
             _ => out.push_str(&format!("%{b:02X}")),
         }
@@ -370,11 +220,8 @@ fn form_escape(s: &str) -> String {
 /// Each `MockClient` owns its own record store so tests don't interfere.
 #[cfg(test)]
 pub(crate) mod test_mock {
-    use super::{Cursor, HttpClient, HttpResp};
-    use std::collections::VecDeque;
-    use std::io::{BufRead, Read};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
+    use super::{HttpClient, HttpResp};
+    use std::sync::Mutex;
 
     #[derive(Debug, Clone)]
     pub struct Record {
@@ -384,26 +231,13 @@ pub(crate) mod test_mock {
     }
 
     pub struct MockClient {
-        store: Arc<Mutex<Vec<Record>>>,
-        /// Pre-baked raw stream bodies, returned one per `post_json_stream`
-        /// call (FIFO). Lets tests script multi-chunk SSE and gap retries.
-        streams: Arc<Mutex<VecDeque<String>>>,
-        /// Same FIFO, but each entry also carries an HTTP status. Checked
-        /// before `streams` — lets tests script 400-retry negotiation paths.
-        raws: Arc<Mutex<VecDeque<(u16, String)>>>,
-        /// Dynamic variant: the reply is computed *from the request body*, for
-        /// protocols whose markers embed per-request values (the batch nonce).
-        /// Checked before `streams`.
-        stream_fns: Arc<Mutex<VecDeque<Box<dyn Fn(&str) -> String + Send>>>>,
+        store: Mutex<Vec<Record>>,
     }
 
     impl MockClient {
         pub fn new() -> Self {
             MockClient {
-                store: Arc::new(Mutex::new(Vec::new())),
-                streams: Arc::new(Mutex::new(VecDeque::new())),
-                raws: Arc::new(Mutex::new(VecDeque::new())),
-                stream_fns: Arc::new(Mutex::new(VecDeque::new())),
+                store: Mutex::new(Vec::new()),
             }
         }
 
@@ -411,49 +245,22 @@ pub(crate) mod test_mock {
             std::mem::take(&mut *self.store.lock().unwrap())
         }
 
-        /// Queue a raw streaming response body (already in wire format).
-        pub fn script_stream(&self, raw: String) {
-            self.streams.lock().unwrap().push_back(raw);
-        }
-
-        /// Queue a reply computed from the request body — the model-echoes-
-        /// the-protocol shape (batch markers carry a per-request nonce, so a
-        /// faithful reply can't be pre-baked).
-        pub fn script_stream_fn(&self, f: impl Fn(&str) -> String + Send + 'static) {
-            self.stream_fns.lock().unwrap().push_back(Box::new(f));
-        }
-
-        /// Queue a stream response with an explicit HTTP status (e.g. a 400
-        /// for capability-negotiation tests).
-        pub fn script_stream_raw_status(&self, status: u16, raw: String) {
-            self.raws.lock().unwrap().push_back((status, raw));
-        }
-
-        fn next_stream(&self, req_body: &str) -> Option<(u16, String)> {
-            if let Some((code, raw)) = self.raws.lock().unwrap().pop_front() {
-                return Some((code, raw));
-            }
-            if let Some(f) = self.stream_fns.lock().unwrap().pop_front() {
-                return Some((200, f(req_body)));
-            }
-            self.streams.lock().unwrap().pop_front().map(|raw| (200, raw))
+        fn record(&self, url: &str, body: &str, headers: &[(&str, &str)]) {
+            let h = headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            self.store.lock().unwrap().push(Record {
+                url: url.to_string(),
+                body: body.to_string(),
+                headers: h,
+            });
         }
     }
 
     impl Default for MockClient {
         fn default() -> Self {
             Self::new()
-        }
-    }
-
-    impl MockClient {
-        fn record(&self, url: &str, body: &str, headers: &[(&str, &str)]) {
-            let h = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-            self.store.lock().unwrap().push(Record {
-                url: url.to_string(),
-                body: body.to_string(),
-                headers: h,
-            });
         }
     }
 
@@ -464,14 +271,6 @@ pub(crate) mod test_mock {
             r#"{"trans_result":[{"src":"hello","dst":"你好"}]}"#
         } else if url.contains("tmt.tencentcloudapi.com") {
             r#"{"Response":{"TargetText":"你好，世界"}}"#
-        } else if url.contains("/models") {
-            // llm_list_models：两模型 + 一重复项 + 一空 id（测试去重/排序/过滤）
-            r#"{"object":"list","data":[{"id":"m-b"},{"id":"m-a"},{"id":"m-b"},{"id":""}]}"#
-        } else if url.contains("lookup-mock.test") {
-            // 选区查词 happy path：content 本身是合法查词 JSON（JSON-in-JSON 转义）
-            r#"{"choices":[{"message":{"content":"{\"type\":\"word\",\"translation\":\"便利设施\",\"phonetic\":\"/əˈmenəti/\",\"partOfSpeech\":\"n.\",\"usage\":\"指提升舒适度的设施。\",\"examples\":[],\"terms\":[]}"}}]}"#
-        } else if url.contains("chat/completions") {
-            r#"{"choices":[{"message":{"content":"你好，世界"}}]}"#
         } else if url.contains("transmart") {
             r#"{"auto_translation":"你好，世界"}"#
         } else if url.contains("dictionary.iciba.com") {
@@ -479,7 +278,10 @@ pub(crate) mod test_mock {
         } else {
             r#"{"responseData":{"translatedText":"你好"},"responseStatus":200}"#
         };
-        HttpResp { status: 200, body: body.to_string() }
+        HttpResp {
+            status: 200,
+            body: body.to_string(),
+        }
     }
 
     impl HttpClient for MockClient {
@@ -502,42 +304,6 @@ pub(crate) mod test_mock {
             Ok(resp_for(url))
         }
 
-        fn post_json_stream(
-            &self,
-            url: &str,
-            body: &str,
-            headers: &[(&str, &str)],
-            _timeout_ms: u64,
-        ) -> Result<super::StreamResp, String> {
-            self.record(url, body, headers);
-            // A scripted body wins over the canned one (tests control the wire).
-            if let Some((status, raw)) = self.next_stream(body) {
-                return Ok(super::StreamResp {
-                    status,
-                    reader: Box::new(Cursor::new(raw.into_bytes())),
-                });
-            }
-            let resp = resp_for(url);
-            // chat/completions 形态 → SSE delta 帧包装；其余原样一行（非 SSE 回落路径）
-            let frame = if url.contains("chat/completions") {
-                let content = serde_json::from_str::<serde_json::Value>(&resp.body)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("choices")?.get(0)?.get("message")?.get("content")?.as_str().map(String::from)
-                    })
-                    .unwrap_or_default();
-                let payload =
-                    serde_json::json!({"choices":[{"delta":{"content":content}}]}).to_string();
-                format!("data: {payload}\n\ndata: [DONE]\n\n")
-            } else {
-                format!("{}\n", resp.body)
-            };
-            Ok(super::StreamResp {
-                status: resp.status,
-                reader: Box::new(Cursor::new(frame.into_bytes())),
-            })
-        }
-
         fn get_headers_timeout(
             &self,
             url: &str,
@@ -546,120 +312,6 @@ pub(crate) mod test_mock {
         ) -> Result<HttpResp, String> {
             self.record(url, "", headers);
             Ok(resp_for(url))
-        }
-    }
-
-    /// REL-7 测试件：SSE 流式 mock——第一条 data 行送达**之后**、下一段数据
-    /// 首次 fill 的瞬间置位共享的取消旗标，模拟「用户在长流中途按了停止」。
-    /// 配合 [`super::super::cancel::CancelableClient`] 断言：流读取必须在下
-    /// 一个行边界中止，而不是把剩余流读完（修复前的缺陷本体）。
-    pub struct MidStreamCancelMock {
-        /// 与外层 CancelableClient 共享的取消旗标（测试内 clone 一份去构造）。
-        pub cancel: Arc<AtomicBool>,
-    }
-
-    impl MidStreamCancelMock {
-        pub fn new() -> Self {
-            MidStreamCancelMock { cancel: Arc::new(AtomicBool::new(false)) }
-        }
-    }
-
-    impl Default for MidStreamCancelMock {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    /// 段一：第一条 data 行。delta 是**合法查词 JSON 的前半**（不带空行终止
-    /// 符——帧要在下一段的空行到达时才闭）：修复前的缺陷是流被完整读完并
-    /// 拼出可用结果，内容必须可解析，回归才抓得住它。
-    const MID_SEG1: &str = "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"t\\\":\\\"你\"}}]}\n";
-    /// 段二：空行（闭合段一的帧）+ 第二条 data 行（JSON 后半）+ DONE 终止符。
-    const MID_SEG2: &str = concat!(
-        "\n",
-        "data: {\"choices\":[{\"delta\":{\"content\":\"好\\\",\\\"p\\\":null,\\\"pos\\\":null}\"}}]}\n\n",
-        "data: [DONE]\n\n",
-    );
-
-    /// 两段静态缓冲拼成的流：段一后旗标置位，段尽转 EOF。
-    struct MidStreamReader {
-        seg: usize,
-        pos: usize,
-        cancel: Arc<AtomicBool>,
-    }
-
-    impl MidStreamReader {
-        fn segment(&self) -> &'static [u8] {
-            match self.seg {
-                0 => MID_SEG1.as_bytes(),
-                1 => MID_SEG2.as_bytes(),
-                _ => &[],
-            }
-        }
-    }
-
-    impl Read for MidStreamReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let avail = self.fill_buf()?;
-            let n = avail.len().min(buf.len());
-            buf[..n].copy_from_slice(&avail[..n]);
-            self.consume(n);
-            Ok(n)
-        }
-    }
-
-    impl BufRead for MidStreamReader {
-        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-            if self.seg >= 1 && self.pos == 0 {
-                // 第一条 data 行已送达，此刻「按下停止」：外层包装的下一次
-                // 行边界检查必须看到旗标。
-                self.cancel.store(true, Ordering::Relaxed);
-            }
-            Ok(&self.segment()[self.pos..])
-        }
-
-        fn consume(&mut self, amt: usize) {
-            if amt == 0 {
-                return;
-            }
-            self.pos += amt;
-            if self.pos >= self.segment().len() {
-                self.seg += 1;
-                self.pos = 0;
-            }
-        }
-    }
-
-    impl HttpClient for MidStreamCancelMock {
-        fn get(&self, _url: &str) -> Result<HttpResp, String> {
-            panic!("MidStreamCancelMock 只服务流式路径")
-        }
-        fn post_form(&self, _url: &str, _params: &[(String, String)]) -> Result<HttpResp, String> {
-            panic!("MidStreamCancelMock 只服务流式路径")
-        }
-        fn post_json(
-            &self,
-            _url: &str,
-            _body: &str,
-            _headers: &[(&str, &str)],
-        ) -> Result<HttpResp, String> {
-            panic!("MidStreamCancelMock 只服务流式路径")
-        }
-        fn post_json_stream(
-            &self,
-            _url: &str,
-            _body: &str,
-            _headers: &[(&str, &str)],
-            _timeout_ms: u64,
-        ) -> Result<super::StreamResp, String> {
-            Ok(super::StreamResp {
-                status: 200,
-                reader: Box::new(MidStreamReader {
-                    seg: 0,
-                    pos: 0,
-                    cancel: Arc::clone(&self.cancel),
-                }),
-            })
         }
     }
 }
@@ -673,6 +325,7 @@ pub(crate) fn form_encode_private(params: &[(String, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn client_is_shareable_across_threads() {
@@ -696,53 +349,19 @@ mod tests {
         );
     }
 
-    // ---- SEC-4 加固 ----
-
     #[test]
     fn bounded_body_caps_and_tolerates_non_utf8() {
-        assert_eq!(bounded_body(Cursor::new(b"hello".to_vec()), 16).unwrap(), "hello");
+        assert_eq!(
+            bounded_body(Cursor::new(b"hello".to_vec()), 16).unwrap(),
+            "hello"
+        );
         // 非严格 UTF-8：替换字符容错（与 charset 关闭时 ureq into_string 一致）
-        assert_eq!(bounded_body(Cursor::new(vec![0xff, 0xfe]), 16).unwrap(), "\u{fffd}\u{fffd}");
+        assert_eq!(
+            bounded_body(Cursor::new(vec![0xff, 0xfe]), 16).unwrap(),
+            "\u{fffd}\u{fffd}"
+        );
         // 超上限：报错而不是整包读入
         let e = bounded_body(Cursor::new(vec![b'x'; 17]), 16).unwrap_err();
         assert!(e.contains("上限"), "{e}");
-    }
-
-    #[test]
-    fn loose_deadline_reader_enforces_total_time() {
-        // 未到期：数据照常透传（Read 与 BufRead 两条路径）
-        let mut r = LooseDeadlineReader {
-            inner: Cursor::new(b"data\n".to_vec()),
-            deadline: std::time::Instant::now() + Duration::from_secs(60),
-        };
-        let mut line = String::new();
-        r.read_to_string(&mut line).unwrap();
-        assert_eq!(line, "data\n");
-
-        let mut r = LooseDeadlineReader {
-            inner: Cursor::new(b"data\n".to_vec()),
-            deadline: std::time::Instant::now() + Duration::from_secs(60),
-        };
-        assert!(r.fill_buf().is_ok());
-
-        // 已到期：两种读路径都立即 TimedOut
-        let past = std::time::Instant::now() - Duration::from_secs(1);
-        let mut r = LooseDeadlineReader { inner: Cursor::new(b"data".to_vec()), deadline: past };
-        let e = r.read(&mut [0u8; 4]).unwrap_err();
-        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
-        let mut r = LooseDeadlineReader { inner: Cursor::new(b"data".to_vec()), deadline: past };
-        let e = r.fill_buf().unwrap_err();
-        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
-    }
-
-    #[test]
-    fn stream_reader_is_send_and_bufread() {
-        // StreamResp.reader: Box<dyn BufRead + Send> —— 兜底包装不能破坏该约束
-        fn assert_send_bufread<T: BufRead + Send>(_: &T) {}
-        let r = LooseDeadlineReader {
-            inner: BufReader::new(Cursor::new(b"x".to_vec())),
-            deadline: std::time::Instant::now() + Duration::from_secs(60),
-        };
-        assert_send_bufread(&r);
     }
 }

@@ -14,8 +14,16 @@ const MAX_FILES: usize = 3000;
 
 // "target" is a divergence from the frozen kernel source: on Windows the Rust
 // workspace target/ tree floods the walk and trips MAX_FILES truncation.
-const SKIP: &[&str] =
-    &["node_modules", ".git", "dist", "build", ".vscode", ".workbuddy", ".idea", "target"];
+const SKIP: &[&str] = &[
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".vscode",
+    ".workbuddy",
+    ".idea",
+    "target",
+];
 
 /// Recursively collect Markdown documents under `root` as a tree.
 pub fn walk(root: &Path) -> Vec<TreeNodeDTO> {
@@ -27,7 +35,12 @@ pub fn walk(root: &Path) -> Vec<TreeNodeDTO> {
     walk_dir(root, 0, &mut seen, &mut counter)
 }
 
-fn walk_dir(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, counter: &mut usize) -> Vec<TreeNodeDTO> {
+fn walk_dir(
+    dir: &Path,
+    depth: usize,
+    seen: &mut HashSet<PathBuf>,
+    counter: &mut usize,
+) -> Vec<TreeNodeDTO> {
     if depth > MAX_DEPTH || *counter > MAX_FILES {
         return Vec::new();
     }
@@ -151,17 +164,28 @@ pub fn moved_path(path: &str, dest_dir: &str) -> Result<String, String> {
         .ok_or_else(|| "无法定位文件名".to_string())?
         .to_string_lossy()
         .into_owned();
-    Ok(Path::new(dest_dir).join(name).to_string_lossy().into_owned())
+    Ok(Path::new(dest_dir)
+        .join(name)
+        .to_string_lossy()
+        .into_owned())
 }
 
 /// 模板正文：front matter 起头（与解析器的 front matter 支持对齐）。
 /// 未知 kind 返回空串（= 空白文档）。
 pub fn template_body(kind: &str) -> &'static str {
     match kind {
-        "note" => "---\ntitle: \ndate: \ntags: []\n---\n\n# 读书笔记\n\n## 摘要\n\n\n## 要点\n\n- \n\n## 摘录\n\n> \n\n## 我的想法\n\n",
-        "meeting" => "---\ntitle: \ndate: \nattendees: []\n---\n\n# 会议记录\n\n## 议题\n\n\n## 结论\n\n- \n\n## 待办\n\n- [ ] \n",
-        "plan" => "---\ntitle: \nstatus: draft\n---\n\n# 项目计划\n\n## 目标\n\n\n## 里程碑\n\n| 阶段 | 交付物 | 时间 |\n| --- | --- | --- |\n|  |  |  |\n\n## 任务\n\n- [ ] \n",
-        "daily" => "---\ntitle: \ndate: \n---\n\n# 今日记录\n\n## 完成\n\n- \n\n## 进行中\n\n- \n\n## 问题\n\n- \n\n## 明日\n\n- \n",
+        "note" => {
+            "---\ntitle: \ndate: \ntags: []\n---\n\n# 读书笔记\n\n## 摘要\n\n\n## 要点\n\n- \n\n## 摘录\n\n> \n\n## 我的想法\n\n"
+        }
+        "meeting" => {
+            "---\ntitle: \ndate: \nattendees: []\n---\n\n# 会议记录\n\n## 议题\n\n\n## 结论\n\n- \n\n## 待办\n\n- [ ] \n"
+        }
+        "plan" => {
+            "---\ntitle: \nstatus: draft\n---\n\n# 项目计划\n\n## 目标\n\n\n## 里程碑\n\n| 阶段 | 交付物 | 时间 |\n| --- | --- | --- |\n|  |  |  |\n\n## 任务\n\n- [ ] \n"
+        }
+        "daily" => {
+            "---\ntitle: \ndate: \n---\n\n# 今日记录\n\n## 完成\n\n- \n\n## 进行中\n\n- \n\n## 问题\n\n- \n\n## 明日\n\n- \n"
+        }
         _ => "",
     }
 }
@@ -191,7 +215,10 @@ pub fn register_root(path: &Path) {
 
 /// 已登记允许根的快照。
 pub fn allowed_roots() -> Vec<PathBuf> {
-    ALLOWED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    ALLOWED_ROOTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// `path` 是否落在任一已登记根内。
@@ -271,7 +298,11 @@ fn normalized_contains(root: &Path, path: &Path) -> bool {
     let norm = |p: &Path| {
         let s = p.to_string_lossy().replace('\\', "/");
         let s = s.trim_end_matches('/');
-        if cfg!(windows) { s.to_lowercase() } else { s.to_string() }
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s.to_string()
+        }
     };
     let (r, p) = (norm(root), norm(path));
     let Some(rest) = p.strip_prefix(&r) else {
@@ -341,17 +372,26 @@ mod tests {
     #[test]
     fn contains_respects_separator_boundary_and_case() {
         use std::path::Path;
-        assert!(normalized_contains(Path::new("D:/ws"), Path::new("D:/ws/docs/a.md")));
+        assert!(normalized_contains(
+            Path::new("D:/ws"),
+            Path::new("D:/ws/docs/a.md")
+        ));
         assert!(normalized_contains(Path::new("D:/ws"), Path::new("D:/ws")));
         // 前缀同串但越过目录边界：不含
-        assert!(!normalized_contains(Path::new("D:/ws"), Path::new("D:/www/a.md")));
+        assert!(!normalized_contains(
+            Path::new("D:/ws"),
+            Path::new("D:/www/a.md")
+        ));
         // Windows 大小写不敏感（非 Windows 尊重原大小写语义）
         assert_eq!(
             normalized_contains(Path::new("D:/WS"), Path::new("d:/ws/a.md")),
             cfg!(windows)
         );
         // 盘符根：`C:\` 包含其下一切
-        assert!(normalized_contains(Path::new("C:\\"), Path::new("C:/x/y.png")));
+        assert!(normalized_contains(
+            Path::new("C:\\"),
+            Path::new("C:/x/y.png")
+        ));
     }
 
     #[test]
@@ -367,7 +407,10 @@ mod tests {
         // `..` 逃出根：拒绝
         assert!(!path_within(&dir.join("..").join("escape.md"), &dir));
         // 同前缀不同目录：拒绝
-        let sibling = dir.parent().unwrap().join(format!("qingbird-ws-within-sib-{}", std::process::id()));
+        let sibling = dir
+            .parent()
+            .unwrap()
+            .join(format!("qingbird-ws-within-sib-{}", std::process::id()));
         assert!(!path_within(&sibling, &dir));
         // 空路径不包含任何东西
         assert!(!path_within(std::path::Path::new(""), &dir));
@@ -386,7 +429,10 @@ mod tests {
         register_root(&dir); // 去重
         // 登记的是剥 `\\?\` 前缀后的 canonical 形态
         assert_eq!(
-            allowed_roots().iter().filter(|r| **r == strip_verbatim(&dir.canonicalize().unwrap())).count(),
+            allowed_roots()
+                .iter()
+                .filter(|r| **r == strip_verbatim(&dir.canonicalize().unwrap()))
+                .count(),
             1
         );
         assert!(is_within_any_root(&dir.join("a.md")));
@@ -428,8 +474,18 @@ mod tests {
                 path: None,
                 is_dir: true,
                 children: vec![
-                    TreeNodeDTO { name: "readme.md".into(), path: Some("readme.md".into()), is_dir: false, children: vec![] },
-                    TreeNodeDTO { name: "guide.md".into(), path: Some("guide.md".into()), is_dir: false, children: vec![] },
+                    TreeNodeDTO {
+                        name: "readme.md".into(),
+                        path: Some("readme.md".into()),
+                        is_dir: false,
+                        children: vec![],
+                    },
+                    TreeNodeDTO {
+                        name: "guide.md".into(),
+                        path: Some("guide.md".into()),
+                        is_dir: false,
+                        children: vec![],
+                    },
                 ],
             },
             TreeNodeDTO {

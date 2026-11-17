@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 
 use crate::markdown::cmark;
-use crate::markdown::model::{parse_blocks, Block, Inline};
+use crate::markdown::model::{Block, Inline, parse_blocks};
 use crate::markdown::units::{block_translatable, inline_plain_text};
 use crate::translate::engine::TargetLang;
 use crate::translate::skip::RefSkipState;
@@ -133,14 +133,7 @@ fn walk_bilingual(
             }
             Block::List { items, .. } => {
                 for it in items {
-                    emit_children_translations(
-                        &it.blocks,
-                        translations,
-                        target,
-                        st,
-                        counter,
-                        out,
-                    );
+                    emit_children_translations(&it.blocks, translations, target, st, counter, out);
                 }
             }
             Block::FootnoteDef { blocks: inner, .. } => {
@@ -170,9 +163,7 @@ fn emit_translation(
 ) -> bool {
     let plain = block_plain(b);
     let translatable = match b {
-        Block::Heading { level, .. } => {
-            block_translatable(st, Some(*level), &plain, target)
-        }
+        Block::Heading { level, .. } => block_translatable(st, Some(*level), &plain, target),
         Block::Paragraph { .. } => block_translatable(st, None, &plain, target),
         _ => false,
     };
@@ -211,14 +202,7 @@ fn emit_children_translations(
             }
             Block::List { items, .. } => {
                 for it in items {
-                    emit_children_translations(
-                        &it.blocks,
-                        translations,
-                        target,
-                        st,
-                        counter,
-                        out,
-                    );
+                    emit_children_translations(&it.blocks, translations, target, st, counter, out);
                 }
             }
             Block::FootnoteDef { blocks: inner, .. } => {
@@ -373,9 +357,18 @@ Outro paragraph.
         let out = export_bilingual(content, &map, TargetLang::Zh);
 
         // 三段都要有对照
-        assert!(out.contains("Intro paragraph.\n\n引言段。"), "首段对照：\n{out}");
-        assert!(out.contains("Mid paragraph.\n\n中段。"), "中段对照：\n{out}");
-        assert!(out.contains("Outro paragraph.\n\n尾段。"), "尾段对照：\n{out}");
+        assert!(
+            out.contains("Intro paragraph.\n\n引言段。"),
+            "首段对照：\n{out}"
+        );
+        assert!(
+            out.contains("Mid paragraph.\n\n中段。"),
+            "中段对照：\n{out}"
+        );
+        assert!(
+            out.contains("Outro paragraph.\n\n尾段。"),
+            "尾段对照：\n{out}"
+        );
 
         // 代码块、公式、图片原文各出现一次
         let code_count = out.matches("```rust").count();
@@ -439,7 +432,10 @@ Final paragraph.
         assert!(out.contains("\n\n引用二\n"), "引用二译文：\n{out}");
 
         // 尾段对照
-        assert!(out.contains("Final paragraph.\n\n尾段。"), "尾段对照：\n{out}");
+        assert!(
+            out.contains("Final paragraph.\n\n尾段。"),
+            "尾段对照：\n{out}"
+        );
     }
 
     /// **表格占号**（BUG-1 回归）：`units::walk_collect` 对表格**逐表头、
@@ -498,8 +494,16 @@ After paragraph.
         // 整体顺序：前段对照 → 表格源 → 六格译文 → 后段对照
         let mut last = 0usize;
         for s in [
-            "前段。", "| H1", "表头一", "表头二", "甲一", "甲二", "乙一", "乙二",
-            "After paragraph.", "后段。",
+            "前段。",
+            "| H1",
+            "表头一",
+            "表头二",
+            "甲一",
+            "甲二",
+            "乙一",
+            "乙二",
+            "After paragraph.",
+            "后段。",
         ] {
             let p = out.find(s).unwrap_or_else(|| panic!("缺「{s}」：\n{out}"));
             assert!(p > last, "顺序错乱，「{s}」位置不对：\n{out}");

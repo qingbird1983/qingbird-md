@@ -16,19 +16,9 @@ import type {
   DonePayload,
   Mode,
   TargetLang,
-  WordLookupDTO,
-  LookupDeltaPayload,
   TranslateStart,
   SessionSnapshot,
-  Issue,
-  ReviewOutcome,
 } from "../types/ipc";
-
-/** S5：语义核查分批进度（done/total 是批数，bridge/events.rs ReviewProgressEvt 镜像）。 */
-export interface ReviewProgress {
-  done: number;
-  total: number;
-}
 
 /** Step 2 导出模式：单语译文 vs 双语对照。键空间完全不同（见 ExportMode 说明）。 */
 export type ExportMode = "translation" | "bilingual";
@@ -129,29 +119,6 @@ export const api = {
     }),
   stopTranslation: () => invoke<void>("stop_translation"),
   /**
-   * S5：AI 语义核查（锁 llm：creds 必须是 providers["llm"] 那份；后端
-   * 不收 provider 参数——不给他源留口子）。instruction = ReviewComposer
-   * 的追问（可为 null）。进度走 listenReviewProgress；结果不进 Cache。
-   */
-  reviewSemantic: (
-    c: string,
-    translations: Array<[number, string]>,
-    mode: "translation" | "bilingual",
-    targetLang: TargetLang,
-    instruction: string | null,
-    creds: Record<string, string>,
-  ) =>
-    invoke<ReviewOutcome>("review_semantic", {
-      content: c,
-      translations,
-      mode,
-      targetLang,
-      instruction,
-      creds,
-    }),
-  listenReviewProgress: (cb: (p: ReviewProgress) => void) =>
-    listen<ReviewProgress>("review-progress", (e) => cb(e.payload)),
-  /**
    * 译文另存为（Step 2）：`mode` 决定 `translations` 的 key 索引空间——
    * - `"translation"`（默认、单语）：key = `data-ri` run 空间，方向无关，
    *   与 translateDocument 的收集共用同一索引空间。
@@ -178,37 +145,6 @@ export const api = {
       targetLang,
       relayout,
     }),
-
-  /**
-   * 确定性检查（Step 3 #15）：漏译 / 标记丢失 / 结构不对等 / 代码被侵入
-   * 四类同时返回。零 AI 成本；面板拿这份数据决定要展示哪些 issue、要
-   * 追问 AI 哪几条。**translations 的 key 索引空间由 `mode` 决定**（P0-2）：
-   * `"translation"` = `data-ri` run 空间，`"bilingual"` = `data-bi` 块空间
-   * ——与 translateDocument 的收集共用同一索引空间（同 exportTranslation 的
-   * 约束）；`targetLang` 必须与产出该表的那轮翻译同方向（可译判定随方向变）。
-   */
-  checkTranslation: (
-    c: string,
-    translations: Array<[number, string]>,
-    mode: ExportMode,
-    targetLang: TargetLang,
-  ) =>
-    invoke<Issue[]>("check_translation", {
-      content: c,
-      translations,
-      mode,
-      targetLang,
-    }),
-
-  // 选区查词（2026-08-29 spec）：LLM 词/句分流富结果；结果缓存于 Rust 侧
-  lookupWord: (t: string, c: Record<string, string>) =>
-    invoke<WordLookupDTO>("lookup_word", { text: t, creds: c }),
-  // 查词流式 delta（SSE 渐进渲染）：content 为截止当前的累积 LLM 输出
-  listenLookupDelta: (cb: (p: LookupDeltaPayload) => void) =>
-    listen<LookupDeltaPayload>("lookup-delta", (e) => cb(e.payload)),
-  // 拉取 OpenAI 兼容 /models 供设置弹窗点选（Tauri v2 默认 camelCase 参数映射）
-  llmListModels: (baseUrl: string, apiKey: string) =>
-    invoke<string[]>("llm_list_models", { baseUrl, apiKey }),
 
   // ---- 休眠会话快照（hibernate.rs；见 docs/webview-hibernate-plan.md）----
   // 休眠握手固定顺序：saveSession → hibernateReady。

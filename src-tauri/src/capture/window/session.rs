@@ -1,7 +1,7 @@
 //! 截图命令/事件类型与事件循环单例（Windows 下每进程只允许一个
 //! EventLoop，故整个应用生命周期跑在专属后台线程上，捕获经 proxy 派发）。
 
-use std::sync::{mpsc, OnceLock};
+use std::sync::{OnceLock, mpsc};
 
 use winit::event_loop::{EventLoop, EventLoopProxy};
 

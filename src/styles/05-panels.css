@@ -6,13 +6,10 @@
  * 面板外壳的 .panel-slot / .panel-handle 落在 05-panels.css）。
  * ============================================================ */
 
-/* ============ 侧栏槽位（双宿主：大纲 / AI 核查）============ */
-/* §8.2 槽位泛化 + 同侧共存（2026-09-19 二轮）：
-   大纲与 AI 核查各自独立选边；**同侧时 AI 核查是「外一级」高栏**——
-   跨 row 2-4（上抵标签栏下、下至状态栏上），大纲栏顺势内移一列
-   （右同侧 col7→col6、左同侧 col3→col4），形如左贴边大纲栏与主区的
-   关系：推移，不覆盖、不翻边。列号由 App.tsx 按共存关系内联（inline
-   style 恒胜，这里的 data-side 规则只作无内联时的兜底文档）。 */
+/* ============ 侧栏槽位（大纲单宿主）============ */
+/* §8.2 槽位泛化：槽位抽象本身保留（可停靠左/右、可拖宽），当前只有大纲
+   一个宿主——原「AI 核查高栏」已随 AI 功能移除。列号由 App.tsx 按共存
+   关系内联（inline style 恒胜，这里的 data-side 规则只作无内联时的兜底文档）。 */
 .panel-slot {
   display: flex;
   position: relative;
@@ -78,33 +75,6 @@
   right: 0;
 }
 
-/* AI 核查槽特例（2026-09-19 三轮，Guanmo AI 面板同款）：热区退出布局流，
-   改为**覆盖在面板体上的绝对定位条**——面板体直接从发丝线铺起，槽头横线、
-   今后时间线等一切通栏元素都自然顶到竖线上，不再有 7px 热区空档（用户
-   实测：槽头线与竖线之间缺一小段）。拖拽热区仍是全高 7px，无死角。 */
-.panel-slot.review-slot > .app-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  z-index: 10; /* 线与悬停高亮浮在面板底色上 */
-}
-.panel-slot.review-slot[data-side="right"] > .app-resizer {
-  left: 0;
-}
-.panel-slot.review-slot[data-side="left"] > .app-resizer {
-  right: 0;
-}
-
-/* 收起态整槽禁用命中（2026-09-24 常挂载后的必备守卫）：核查槽盒子在网格里
-   横向拉伸到整条轨道宽——收起后仍与同列大纲栏（以及工具栏让位段的右端）
-   等大重叠，透明盒子会整面吃掉下层元素的点击/滚轮/拖拽（大纲栏全瘫的根因）。
-   data-open 由 App.tsx 内联：收起即 none（收缩动画中的面板本就无需命中），
-   展开恢复默认 auto。展开态核查槽独占外列，与大纲栏不重叠，无需此规则。 */
-.panel-slot.review-slot[data-open="false"] {
-  pointer-events: none;
-}
-
 /* ============ 侧栏把手（"耳朵"）============ */
 /* 2026-09-19 三轮（参照 Guanmo-open MarkdownToc 把手重塑形状与几何）：
    · 形状 —— 20×48 高而窄的耳朵，锚在面板体边线的**主区那侧**、平边贴线
@@ -119,7 +89,7 @@
      用户实测：线被舌头压住不对，要贴不要压。
    · 箭头方向 = 面板那条边「将要移动」的方向：
        右停靠 未展开 ‹ ／ 已展开 ›；左停靠 未展开 › ／ 已展开 ‹
-   · 只有大纲栏有耳朵；AI 核查栏开合走状态栏开关，不设把手。 */
+   · 只有大纲栏有耳朵；开合走耳朵本身。 */
 .panel-handle {
   position: absolute;
   top: 50%;
@@ -434,37 +404,6 @@
 .status-bar .status-dir:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-/* AI 核查入口（§9.5）：状态栏右端文字按钮，active 跟面板开合。
-   与 .status-dir 同风格——文字钮，hover 才着色，focus-visible 焦点环齐备。
-   面板开关始终可点（无 LLM 也能开面板看历史清单），禁用的是面板内的钮。 */
-.status-bar .status-ai {
-  flex: none;
-  padding: 0 4px;
-  border: none;
-  border-radius: var(--r-pill);
-  background: none;
-  font: inherit;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: inherit;
-  cursor: pointer;
-  transition: color 0.14s var(--ease), background 0.14s var(--ease);
-}
-
-.status-bar .status-ai:hover {
-  color: var(--accent-strong);
-  background: var(--accent-weak);
-}
-
-.status-bar .status-ai:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.status-bar .status-ai.active {
-  color: var(--accent);
 }
 
 /* ============ 分隔线 / 拖宽条 ============ */

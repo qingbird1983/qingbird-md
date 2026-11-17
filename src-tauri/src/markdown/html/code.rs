@@ -5,9 +5,9 @@ use std::fmt::Write;
 
 use syntect::highlighting::Color;
 
+use super::Ctx;
 use super::inline::escape_html;
 use crate::markdown::syntax::highlight_spans;
-use super::Ctx;
 
 impl Ctx<'_> {
     /// 卡片结构（对齐 openchamber 的代码块布局划分）：
@@ -59,7 +59,12 @@ impl Ctx<'_> {
                         let _ = write!(
                             out,
                             "<span style=\"--cl:#{:02x}{:02x}{:02x};--cd:#{:02x}{:02x}{:02x}\">{}</span>",
-                            cl.r, cl.g, cl.b, cd.r, cd.g, cd.b,
+                            cl.r,
+                            cl.g,
+                            cl.b,
+                            cd.r,
+                            cd.g,
+                            cd.b,
                             escape_html(piece)
                         );
                     }
@@ -116,7 +121,10 @@ impl Ctx<'_> {
 
 fn push_tok(lines: &mut Vec<Vec<(Color, Color, String)>>, c: (Color, Color), piece: &str) {
     if !piece.is_empty() {
-        lines.last_mut().unwrap().push((c.0, c.1, piece.to_string()));
+        lines
+            .last_mut()
+            .unwrap()
+            .push((c.0, c.1, piece.to_string()));
     }
 }
 

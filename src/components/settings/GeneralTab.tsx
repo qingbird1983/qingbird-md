@@ -4,7 +4,7 @@
 import { Info } from "lucide-react";
 import { api } from "../../lib/ipc";
 import { CONTENT_WIDTHS, CONTENT_WIDTH_LABEL, errText, useUiStore, type ContentWidth } from "../../stores/useUiStore";
-import { useSettingsStore } from "../../stores/useSettingsStore";
+import { normalizeTabMode, useSettingsStore } from "../../stores/useSettingsStore";
 import type { CloseAction } from "../../types/ipc";
 import { Seg } from "../ui/Seg";
 import { SwitchRow } from "./SettingsParts";
@@ -18,6 +18,8 @@ export default function GeneralTab() {
   // close_action 点即生效（整包 save，与 capture_enabled 同路）；后端钩子
   // 每次关窗现读盘，下一次关窗即生效，无需重挂。
   const closeAction = (useSettingsStore((s) => s.settings?.close_action ?? "ask")) as CloseAction;
+  // tab_mode 点即生效（整包 save）：single = 打开文档复用唯一标签，不叠加。
+  const tabMode = useSettingsStore((s) => normalizeTabMode(s.settings?.tab_mode));
   const relayout = useSettingsStore((s) => s.settings?.relayout_on_export ?? true);
   const setRelayout = (v: boolean) => {
     const cur = useSettingsStore.getState().settings;
@@ -51,6 +53,21 @@ export default function GeneralTab() {
             { value: "ask", label: "每次询问" },
             { value: "tray", label: "常驻托盘" },
             { value: "exit", label: "退出应用" },
+          ]} />
+      </section>
+
+      <section className="set-sec">
+        <h3 className="set-sec-title">标签页模式</h3>
+        <p className="set-sec-desc">
+          多标签：每打开一份文档新开一个标签，可同时对照多篇。单标签：每次打开文档都复用同一个标签，不叠加；
+          切换后有未保存改动的标签会被替换。
+        </p>
+        <Seg variant="setseg" ariaLabel="标签页模式" value={tabMode}
+          onChange={(v) => { const cur = useSettingsStore.getState().settings;
+            if (cur) void useSettingsStore.getState().save({ ...cur, tab_mode: v }); }}
+          options={[
+            { value: "multi", label: "多标签页" },
+            { value: "single", label: "单标签页" },
           ]} />
       </section>
 

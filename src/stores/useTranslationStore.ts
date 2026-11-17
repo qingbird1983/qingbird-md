@@ -1,15 +1,13 @@
 // 翻译域：整篇翻译的 gen 时序、进度、划词翻译浮窗结果。
 // 阅读模式不在此存——唯一真源是 useDocStore.mode（plan 防双源决议）。
 // （P2-8a）流域可变单例与事件处理器拆至 lib/translationStream（整篇翻译流：
-// 打字机/reveal/块组装/早期事件缓冲/invoke 闩）与 lib/lookupStream（划词查词流：
-// 防抖/delta 渐进解析/分流请求）；本文件只留类型、React 可见状态与动作门面，
-// 公开 API 与导出面不变（parsePartialLookup 经此 re-export）。
+// 打字机/reveal/块组装/早期事件缓冲/invoke 闩）与 lib/lookupStream（划词翻译流：
+// 防抖/请求）；本文件只留类型、React 可见状态与动作门面。
 import { create } from "zustand";
 import type {
   DonePayload,
   Mode,
   TargetLang,
-  WordLookupDTO,
 } from "../types/ipc";
 import { api } from "../lib/ipc";
 import type { RevealCommit } from "../lib/reveal";
@@ -24,10 +22,8 @@ export type TranslationStatus = "idle" | "running" | "error";
 interface SelectionState {
   text: string;
   loading: boolean;
-  streaming: boolean; // 查词请求在途且 delta 仍可刷新（最终 DTO 到达即置 false）
-  plain: string | null; // 现状路径结果（未配 LLM 时走全局翻译源）
-  rich: WordLookupDTO | null; // LLM 查词富结果（流式期间为部分 DTO）
-  error: string | null; // 显式失败（不静默回落，spec §9.2）
+  plain: string | null; // 译文（走全局翻译源）
+  error: string | null; // 显式失败
 }
 
 interface TranslationState {
@@ -63,7 +59,6 @@ interface TranslationState {
   listenPartial(): void;
   listenProgress(): void;
   listenDone(): void;
-  listenLookupDelta(): void;
   stop(): void;
   translateSelection(text: string): void;
   clearSelection(): void;
@@ -293,10 +288,6 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
     translationStream.listenPartial();
   },
 
-  listenLookupDelta: () => {
-    lookupStream.listenDelta();
-  },
-
   stop: () => {
     // gen 前跳使同轮迟到的 done 失配而被丢弃（后端取消会丢弃部分产物）
     set((s) => ({ gen: s.gen + 1, status: "idle", progress: null, scope: "off", lastWindow: null }));
@@ -315,4 +306,3 @@ export const useTranslationStore = create<TranslationState>()((set, get) => ({
 }));
 
 export { type SelectionState };
-export { parsePartialLookup } from "../lib/lookupStream";

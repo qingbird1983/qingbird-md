@@ -172,6 +172,15 @@ export function commit(tabs: OpenTab[], activeId: string | null) {
   return { tabs, activeId, ...projection(tabs, activeId) };
 }
 
+/**
+ * 按标签页模式决定开新文档后的标签集合（2026-11-18）：
+ * tabMode==="single" = 丢弃已有标签只留新的一份；其余（multi/空/未知）= 追加。
+ * 纯函数放在这层，供 openTab / newTab / openExampleTab 共用同一口径。
+ */
+export function tabsAfterOpen(tabs: OpenTab[], tab: OpenTab, tabMode: string | undefined): OpenTab[] {
+  return tabMode === "single" ? [tab] : [...tabs, tab];
+}
+
 /** 集中写路径工厂：动作经 makePatchers(set, get) 取得两个写辅助（体为原
  *  useDocStore 工厂闭包逐字）。 */
 export function makePatchers(

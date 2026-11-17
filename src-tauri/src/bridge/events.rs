@@ -1,6 +1,5 @@
 //! 翻译 wire 事件类型：translation-partial / translation-progress /
-//! translation-done 的载荷、查词增量与翻译起跑信封（serde 线上形状由本文件
-//! 测试钉住）。
+//! translation-done 的载荷与翻译起跑信封（serde 线上形状由本文件测试钉住）。
 
 use crate::markdown;
 
@@ -43,20 +42,6 @@ pub struct TranslationPartialEvt {
     /// 打字机放行——否则该 run 的缺失会让其后所有块永久等位，出现
     /// "前几行打字 → 停住 → done 一次性回填"）。
     pub failed: bool,
-}
-
-#[derive(Clone, serde::Serialize)]
-pub struct LookupDeltaEvt {
-    pub text: String,
-    pub content: String,
-}
-
-/// S5：语义核查分批进度（done/total 是**批**数——一批 ≈ max_len 字符的
-/// 原文+译文，不是单元数）。前端时间线的 semantic 步骤据此显 running。
-#[derive(Clone, serde::Serialize)]
-pub struct ReviewProgressEvt {
-    pub done: usize,
-    pub total: usize,
 }
 
 #[derive(Clone, serde::Serialize)]

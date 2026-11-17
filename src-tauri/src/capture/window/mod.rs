@@ -3,7 +3,7 @@
 //! 本文件 = 会话状态机（CaptureHandler + ApplicationHandler 单遍事件处理）。
 
 use std::num::NonZeroU32;
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
@@ -17,7 +17,7 @@ mod pixels;
 mod session;
 
 pub use encode::{crop_rgba, encode_png};
-pub use session::{capture_proxy, start_capture, CaptureCommand, CaptureEvent};
+pub use session::{CaptureCommand, CaptureEvent, capture_proxy, start_capture};
 
 use encode::normalize_rect;
 use pixels::{darken_pixels, redraw_session, rgba_to_softbuffer};
@@ -210,7 +210,9 @@ impl ApplicationHandler<CaptureCommand> for CaptureHandler {
         match event {
             // ── Once the OS tells us the window's real physical size, mark surface ready.
             WindowEvent::Resized(size) => {
-                if let (Some(nz_w), Some(nz_h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
+                if let (Some(nz_w), Some(nz_h)) =
+                    (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                {
                     let _ = session.surface.resize(nz_w, nz_h);
                     session.surface_ready = true;
                     session.window.request_redraw();
@@ -328,7 +330,16 @@ impl ApplicationHandler<CaptureCommand> for CaptureHandler {
             } => {
                 // Always close any previous window before opening a new one.
                 self.close_window();
-                self.open_window(event_loop, rgba, img_w, img_h, scale_factor, monitor_x, monitor_y, event_tx);
+                self.open_window(
+                    event_loop,
+                    rgba,
+                    img_w,
+                    img_h,
+                    scale_factor,
+                    monitor_x,
+                    monitor_y,
+                    event_tx,
+                );
             }
 
             CaptureCommand::ShowResult {
@@ -340,7 +351,14 @@ impl ApplicationHandler<CaptureCommand> for CaptureHandler {
             } => {
                 if let HandlerState::Selecting(session) = &mut self.state {
                     let pixels = rgba_to_softbuffer(&rgba_bytes);
-                    session.result = Some(ResultOverlay { pixels, x, y, w, h, visible: true });
+                    session.result = Some(ResultOverlay {
+                        pixels,
+                        x,
+                        y,
+                        w,
+                        h,
+                        visible: true,
+                    });
                     session.loading = false;
                     session.window.request_redraw();
                 }

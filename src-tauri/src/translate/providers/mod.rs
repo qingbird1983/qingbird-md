@@ -4,14 +4,13 @@
 //!
 //! **方向是入参**（Step 1）：每个源都把 [`TargetLang`] 翻成自己那套语言码
 //! （`zh` / `zh-CN` / `zh-CHS`）写进请求体。改动前这些码全是写死的
-//! （MyMemory `langpair=en|zh-CN`、腾讯 `Target:"zh"`、LLM 常量 prompt），
+//! （MyMemory `langpair=en|zh-CN`、腾讯 `Target:"zh"`），
 //! 于是 zh→en 会拿回中文译文——**不报错、只给错答案**。
 //!
 //! P2-7i 拆分布局（按「是否要求用户凭据」归族）：free = 免用户密钥族
 //! （mymemory/transmart/iciba——iciba 的 key 内置但带 md5 签名，不需用户
 //! 凭据，故归 free——及 auto 链）；signed = 签名族（youdao/baidu/tencent +
-//! 时间/签名助手）；llm = OpenAI 兼容单串；本文件 = Creds / provider 分发 /
-//! 语言码与 JSON 解析共享件。
+//! 时间/签名助手）；本文件 = Creds / provider 分发 / 语言码与 JSON 解析共享件。
 
 use std::collections::HashMap;
 
@@ -21,11 +20,9 @@ use super::http::HttpClient;
 use super::policy::TargetLang;
 
 mod free;
-mod llm;
 mod signed;
 
 use free::{auto, iciba, mymemory, transmart};
-use llm::llm;
 use signed::{baidu, tencent, youdao};
 
 /// Credentials for a provider (map of field key -> value). Never serialized
@@ -57,7 +54,6 @@ pub fn provider(
         "youdao" => youdao(text, creds, http, target),
         "tencent" => tencent(text, creds, http, target),
         "baidu" => baidu(text, creds, http, target),
-        "llm" => llm(text, creds, http, target),
         "transmart" => transmart(text, creds, http, target),
         "iciba" => iciba(text, creds, http, target),
         "auto" => auto(text, creds, http, target),
@@ -69,10 +65,7 @@ pub fn provider(
 ///
 /// 各家用字不同（`zh` / `zh-CN` / `zh-CHS`），所以只统一**方向**，不强行统一
 /// 字面量——按 provider 各写一张两行表比再包一层映射更好读。
-fn codes(
-    target: TargetLang,
-    zh: (&'static str, &'static str),
-) -> (&'static str, &'static str) {
+fn codes(target: TargetLang, zh: (&'static str, &'static str)) -> (&'static str, &'static str) {
     match target {
         TargetLang::Zh => zh,
         TargetLang::En => (zh.1, zh.0),
@@ -85,7 +78,10 @@ fn parse_json(body: &str) -> Result<Value, String> {
 
 #[cfg(test)]
 fn creds(pairs: &[(&str, &str)]) -> Creds {
-    let m = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let m = pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     Creds(m)
 }
 
@@ -106,23 +102,27 @@ mod tests {
             ("key", "b"),
             ("secretId", "AKID"),
             ("secretKey", "SECRET"),
-            ("baseUrl", "https://api.deepseek.com/v1"),
-            ("apiKey", "sk-test"),
-            ("model", "deepseek-chat"),
         ])
     }
 
     /// **H4 回归**：方向必须进每一个 provider 的请求体。
     ///
     /// 改动前这些码全是写死的（MyMemory `langpair=en|zh-CN`、腾讯
-    /// `"Target":"zh"`、LLM 那个自己一份的 `SYSTEM_PROMPT`……），所以 zh→en
+    /// `"Target":"zh"`），所以 zh→en
     /// 这一遍会拿回中文译文——**不报错、只给错答案**，是最难被发现的一类坏。
     /// 这个用例是那批硬编码点的哨兵：少接一个源就会变红。
     #[test]
     fn every_provider_request_carries_the_direction() {
         let http = MockClient::new();
         let c = all_creds();
-        for name in ["mymemory", "youdao", "baidu", "tencent", "transmart", "iciba", "llm"] {
+        for name in [
+            "mymemory",
+            "youdao",
+            "baidu",
+            "tencent",
+            "transmart",
+            "iciba",
+        ] {
             let _ = provider(name, "你好", &c, &http, EN).expect(name);
         }
         // auto 是 [transmart, iciba, mymemory] 的链，链路每个成员都在上面单测过；
@@ -130,7 +130,12 @@ mod tests {
         let _ = provider("auto", "你好", &c, &http, EN).unwrap();
 
         let recs = http.take_records();
-        let find = |needle: &str| recs.iter().find(|r| r.url.contains(needle)).expect(needle).clone();
+        let find = |needle: &str| {
+            recs.iter()
+                .find(|r| r.url.contains(needle))
+                .expect(needle)
+                .clone()
+        };
 
         // MyMemory / iCiba / Transmart：URL 或 body 里的语言码反向
         let m = find("mymemory");
@@ -163,11 +168,5 @@ mod tests {
             (Some("zh"), Some("en")),
             "腾讯云 Source/Target 没互换"
         );
-
-        // LLM：方向在 prompt 措辞里，且不能两套方向指令并存
-        let l: Value = serde_json::from_str(&find("chat/completions").body).unwrap();
-        let sys = l["messages"][0]["content"].as_str().unwrap();
-        assert!(sys.contains("英文"), "LLM prompt 没带方向：{sys}");
-        assert!(!sys.contains("简体中文"), "LLM prompt 残留中文方向指令：{sys}");
     }
 }

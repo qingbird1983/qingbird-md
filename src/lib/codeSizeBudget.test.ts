@@ -38,7 +38,6 @@ const GRANDFATHERED: Record<string, { prod?: number; inlineTest?: number; total?
   "src/stores/useWorkspaceStore.ts": { prod: 640 },
   "src/lib/translationStream.ts": { prod: 492 },
   "src/stores/useDocStore.ts": { prod: 435 },
-  "src-tauri/src/translate/http.rs": { inlineTest: 371, total: 748 },
   "src-tauri/src/translate/export.rs": { inlineTest: 400 },
 };
 

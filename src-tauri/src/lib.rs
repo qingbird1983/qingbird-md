@@ -17,8 +17,8 @@ mod hotkeys;
 mod markdown;
 mod single_instance;
 mod storage;
-mod tray;
 mod translate;
+mod tray;
 mod trim;
 mod window_boot;
 mod workspace;
@@ -32,10 +32,10 @@ use translate::cache_sqlite::SqliteCache;
 // P2-7d 拆分后的旧路径保留：hibernate.rs（冷重建复位/重挂钩子）、main.rs
 // （qingbird_md_lib::run）与 tests/asset_scope.rs（两个测试薄壳）经此处继续
 // 以原路径可达，全仓调用点零改动。
-pub use window_boot::run;
-pub(crate) use window_boot::{hook_main_window_close, reset_startup_flags};
 #[doc(hidden)]
 pub use commands::file::{register_workspace_root_for_test, resolve_image_for_test};
+pub use window_boot::run;
+pub(crate) use window_boot::{hook_main_window_close, reset_startup_flags};
 
 /// Managed shared state, registered via `.manage(AppTxn::new(lock))`.
 ///
@@ -92,7 +92,9 @@ impl AppTxn {
                     let bak = json_path.with_extension(format!("json.imported-{ts}"));
                     match std::fs::rename(json_path, &bak) {
                         Ok(()) => eprintln!("[cache] 旧 JSON 保留为 {}", bak.display()),
-                        Err(e) => eprintln!("[cache] 旧 JSON 改名保留失败：{e}（下次启动会重试导入）"),
+                        Err(e) => {
+                            eprintln!("[cache] 旧 JSON 改名保留失败：{e}（下次启动会重试导入）")
+                        }
                     }
                 }
             }

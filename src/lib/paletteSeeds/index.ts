@@ -1,6 +1,6 @@
 // 主题配色「种子」——palette 的唯一真源（2026-09-14）。
 //
-// 为什么是「种子」而不是直接写 CSS：6 套 × 明暗 2 档 × 23 枚令牌 = 276 个色值，
+// 为什么是「种子」而不是直接写 CSS：7 套 × 明暗 2 档 × 23 枚令牌 = 322 个色值，
 // 手抄必漂移。本目录是唯一真源（种子表按 id 分文件在 ./<id>.ts，本文件汇聚），
 // `scripts/gen-palettes.mjs` 由它生成 `src/styles/palettes.css`，
 // `paletteSeeds.test.ts` 双重守卫：
@@ -14,14 +14,15 @@
 // （P2-8g 拆分）种子表数据按 id 分文件；CSS 生成算法在 ../paletteCss.ts（经本
 // 文件 re-export，消费方 import 路径不变）；PALETTE_IDS 顺序为持久化契约，不变。
 import { ciPalette } from "./ci.ts";
+import { huiPalette } from "./hui.ts";
 import { qingPalette } from "./qing.ts";
 import { suPalette } from "./su.ts";
 import { tanPalette } from "./tan.ts";
 import { xuanPalette } from "./xuan.ts";
 import { yePalette } from "./ye.ts";
 
-/** 六套配色的 id。单字命名，设置面板直接当标签用。 */
-export type PaletteId = "xuan" | "su" | "qing" | "tan" | "ci" | "ye";
+/** 七套配色的 id。单字命名，设置面板直接当标签用。 */
+export type PaletteId = "xuan" | "su" | "qing" | "tan" | "ci" | "ye" | "hui";
 
 /** 一档明暗下的全部令牌。前 14 枚是实色语义色，后 5 枚是纸面派生，
     最后 4 枚由 accent / zhu 派生为半透明（rgba 字面量）。 */
@@ -90,7 +91,7 @@ export interface Palette {
 export const DEFAULT_PALETTE: PaletteId = "xuan";
 
 /** 设置面板的展示顺序（也是 paletteCss 的输出顺序，保证生成物稳定）。 */
-export const PALETTE_IDS: PaletteId[] = ["xuan", "su", "qing", "tan", "ci", "ye"];
+export const PALETTE_IDS: PaletteId[] = ["xuan", "su", "qing", "tan", "ci", "ye", "hui"];
 
 export const PALETTES: Record<PaletteId, Palette> = {
   xuan: xuanPalette,
@@ -99,6 +100,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
   tan: tanPalette,
   ci: ciPalette,
   ye: yePalette,
+  hui: huiPalette,
 };
 
 /** 归一化：任何来路（设置文件 / 广播 / 手改 JSON）的取值都收敛到合法 id。 */

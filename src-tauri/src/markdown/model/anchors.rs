@@ -70,7 +70,7 @@ fn line_of(md: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markdown::model::{parse_blocks, Block};
+    use crate::markdown::model::{Block, parse_blocks};
 
     // ---- 顶层块源行锚点（分栏同步用，2026-09-14）----
 
@@ -125,6 +125,9 @@ mod tests {
         // 会远大于实际（这是本函数唯一的对齐风险点）。
         assert_eq!(top_level_block_lines("> 引用里的**加粗**").len(), 1);
         assert_eq!(top_level_block_lines("- 项 **粗**\n- 项 2").len(), 1);
-        assert_eq!(top_level_block_lines("| a | b |\n| --- | --- |\n| 1 | 2 |").len(), 1);
+        assert_eq!(
+            top_level_block_lines("| a | b |\n| --- | --- |\n| 1 | 2 |").len(),
+            1
+        );
     }
 }

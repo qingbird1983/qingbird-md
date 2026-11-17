@@ -265,7 +265,10 @@ mod tests {
 
     #[test]
     fn rgba_to_softbuffer_packs_rgb_and_drops_alpha() {
-        assert_eq!(rgba_to_softbuffer(&[0x12, 0x34, 0x56, 0xAA]), vec![0x123456]);
+        assert_eq!(
+            rgba_to_softbuffer(&[0x12, 0x34, 0x56, 0xAA]),
+            vec![0x123456]
+        );
     }
 
     // ---- P2-7k: blit_pixels / draw_border 边界守卫（纯函数离线可测）----
@@ -307,7 +310,16 @@ mod tests {
         let mut buf = vec![0u32; 25]; // 5x5
         draw_border(&mut buf, 5, 5, 1, 1, 3, 3, 0xFF, 1);
         assert_eq!(buf[2 * 5 + 2], 0, "3x3 描边厚度 1：中心不得着色");
-        for (x, y) in [(1, 1), (2, 1), (3, 1), (1, 2), (3, 2), (1, 3), (2, 3), (3, 3)] {
+        for (x, y) in [
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (1, 2),
+            (3, 2),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+        ] {
             assert_eq!(buf[y * 5 + x], 0xFF, "({x},{y}) 应着色");
         }
     }

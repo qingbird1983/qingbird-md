@@ -142,9 +142,8 @@ fn convert_punctuation(text: &str, target: TargetLang) -> String {
 }
 
 fn zh_mark(c: char, prev: Option<char>, next: Option<char>) -> char {
-    let near_han = |p: Option<char>, n: Option<char>| {
-        p.map_or(false, is_han) || n.map_or(false, is_han)
-    };
+    let near_han =
+        |p: Option<char>, n: Option<char>| p.map_or(false, is_han) || n.map_or(false, is_han);
     match c {
         ',' if near_han(prev, next) => '，',
         ';' if near_han(prev, next) => '；',
@@ -186,8 +185,7 @@ fn insert_cjk_spacing(text: &str) -> String {
         if i + 1 < chars.len() {
             let a = chars[i];
             let b = chars[i + 1];
-            let need = (is_han(a) && is_latin_or_digit(b))
-                || (is_latin_or_digit(a) && is_han(b));
+            let need = (is_han(a) && is_latin_or_digit(b)) || (is_latin_or_digit(a) && is_han(b));
             if need {
                 out.push(' ');
             }

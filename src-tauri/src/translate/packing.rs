@@ -12,31 +12,18 @@ pub struct EngineConfig {
     pub max_batch_chars: usize,
     /// Concurrent workers (and therefore concurrent requests).
     pub concurrency: usize,
-    /// Per-request timeout.
-    pub timeout_ms: u64,
 }
 
 impl EngineConfig {
     /// Pick sensible knobs for a provider.
     ///
-    /// LLM batches are small so the first unit appears quickly; free engines
-    /// are request-bound rather than decode-bound, so they favour more
-    /// parallelism and no batching protocol at all.
-    pub fn for_provider(provider: &str, max_len: usize, max_concurrency: usize) -> Self {
-        if provider == "llm" {
-            EngineConfig {
-                units_per_batch: 8,
-                max_batch_chars: ((max_len as f32) * 0.8) as usize,
-                concurrency: max_concurrency.max(1),
-                timeout_ms: 120_000,
-            }
-        } else {
-            EngineConfig {
-                units_per_batch: 4,
-                max_batch_chars: ((max_len as f32) * 0.8) as usize,
-                concurrency: max_concurrency.max(1),
-                timeout_ms: 30_000,
-            }
+    /// 免费引擎都是请求受限而非解码受限，因此宁可开更多并发、每批件数也不宜多。
+    /// （原「大模型批小、首发快」的分支随大模型翻译源一并移除。）
+    pub fn for_provider(max_len: usize, max_concurrency: usize) -> Self {
+        EngineConfig {
+            units_per_batch: 4,
+            max_batch_chars: ((max_len as f32) * 0.8) as usize,
+            concurrency: max_concurrency.max(1),
         }
     }
 }
@@ -127,7 +114,13 @@ pub fn split_long(text: &str, max_len: usize) -> Vec<String> {
             }
         }
         let cut = cut.unwrap_or(window_end);
-        chunks.push(chars[start..cut].iter().collect::<String>().trim_end().to_string());
+        chunks.push(
+            chars[start..cut]
+                .iter()
+                .collect::<String>()
+                .trim_end()
+                .to_string(),
+        );
         let mut next = cut;
         while next < n && chars[next].is_whitespace() {
             next += 1;
@@ -158,7 +151,10 @@ mod tests {
     #[test]
     fn packs_by_unit_count() {
         let u = units(&[1, 1, 1, 1, 1]);
-        assert_eq!(pack_batches(&u, 2, 1000), vec![vec![0, 1], vec![2, 3], vec![4]]);
+        assert_eq!(
+            pack_batches(&u, 2, 1000),
+            vec![vec![0, 1], vec![2, 3], vec![4]]
+        );
     }
 
     #[test]
@@ -215,12 +211,11 @@ mod tests {
     }
 
     #[test]
-    fn config_differs_between_llm_and_free_engines() {
-        let llm = EngineConfig::for_provider("llm", 3000, 6);
-        let free = EngineConfig::for_provider("transmart", 2000, 12);
-        assert_eq!(llm.units_per_batch, 8);
-        assert_eq!(llm.concurrency, 6);
+    fn config_uses_free_engine_knobs() {
+        let free = EngineConfig::for_provider(2000, 12);
         assert_eq!(free.units_per_batch, 4);
         assert_eq!(free.concurrency, 12);
+        // 并发下限兜底：传入 0 也至少留 1 个 worker。
+        assert_eq!(EngineConfig::for_provider(2000, 0).concurrency, 1);
     }
 }

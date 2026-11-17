@@ -13,7 +13,8 @@ fn main() {
     // rustc-link-arg-tests 只作用于测试二进制，主程序 manifest 不受影响。
     #[cfg(target_os = "windows")]
     {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-test-manifest.xml");
+        let manifest =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-test-manifest.xml");
         println!("cargo:rerun-if-changed={}", manifest.display());
         println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
         println!(

@@ -28,7 +28,11 @@ pub fn filter_workspace(tree: Vec<dto::TreeNodeDTO>, query: String) -> Vec<dto::
 #[tauri::command]
 pub fn create_file(path: String) -> Result<(), String> {
     workspace::ensure_within_roots(std::path::Path::new(&path))?;
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
         Ok(_) => Ok(()),
         Err(e) => Err(create_err("创建文件失败", &path, e)),
     }
@@ -81,8 +85,8 @@ pub fn delete_path(path: String) -> Result<(), String> {
 fn delete_to_trash(path: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::{
-        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
-        SHFileOperationW, SHFILEOPSTRUCTW,
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW,
+        SHFileOperationW,
     };
 
     // pFrom 是需要双 NUL 结尾的宽字符列表（支持一次多项）。
@@ -132,7 +136,8 @@ pub fn reveal_path(path: String) -> Result<(), String> {
         // /select,"路径" 必须整枚原样直达 explorer（见 reveal_select_arg）
         cmd.raw_arg(reveal_select_arg(&path));
     }
-    cmd.spawn().map_err(|e| format!("打开资源管理器失败：{e}"))?;
+    cmd.spawn()
+        .map_err(|e| format!("打开资源管理器失败：{e}"))?;
     Ok(())
 }
 
@@ -140,7 +145,13 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn open_terminal(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
-    let dir = if p.is_dir() { p.to_path_buf() } else { p.parent().map(|d| d.to_path_buf()).ok_or_else(|| "无法定位目录".to_string())? };
+    let dir = if p.is_dir() {
+        p.to_path_buf()
+    } else {
+        p.parent()
+            .map(|d| d.to_path_buf())
+            .ok_or_else(|| "无法定位目录".to_string())?
+    };
     if !dir.exists() {
         return Err("目录不存在".into());
     }
@@ -191,13 +202,22 @@ pub fn create_from_template(dir: String, name: String, kind: String) -> Result<S
     workspace::ensure_within_roots(std::path::Path::new(&dir))?;
     let clean = name.trim();
     workspace::validate_name(clean)?;
-    let file_name = if clean.to_lowercase().ends_with(".md") { clean.to_string() } else { format!("{clean}.md") };
+    let file_name = if clean.to_lowercase().ends_with(".md") {
+        clean.to_string()
+    } else {
+        format!("{clean}.md")
+    };
     let target = std::path::Path::new(&dir).join(&file_name);
     let body = workspace::template_body(&kind);
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+    {
         Ok(mut f) => {
             use std::io::Write;
-            f.write_all(body.as_bytes()).map_err(|e| format!("写入模板失败：{e}"))?;
+            f.write_all(body.as_bytes())
+                .map_err(|e| format!("写入模板失败：{e}"))?;
             Ok(target.to_string_lossy().into_owned())
         }
         Err(e) => Err(create_err("新建文件失败", &target.to_string_lossy(), e)),

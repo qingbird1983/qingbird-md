@@ -80,13 +80,12 @@ const SEED: Settings = {
   nav: "on",
   theme: "light",
   palette: "qing",
-  llm_profiles: [],
-  llm_active: "",
   autostart: false,
   translate_target: "zh",
   relayout_on_export: true,
   capture_enabled: true,
   close_action: "ask",
+  tab_mode: "multi",
 };
 
 let host: HTMLDivElement;
@@ -317,13 +316,12 @@ describe("翻译与模型页", () => {
       (s.textContent ?? "").includes(t),
     )!;
 
-  it("三分组分段控件 + 划词开关 + 连接测试", () => {
+  it("两分组分段控件 + 划词开关 + 连接测试", () => {
     goCat(2);
     const seg = segByText("免费源");
     expect(Array.from(seg.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
       "免费源",
       "专业源",
-      "LLM大模型",
     ]);
     expect(seg.querySelectorAll("button.on").length).toBe(1);
     expect(pane().textContent).toContain("划词翻译");
@@ -345,29 +343,7 @@ describe("翻译与模型页", () => {
 
   // 用户第 1 条：LLM 组的下拉是「伪选择」（注册表里这一组只有一个源），
   // 换成协议胶囊；Anthropic 先占位、禁用。
-  it("LLM 组用协议胶囊而非下拉，Anthropic 占位且禁用", () => {
-    goCat(2);
-    expect(host.querySelector("#set-provider")).toBeNull();
-
-    const proto = Array.from(host.querySelectorAll<HTMLDivElement>(".setseg")).find((b) =>
-      (b.textContent ?? "").includes("OpenAI 兼容"),
-    )!;
-    const btns = Array.from(proto.querySelectorAll<HTMLButtonElement>("button"));
-    expect(btns.map((b) => b.textContent!.replace("暂未支持", "").trim())).toEqual([
-      "OpenAI 兼容",
-      "Anthropic 兼容",
-    ]);
-    // 选中恒为 OpenAI（唯一能用的那个）
-    expect(btns[0]!.className).toContain("on");
-    expect(btns[0]!.disabled).toBe(false);
-    // 占位项：看得见、按不动、带标识
-    expect(btns[1]!.disabled).toBe(true);
-    expect(btns[1]!.textContent).toContain("暂未支持");
-    // 说明必须点明「只支持 OpenAI 兼容」（旧的长段落已删）
-    expect(pane().textContent).toContain("仅支持 OpenAI 兼容接口");
-  });
-
-  it("非 LLM 组仍走下拉（源多，下拉才是有意义的）", () => {
+  it("免费源组走下拉（源多，下拉才是有意义的）", () => {
     goCat(2);
     const free = Array.from(
       host.querySelectorAll<HTMLButtonElement>(".setseg button"),
@@ -403,105 +379,6 @@ describe("翻译与模型页", () => {
     const row = btn.closest(".setti")!;
     expect(row.querySelector(".setti-label")!.textContent).toBe("连接测试");
     expect(row.querySelector(".setti-ctl")!.contains(btn)).toBe(true);
-  });
-});
-
-describe("大模型配置档案", () => {
-  it("升级迁移：providers.llm 里已有的凭据被收编成一套档案", () => {
-    goCat(2);
-    // SEED 的 providers.llm 非空、llm_profiles 为空 → 自动收编，不是「还没有配置」
-    const rows = host.querySelectorAll(".prof");
-    expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelector<HTMLInputElement>(".prof-name")!.value).toBe("原有配置");
-    expect(rows[0]!.textContent).toContain("https://api.deepseek.com");
-    expect(rows[0]!.querySelector(".prof-tag")!.textContent).toBe("使用中");
-    expect(pane().textContent).not.toContain("还没有配置");
-  });
-
-  it("没有历史凭据时显示空态而不是假装有一套配置", async () => {
-    act(() => root.unmount());
-    seed({ providers: { llm: {} } });
-    root = createRoot(host);
-    await renderModal();
-    goCat(2);
-    expect(host.querySelectorAll(".prof").length).toBe(0);
-    expect(pane().textContent).toContain("还没有配置");
-  });
-
-  it("可以并存多套：新建 → 两行；点另一行切换「使用中」", () => {
-    goCat(2);
-    const sel = host.querySelector<HTMLSelectElement>("#set-llm-new")!;
-    act(() => {
-      sel.value = "https://api.deepseek.com";
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    const rows = () => Array.from(host.querySelectorAll(".prof"));
-    expect(rows().length).toBe(2);
-    // 新建的这套成为「使用中」，且只此一处
-    expect(rows().filter((r) => r.querySelector(".prof-tag")).length).toBe(1);
-    expect(rows()[1]!.querySelector(".prof-tag")).not.toBeNull();
-    // 点第一行切回去（多套并存的核心诉求：随时切换、互不覆盖）
-    act(() => (rows()[0]! as HTMLElement).click());
-    expect(rows()[0]!.querySelector(".prof-tag")).not.toBeNull();
-    expect(rows()[1]!.querySelector(".prof-tag")).toBeNull();
-  });
-
-  it("删除当前配置：行消失、凭据栏清空、不再有「使用中」", () => {
-    goCat(2);
-    act(() => host.querySelector<HTMLButtonElement>(".prof-del")!.click());
-    expect(host.querySelectorAll(".prof").length).toBe(0);
-    expect(pane().textContent).toContain("已删除当前配置");
-    expect(host.querySelector<HTMLInputElement>("#set-f-baseUrl")!.value).toBe("");
-  });
-
-  it("厂商预设不再是并行的下拉（翻译源与预设重复的问题）", () => {
-    goCat(2);
-    // 旧结构里有个 id="set-llm-preset" 的下拉，选中即覆盖 baseUrl
-    expect(host.querySelector("#set-llm-preset")).toBeNull();
-    // 预设改成了「新建配置」的模板入口
-    expect(host.querySelector("#set-llm-new")).not.toBeNull();
-  });
-
-  it("拉取模型：清单写进当前档案并随关闭落盘，模型名可下拉选用", async () => {
-    goCat(2);
-    // 预设里正好含 deepseek-*，所以这里用一批「只可能来自拉取」的名字来断言
-    const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find((b) =>
-      (b.textContent ?? "").includes("拉取模型"),
-    )!;
-    await act(async () => {
-      btn.click();
-    });
-    expect(pane().textContent).toContain("已拉取 3 个模型");
-    expect(pane().textContent).toContain("已存 3 个模型");
-    const opts = Array.from(
-      host.querySelectorAll<HTMLOptionElement>("#llm-model-list option"),
-    ).map((o) => o.value);
-    expect(opts).toContain("fetched-a");
-    expect(host.querySelector<HTMLInputElement>("#set-f-model")!.getAttribute("list")).toBe(
-      "llm-model-list",
-    );
-
-    // 关窗时这份清单必须跟着档案一起进 save 载荷（否则重启就没了）
-    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
-    act(() => host.querySelector<HTMLButtonElement>(".set-x")!.click());
-    const written = save.mock.calls[0]![0] as Settings;
-    expect(written.llm_profiles[0]!.models).toEqual(["fetched-a", "fetched-b", "fetched-c"]);
-    save.mockRestore();
-  });
-
-  it("「保存此配置」当场落盘（不等关窗），并保留其它套档案", async () => {
-    goCat(2);
-    const save = vi.spyOn(useSettingsStore.getState(), "save").mockResolvedValue(undefined);
-    const btn = Array.from(pane().querySelectorAll<HTMLButtonElement>(".modal-btn")).find(
-      (b) => b.textContent === "保存此配置",
-    )!;
-    await act(async () => {
-      btn.click();
-    });
-    expect(save).toHaveBeenCalledTimes(1);
-    expect((save.mock.calls[0]![0] as Settings).llm_profiles.length).toBe(1);
-    expect(pane().textContent).toContain("配置已保存");
-    save.mockRestore();
   });
 });
 

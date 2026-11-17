@@ -27,7 +27,7 @@
 // （P2-7j：`system_prompt` 的消费者 process_batch/llm_once 随 runner 迁出，
 //   engine::system_prompt 无人经旧路径使用，转发同步撤除——要用请走
 //   `translate::policy::system_prompt`。）
-pub use super::policy::{cache_variant, default_target, needs_translation, TargetLang};
+pub use super::policy::{TargetLang, cache_variant, default_target, needs_translation};
 
 // P0-1 拆分（第二步）：分批 / 分片也移到 `packing` 子模块，同样**保留旧路径**。
 // （P2-7j：order_batches/pack_batches/split_long 的消费者随 runner 迁出，
@@ -36,14 +36,14 @@ pub use super::policy::{cache_variant, default_target, needs_translation, Target
 pub use super::packing::EngineConfig;
 
 pub use super::events::EngineEvent;
-pub use super::runner::{run, EngineRequest};
+pub use super::runner::{EngineRequest, run};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::translate::cache::Cache;
-    use crate::translate::providers::Creds;
     use crate::translate::http::test_mock::MockClient;
+    use crate::translate::providers::Creds;
     use std::sync::Mutex;
 
     /// 测试默认方向 = 译成中文（= Step 0 的生产行为）。
@@ -53,16 +53,16 @@ mod tests {
     fn cached_units_require_no_network() {
         let mut cache = Cache::new();
         let u = vec![(0usize, "hello".to_string())];
-        cache.set(Cache::key("llm", "m@v1", "hello"), "你好".into());
+        cache.set(Cache::key("transmart", "m@v1", "hello"), "你好".into());
 
         let http = MockClient::new();
         let creds = Creds::default();
         let req = EngineRequest {
-            provider: "llm",
+            provider: "transmart",
             creds: &creds,
             units: &u,
             http: &http,
-            config: EngineConfig::for_provider("llm", 3000, 6),
+            config: EngineConfig::for_provider(3000, 6),
             cache_variant: "m@v1",
             target: ZH,
         };
@@ -74,7 +74,10 @@ mod tests {
         });
         assert_eq!(out, vec![Ok("你好".to_string())]);
         assert_eq!(events.into_inner().unwrap(), vec![0]);
-        assert!(http.take_records().is_empty(), "cache hit must not hit the network");
+        assert!(
+            http.take_records().is_empty(),
+            "cache hit must not hit the network"
+        );
     }
 
     #[test]
@@ -92,7 +95,7 @@ mod tests {
             creds: &creds,
             units: &u,
             http: &http,
-            config: EngineConfig::for_provider("transmart", 2000, 12),
+            config: EngineConfig::for_provider(2000, 12),
             cache_variant: "",
             target: ZH,
         };

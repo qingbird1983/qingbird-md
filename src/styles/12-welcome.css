@@ -141,21 +141,17 @@
   opacity: 0.5;
 }
 
-/* ============ 启动仪式感动画（2026-09-15）============
-   窗口 reveal 时两栏已展开到最宽，随后同步收缩；欢迎内容在同一时长里从小
-   放大落定。armed = reveal 前的隐藏起始帧（静态停在 keyframes 的 from 态，
-   与 playing 首帧逐字一致，开演时无跳变）；playing = 动画播放中。
-   时长走 #app-shell 上的 --intro-anim，与两栏收缩（JS 内联的 --panel-anim）
-   同一数值，三处同时落定。
-   二轮调优（2026-09-15 用户反馈）：
-   • 时长 760→1280ms（"一闪而过"）
-   • 欢迎内容起始 scale 0.82→0.55（"从无到有慢慢放大"）
-   • 三处都用"过冲曲线"——到位后微弱回弹：
-     侧栏 / 拖宽条 / 标签条 margin 用 CSS transition + --ease-overshoot
-     （cubic-bezier(0.34, 1.32, 0.64, 1)），靠贝塞尔曲线天然过冲。
-     大纲栏终值是 0，CSS width 过冲到负值会被钳 0 看不见，改用专属 keyframes：
-     86%→100% 间先弹出一小条再收尽 + opacity 同步淡出。
-     欢迎内容也用专属 keyframes：前 80% 主缩放 0.55→1.04，末 20% 回弹到 1。 */
+/* ============ 启动仪式感动画（2026-09-15 首版，2026-11-18 改版）============
+   窗口 reveal 时两栏都从「最宽」（INTRO_FROM_WIDTH=480）向各自窗口边缘收缩：
+   左栏朝左收尽、右栏朝右收尽，欢迎内容在同一时长里从小放大落定。
+   armed = reveal 前的隐藏起始帧（静态停在 keyframes 的 from 态，与 playing 首帧
+   逐字一致，开演时无跳变）；playing = 动画播放中。时长走 #app-shell 上的
+   --intro-anim，与两栏收缩（JS 内联的 --panel-anim）同一数值，三者同时落定。
+   • 时长 1280→780ms（用户反馈"过慢"），armed 停留 1000→560ms。
+   • 两栏都从 480 最宽起手（旧版右栏只 200），向两边收尽只留欢迎页。
+   • 欢迎内容起始 scale 0.55→1.04→1（微弱过冲回弹）。
+   • 两栏终值是 0，CSS width 过冲负值会被钳 0 看不见，故用专属 keyframes：
+     80%→100% 间先弹出一小条再收尽 + opacity 同步淡出。 */
 
 /* 欢迎内容：armed 起始态——必须用 inline style 钉不住的属性（opacity/transform） */
 #app-shell.intro-armed .welcome-inner {
@@ -185,35 +181,57 @@
   }
 }
 
-/* 大纲栏：armed 起始态宽度由 App.tsx 内联 style 钉在 .panel-unit 上
-   （outlineWidth 默认 200），opacity 同在 unit 上；playing 期不设 width 内联，
-   让 keyframes 接管。keyframes 0% 用 --panel-w 接住 armed 起始宽——armed→playing
-   之间宽度连贯无跳变。keyframes 把"收到 0 → 弹一小条 → 收尽"显式写出来，
-   末段配 opacity 同步淡出。限定 .outline-slot：核查高栏（review-slot）的
-   unit 不参与 intro，别被顺带收掉。 */
+/* 左栏（工作区）：armed 起始宽由 App.tsx 内联钉在 .sidebar 上（480），
+   playing 期不设 width/opacity 内联，让 keyframes 接管。keyframes 0% 用
+   --panel-w 接住起始宽——armed→playing 之间宽度连贯无跳变。与右栏完全对称：
+   0% 从 480 起、80% 收尽、86% 弹回一小条、100% 收尽 + 淡出（朝左收）。 */
+#app-shell.intro-playing .sidebar {
+  animation: sidebar-collapse var(--intro-anim) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes sidebar-collapse {
+  0% {
+    /* --panel-w 由 App.tsx 内联：armed / playing 期均为 INTRO_FROM_WIDTH（480） */
+    width: var(--panel-w, 480px);
+    opacity: 1;
+  }
+  80% {
+    width: 0;
+    opacity: 1;
+  }
+  86% {
+    width: 14px;
+    opacity: 0.85;
+  }
+  100% {
+    width: 0;
+    opacity: 0;
+  }
+}
+
+/* 右栏（大纲）：armed 起始宽由 App.tsx 内联钉在 .panel-unit 上
+   （INTRO_FROM_WIDTH=480，旧版为 outlineWidth=200），opacity 同在 unit 上；
+   playing 期不设 width 内联，让 keyframes 接管。keyframes 0% 用 --panel-w
+   接住 armed 起始宽——armed→playing 之间宽度连贯无跳变。keyframes 把"收到 0 →
+   弹一小条 → 收尽"显式写出来，末段配 opacity 同步淡出。限定 .outline-slot。 */
 #app-shell.intro-playing .outline-slot .panel-unit {
   animation: outline-collapse var(--intro-anim) cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 @keyframes outline-collapse {
   0% {
-    /* --panel-w 由 App.tsx 内联：armed 期 = outlineWidth（默认 200） */
-    width: var(--panel-w, 200px);
+    /* --panel-w 由 App.tsx 内联：armed / playing 期均为 INTRO_FROM_WIDTH（480） */
+    width: var(--panel-w, 480px);
     opacity: 1;
   }
-  /* 前 80% 把 width 收到 0——靠 cubic-bezier(0.4,0,0.2,1) 缓出，
-     末段速率衰减让"接近 0"的视觉感更柔和。 */
   80% {
     width: 0;
     opacity: 1;
   }
-  /* 86% 弹回一小条（约 14px，肉眼能感知"抖了一下"但不夸张），
-     同步把 opacity 拉到 0.85——避免突兀。 */
   86% {
     width: 14px;
     opacity: 0.85;
   }
-  /* 100% 收尽 + 透明——自然归零。 */
   100% {
     width: 0;
     opacity: 0;

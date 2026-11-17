@@ -16,8 +16,8 @@ pub struct CursorMonitorResult {
 
 /// 光标当前所在显示器（截图盖哪块屏）。
 pub fn find_cursor_monitor() -> Result<CursorMonitorResult, String> {
-    let (cursor_x, cursor_y) = get_cursor_position()
-        .map_err(|e| format!("failed to get cursor position: {e}"))?;
+    let (cursor_x, cursor_y) =
+        get_cursor_position().map_err(|e| format!("failed to get cursor position: {e}"))?;
     let screen = Screen::from_point(cursor_x, cursor_y)
         .map_err(|e| format!("no screen at cursor ({cursor_x},{cursor_y}): {e}"))?;
     let info = &screen.display_info;
@@ -34,7 +34,10 @@ pub fn find_cursor_monitor() -> Result<CursorMonitorResult, String> {
 #[cfg(target_os = "windows")]
 fn get_cursor_position() -> Result<(i32, i32), String> {
     #[repr(C)]
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     // edition 2024 要求 extern 块为 unsafe（Glance 原文为 extern "system"）
     unsafe extern "system" {
         fn GetCursorPos(lpPoint: *mut Point) -> i32;

@@ -1,5 +1,6 @@
-// 启动仪式感动画编排（2026-09-15）：双击启动 → 窗口 reveal 时两栏已展开到最宽，
-// 两栏同步向终态收缩（左栏落到最小宽、大纲栏收尽），欢迎页内容同时从小放大。
+// 启动仪式感动画编排（2026-09-15 首版，2026-11-18 改版）：双击启动 → 窗口 reveal 时
+// 左右两栏都已展开到最宽（各 480），两栏同步向各自窗口边缘收缩至收尽（左栏朝左、
+// 右栏朝右），欢迎页内容同时从小放大；动画播完工作区栏收起，终帧只留中间欢迎页。
 //
 // 时序（全部在窗口 visible:false 的隐藏期内完成准备）：
 //   1. React 首帧就是 introArmed 起始态（两栏 480 强制可见）；
@@ -7,7 +8,8 @@
 //   3. 跑原有启动序列 openDocFromArgs（快照恢复 / pending 文件 / 工作区恢复）；
 //   4. 终态仍是欢迎页（无任何文档）且非减动效 → 等 TitleBar 实测完最小宽、
 //      双 rAF 确保起始帧已绘制 → 通知 Rust 显示窗口；
-//   5. 再等两帧让起始态被看见，startIntro 开演，INTRO_ANIM_MS 后收尾。
+//   5. 再等两帧让起始态被看见，startIntro 开演，INTRO_ANIM_MS 后 finishIntro
+//      收尽并收起工作区栏。
 // 任何意外（IPC 失败、看门狗抢先 show）都走 skipIntro：窗口必须照常出现，
 // 仪式感是锦上添花，绝不能拖住启动。
 import { useUiStore, INTRO_ANIM_MS } from "../stores/useUiStore";
@@ -79,12 +81,12 @@ export async function runBootIntro() {
   } else {
     await nextFrame(); // 起始帧在屏幕上停留两帧，收缩才有「起手式」
     await nextFrame();
-    // 仪式感"起手式"：reveal 后让 armed 起始态（两栏展开 + 欢迎内容极小）
-    // 在屏幕上停留一会——用户能看见"展开最大化"才感觉到收缩是「过程」不是
+    // 仪式感"起手式"：reveal 后让 armed 起始态（两栏 480 展开 + 欢迎内容极小）
+    // 在屏幕上停留一会——用户能看见"展开到最宽"才感觉到收缩是「过程」不是
     // 「瞬变」。这是启动动画独有的展示时间，不算在 INTRO_ANIM_MS 里。
-    // 1000ms 来自用户反馈（2026-09-15）：再短就"刷的一下就过"看不出感觉；
-    // 1000ms armed + 1280ms playing = 2.28s 是用户认可的演示节奏。
-    await new Promise<void>((r) => setTimeout(r, 1000));
+    // 2026-11-18 用户反馈整体"过慢"：停留 1000→560ms，收缩 1280→780ms，
+    // 总时长 2.28s→1.34s；560ms 仍够看清起手式，又不再拖沓。
+    await new Promise<void>((r) => setTimeout(r, 560));
     ui.startIntro();
     window.setTimeout(() => useUiStore.getState().finishIntro(), INTRO_ANIM_MS + 100);
   }

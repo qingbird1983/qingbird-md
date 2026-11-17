@@ -90,7 +90,10 @@ mod tests {
         let pfile = dir.join("p.txt");
         fs::write(&pfile, b"C:\\some\\doc.md").unwrap();
         let taken = take_pending_from(&pfile);
-        assert_eq!(taken.map(|p| p.to_string_lossy().into_owned()), Some("C:\\some\\doc.md".into()));
+        assert_eq!(
+            taken.map(|p| p.to_string_lossy().into_owned()),
+            Some("C:\\some\\doc.md".into())
+        );
     }
 
     fn take_pending_from(p: &Path) -> Option<PathBuf> {

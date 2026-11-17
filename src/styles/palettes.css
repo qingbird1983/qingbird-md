@@ -322,3 +322,56 @@ body[data-theme="dark"][data-palette="ye"] {
   --accent-border: rgba(134, 184, 216, 0.50);
   --zhu-wash: rgba(207, 122, 108, 0.12);
 }
+
+/* 极简·灰白（hui）— 冷灰纸 + 石墨墨。无彩极简，最接近打印稿的白底黑字 */
+body[data-palette="hui"] {
+  --bg: #fafafa;
+  --bg2: #f0f0f0;
+  --bg3: #e4e4e4;
+  --fg: #1c1c1c;
+  --fg2: #484848;
+  --fg3: #6e6e6e;
+  --accent: #415a77;
+  --accent-strong: #324963;
+  --on-accent: #f7f9fb;
+  --border: #e6e6e6;
+  --border-strong: #cbcbcb;
+  --surface: #ffffff;
+  --zhu: #b3483a;
+  --on-zhu: #fdf6ec;
+  --sep-bg: #ececec;
+  --placeholder-fg: #b0b0b0;
+  --scrollbar-thumb: #c4c4c4;
+  --resizer-hover: #c8c8c8;
+  --tr-box-bg: #e6e8ec;
+  --accent-weak: rgba(65, 90, 119, 0.08);
+  --accent-ring: rgba(65, 90, 119, 0.3);
+  --accent-border: rgba(65, 90, 119, 0.5);
+  --zhu-wash: rgba(179, 72, 58, 0.08);
+}
+
+body[data-theme="dark"][data-palette="hui"] {
+  --bg: #1a1a1a;
+  --bg2: #222222;
+  --bg3: #303030;
+  --fg: #ededed;
+  --fg2: #b8b8b8;
+  --fg3: #888888;
+  --accent: #9db4cc;
+  --accent-strong: #b6cbe0;
+  --on-accent: #141a20;
+  --border: #333333;
+  --border-strong: #474747;
+  --surface: #262626;
+  --zhu: #cb6e61;
+  --on-zhu: #2a1512;
+  --sep-bg: #2b2b2b;
+  --placeholder-fg: #5c5c5c;
+  --scrollbar-thumb: #4a4a4a;
+  --resizer-hover: #515151;
+  --tr-box-bg: #3a4048;
+  --accent-weak: rgba(157, 180, 204, 0.14);
+  --accent-ring: rgba(157, 180, 204, 0.38);
+  --accent-border: rgba(157, 180, 204, 0.5);
+  --zhu-wash: rgba(203, 110, 97, 0.12);
+}

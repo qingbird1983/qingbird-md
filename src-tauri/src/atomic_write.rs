@@ -117,7 +117,10 @@ mod tests {
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
             .open(&target)
             .unwrap();
-        assert!(write(&target, b"new-value").is_err(), "句柄占用必须导致失败");
+        assert!(
+            write(&target, b"new-value").is_err(),
+            "句柄占用必须导致失败"
+        );
         assert_eq!(
             std::fs::read(&target).unwrap(),
             b"old-value",

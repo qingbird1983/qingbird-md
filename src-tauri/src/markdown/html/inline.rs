@@ -103,8 +103,12 @@ impl Ctx<'_> {
                     out.push_str("</a>");
                 }
                 Inline::Image { alt, src } => {
-                    let _ =
-                        write!(out, r#"<img src="{}" alt="{}">"#, escape_html(src), escape_html(alt));
+                    let _ = write!(
+                        out,
+                        r#"<img src="{}" alt="{}">"#,
+                        escape_html(src),
+                        escape_html(alt)
+                    );
                 }
                 Inline::LineBreak => out.push_str("<br>"),
                 Inline::Math(tex) => {

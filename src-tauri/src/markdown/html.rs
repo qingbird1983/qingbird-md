@@ -83,7 +83,11 @@ pub fn render_html(
 ) -> ParseResult {
     let blocks = super::model::parse_blocks(content);
     let mut ctx = Ctx {
-        sub: if trans.is_empty() || bilingual { None } else { Some(trans) },
+        sub: if trans.is_empty() || bilingual {
+            None
+        } else {
+            Some(trans)
+        },
         bi: if bilingual { Some(trans) } else { None },
         sub_counter: 0,
         bi_counter: 0,
@@ -106,7 +110,10 @@ pub fn render_html(
         html.push_str(&ctx.fn_html);
         html.push_str("</ol></section>");
     }
-    ParseResult { html, outline: std::mem::take(&mut ctx.outline) }
+    ParseResult {
+        html,
+        outline: std::mem::take(&mut ctx.outline),
+    }
 }
 
 impl<'t> Ctx<'t> {
@@ -190,7 +197,11 @@ impl<'t> Ctx<'t> {
                 self.render_blocks(out, blocks);
                 out.push_str("</blockquote>");
             }
-            Block::List { ordered, start, items } => {
+            Block::List {
+                ordered,
+                start,
+                items,
+            } => {
                 if *ordered {
                     let _ = write!(out, "<ol start=\"{}\">", start);
                 } else {
@@ -219,7 +230,11 @@ impl<'t> Ctx<'t> {
                     escape_html(alt)
                 );
             }
-            Block::Table { headers, rows, aligns } => {
+            Block::Table {
+                headers,
+                rows,
+                aligns,
+            } => {
                 out.push_str("<table><thead><tr>");
                 for (ci, h) in headers.iter().enumerate() {
                     let plain = inline_plain_text(h);
@@ -253,7 +268,11 @@ impl<'t> Ctx<'t> {
                 out.push_str("</tbody></table>");
             }
             Block::Math { display, tex } => {
-                let cls = if *display { "math block" } else { "math inline" };
+                let cls = if *display {
+                    "math block"
+                } else {
+                    "math inline"
+                };
                 let _ = write!(
                     out,
                     r#"<div class="{}" data-source="{}"></div>"#,

@@ -24,7 +24,11 @@ pub fn apply_op(content: &str, sel: (usize, usize), op: &str) -> (String, (usize
         "task" => line_prefix(content, sel, "- [ ] "),
         "quote" => line_prefix(content, sel, "> "),
         "codeblock" => {
-            let body = if selected.is_empty() { "在此输入代码" } else { selected };
+            let body = if selected.is_empty() {
+                "在此输入代码"
+            } else {
+                selected
+            };
             (format!("{before}\n```\n{body}\n```\n{after}"), (s, e))
         }
         "table" => {
@@ -43,7 +47,14 @@ fn clamp_sel(len: usize, sel: (usize, usize)) -> (usize, usize) {
 }
 
 /// Wrap `selected` with `pre`/`post`; if not selected, insert `placeholder`.
-fn wrap(before: &str, after: &str, selected: &str, pre: &str, post: &str, placeholder: &str) -> (String, (usize, usize)) {
+fn wrap(
+    before: &str,
+    after: &str,
+    selected: &str,
+    pre: &str,
+    post: &str,
+    placeholder: &str,
+) -> (String, (usize, usize)) {
     let s = before.len() + pre.len();
     if selected.is_empty() {
         let e = s + placeholder.len();
@@ -59,16 +70,35 @@ fn wrap(before: &str, after: &str, selected: &str, pre: &str, post: &str, placeh
 fn line_prefix(content: &str, sel: (usize, usize), prefix: &str) -> (String, (usize, usize)) {
     let (s, e) = clamp_sel(content.len(), sel);
     let bytes = content.as_bytes();
-    let line_start = bytes[..s].iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
+    let line_start = bytes[..s]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
     let mut line_end = e;
     if let Some(p) = bytes[e..].iter().position(|&b| b == b'\n') {
         line_end = e + p;
     }
     let block = &content[line_start..line_end];
     let lines: Vec<&str> = block.split('\n').collect();
-    let inner = lines.iter().map(|l| format!("{prefix}{l}")).collect::<Vec<_>>().join("\n");
-    let new = format!("{}{}{}", &content[..line_start], inner, &content[line_end..]);
-    (new, (line_start + prefix.len(), line_start + prefix.len() + inner.len() - prefix.len()))
+    let inner = lines
+        .iter()
+        .map(|l| format!("{prefix}{l}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let new = format!(
+        "{}{}{}",
+        &content[..line_start],
+        inner,
+        &content[line_end..]
+    );
+    (
+        new,
+        (
+            line_start + prefix.len(),
+            line_start + prefix.len() + inner.len() - prefix.len(),
+        ),
+    )
 }
 
 #[cfg(test)]

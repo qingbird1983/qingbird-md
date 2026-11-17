@@ -113,8 +113,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            r#"<table class="front-matter"><tbody>"#
-                .to_string()
+            r#"<table class="front-matter"><tbody>"#.to_string()
                 + "<tr><th>name</th><td>ask-matt</td></tr>"
                 + "<tr><th>description</th><td>Router over skills.</td></tr>"
                 + "<tr><th>disable-model-invocation</th><td>true</td></tr>"
@@ -136,9 +135,7 @@ mod tests {
     #[test]
     fn continuation_and_nested_lines_are_kept() {
         // 多行块标量（缩进续行）、嵌套子键、数组项都不能丢
-        let out = html(
-            "---\ndescription: |\n  line one\n  line two\ntags:\n  - a\n  - b\n---\n",
-        );
+        let out = html("---\ndescription: |\n  line one\n  line two\ntags:\n  - a\n  - b\n---\n");
         assert!(
             out.contains("<th>description</th><td>|\n  line one\n  line two</td>"),
             "{out}"

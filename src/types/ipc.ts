@@ -70,27 +70,6 @@ export interface ProviderInfo {
 }
 
 /**
- * storage.rs LlmProfile：一套已保存的 OpenAI 兼容大模型配置。
- *
- * 翻译链路只认 `providers["llm"]`（bridge 的两个翻译命令都由前端显式传
- * creds），所以档案库是纯前端概念：选中哪套，就把它的四个值镜像进
- * `providers["llm"]`。Rust 侧不认识「档案」，只负责把它原样存下来。
- */
-export interface LlmProfile {
-  /** 前端生成的不透明 id（改名不改 id） */
-  id: string;
-  name: string;
-  base_url: string;
-  api_key: string;
-  model: string;
-  lookup_model: string;
-  /** 语义核查模型（S5），留空回落 model */
-  review_model: string;
-  /** 上次 /models 拉到的清单，持久化后重启仍可下拉选用 */
-  models: string[];
-}
-
-/**
  * storage.rs Settings：providers 按源名分组凭据。
  * ⚠️ 凭据以明文 JSON 落盘用户数据目录（SEC-3，未加密，产品决策待定）；
  * 但**不经 settings-updated 广播**——事件只发 SettingsBroadcast 脱敏摘要。
@@ -105,12 +84,8 @@ export interface Settings {
   outline: string;
   nav: string;
   theme: string;
-  /** 主题配色 id（xuan/su/qing/tan/ci/ye）；"" = 用默认档 xuan */
+  /** 主题配色 id（xuan/su/qing/tan/ci/ye/hui）；"" = 用默认档 xuan */
   palette: string;
-  /** 大模型配置档案库（可多套并存）；老配置缺字段 → [] */
-  llm_profiles: LlmProfile[];
-  /** 当前生效档案的 id；"" = 没有选中任何档案 */
-  llm_active: string;
   /**
    * 开机自启（托盘菜单写、启动时 apply 到 autostart 插件）。
    * 前端不展示也不改它，但必须列在类型里：整包 `save_settings` 走 serde 反序列化，
@@ -143,10 +118,19 @@ export interface Settings {
    * 静默丢成默认值——必须列在类型里。
    */
   close_action: string;
+  /**
+   * 标签页模式（"multi" / "single"；空串或未知值由前端 `normalizeTabMode` 回落 "multi"）。
+   * single = 每次打开文档复用唯一标签，不叠加多个。默认 multi = 改动前行为。
+   * 同 `autostart`：整包 save 走 serde，字段没登记会被静默丢——必须列在类型里。
+   */
+  tab_mode: string;
 }
 
 /** `Settings.close_action` 的合法值（字符串字段照 TargetLang 先例配联合类型）。 */
 export type CloseAction = "ask" | "tray" | "exit";
+
+/** `Settings.tab_mode` 的合法值：multi=多标签（默认）/ single=单标签复用。 */
+export type TabMode = "multi" | "single";
 
 /**
  * lib.rs settings_broadcast_payload：settings-updated 事件的脱敏广播（SEC-3）。
@@ -238,36 +222,6 @@ export type TranslateStart =
     }
   | { kind: "cached"; done: DonePayload };
 
-/** dto.rs LookupExample */
-export interface LookupExample {
-  en: string;
-  zh: string;
-}
-
-/** dto.rs LookupTerm */
-export interface LookupTerm {
-  word: string;
-  phonetic: string;
-  explanation: string;
-}
-
-/** dto.rs WordLookupDTO：kind="sentence" 时 phonetic 及以下为 null / 空数组 */
-export interface WordLookupDTO {
-  kind: "word" | "sentence";
-  translation: string;
-  phonetic: string | null;
-  part_of_speech: string | null;
-  usage: string | null;
-  examples: LookupExample[];
-  terms: LookupTerm[];
-}
-
-/** lib.rs LookupDeltaEvt：划词查词流式 delta，content 为截止当前的累积输出 */
-export interface LookupDeltaPayload {
-  text: string;
-  content: string;
-}
-
 /** hibernate.rs SessionTab：一个标签的休眠快照 */
 export interface SessionTab {
   id: string;
@@ -290,10 +244,6 @@ export interface SessionUi {
   sidebar_width: number;
   outline_width: number;
   split_ratio: number;
-  // AI 核查面板（§八）：与大纲栏共用槽位，各自独立 show/width。
-  // side 走前端 localStorage（不进快照，同 outlineSide 先例）。
-  show_review: boolean;
-  review_width: number;
 }
 
 /** hibernate.rs SessionSnapshot：仅休眠时落草稿，恢复成功后即删（一次性） */
@@ -305,61 +255,4 @@ export interface SessionSnapshot {
   active_id: string | null;
   workspace_root: string | null;
   ui: SessionUi | null;
-}
-
-// ---- 确定性检查（translate/check.rs 端到端） ----
-//
-// 字段顺序 / 命名必须与 Rust 端 `Issue` 严格一致；守卫测试见
-// src/lib/checkTranslation.test.ts。任何一边的字段改名 / 加删都会立刻变红。
-
-export type IssueKind =
-  | "OmittedUntranslated"
-  | "EchoOfSource"
-  | "MarksLost"
-  | "StructureMismatch"
-  | "CodeInvaded";
-
-export type Severity = "Warning";
-
-export interface Issue {
-  run: number;
-  kind: IssueKind;
-  severity: Severity;
-  src_excerpt: string;
-  dst_excerpt: string;
-}
-
-/**
- * S5：AI 语义核查问题（translate/review.rs `AiIssue` 镜像，两侧同形）。
- * kind/severity 的合法值由 Rust 端白名单强校验；前端类型只作展示与分组，
- * 后端将来扩枚举时这里落下窗口期由 `aiKindLabel` 的 `||` 兜底。
- */
-export type ReviewIssueKind =
-  | "term_inconsistency"
-  | "pronoun_reference"
-  | "register"
-  | "number_propernoun"
-  | "syntax_breakdown";
-
-export type ReviewSeverity = "high" | "medium" | "low";
-
-export interface ReviewIssue {
-  /** 与 translations 同键空间的单元索引（可跳转锚点，同 Issue.run）。 */
-  run: number;
-  kind: ReviewIssueKind;
-  severity: ReviewSeverity;
-  /** 译文现状摘句（AI 引用，仅展示）。 */
-  current: string;
-  /** 建议改法：用户「接受」时写回翻译表的内容。 */
-  suggested: string;
-  reason: string;
-}
-
-/** translate/review.rs `ReviewOutcome` 镜像。 */
-export interface ReviewOutcome {
-  issues: ReviewIssue[];
-  fingerprint: string;
-  batch_total: number;
-  batch_failed: number;
-  model: string;
 }

@@ -1,7 +1,7 @@
 //! 前端 handoff：休眠/加载窗口期内的待打开路径缓冲与就绪标志。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tauri::Manager;

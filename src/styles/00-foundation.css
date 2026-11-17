@@ -42,8 +42,8 @@ body {
   grid-template-columns: auto auto auto auto 1fr auto auto;
   /* 启动仪式感动画时长（useUiStore INTRO_ANIM_MS 同值，改动两处同步）：
      playing 时 JS 再把 --panel-anim 内联覆盖成同值，两栏收缩 / 标签条滑动 /
-     欢迎内容放大三者共用一个时长，同时落定。 */
-  --intro-anim: 1280ms;
+     欢迎内容放大三者共用一个时长，同时落定。2026-11-18 从 1280 调快到 780。 */
+  --intro-anim: 780ms;
   /* 启动动画用的"微弱过冲"曲线——overshoot ≈ 1.32（终点 1，最大幅度 +32%）：
      侧栏/拖宽条 width 与 tabbar margin 共用，回弹幅度可见但不夸张。
      欢迎内容另用专属 keyframes（不能用 width 数值曲线）。 */

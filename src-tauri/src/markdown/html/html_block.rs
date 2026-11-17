@@ -31,19 +31,63 @@ use std::fmt::Write;
 
 /// 放行的标签（小写，结构 + 排版，均无行为）。
 const ALLOWED: &[&str] = &[
-    "p", "br", "hr", "strong", "b", "em", "i", "u", "s", "del", "ins", "mark", "sub", "sup",
-    "code", "pre", "kbd", "samp", "var", "span", "div", "blockquote", "small", "abbr",
-    "ul", "ol", "li", "dl", "dt", "dd",
-    "table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "th", "td",
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "figure", "figcaption", "details", "summary",
+    "p",
+    "br",
+    "hr",
+    "strong",
+    "b",
+    "em",
+    "i",
+    "u",
+    "s",
+    "del",
+    "ins",
+    "mark",
+    "sub",
+    "sup",
+    "code",
+    "pre",
+    "kbd",
+    "samp",
+    "var",
+    "span",
+    "div",
+    "blockquote",
+    "small",
+    "abbr",
+    "ul",
+    "ol",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "table",
+    "caption",
+    "colgroup",
+    "col",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "th",
+    "td",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "figure",
+    "figcaption",
+    "details",
+    "summary",
 ];
 
 /// **连内容一起**丢弃的元素：它们的「文字」是脚本/CSS/原始标记，留着只是乱码。
 /// 表内元素在文档里总是成对出现，丢到配对闭标签即可（见模块头对未闭合的说明）。
 const DROP_CONTENT: &[&str] = &[
-    "script", "style", "iframe", "frame", "frameset", "noscript", "template",
-    "textarea", "title", "svg", "math", "canvas", "object", "applet", "marquee",
+    "script", "style", "iframe", "frame", "frameset", "noscript", "template", "textarea", "title",
+    "svg", "math", "canvas", "object", "applet", "marquee",
 ];
 
 /// 渲染成本模块的固定外壳。**恒产出一个元素**：`<!--sl:N-->` 注释是配给紧随其后的
@@ -246,24 +290,39 @@ mod tests {
 "#;
         let out = html(raw);
         assert!(out.starts_with(r#"<div class="html-block">"#), "{out}");
-        for keep in ["<table>", "<colgroup>", "<tbody>", "<tr>", "<th", "<td", "<strong>"] {
+        for keep in [
+            "<table>",
+            "<colgroup>",
+            "<tbody>",
+            "<tr>",
+            "<th",
+            "<td",
+            "<strong>",
+        ] {
             assert!(out.contains(keep), "结构标签被丢 {keep}: {out}");
         }
         for needle in ["名称", "UI设计师", "颜色", "紫色"] {
             assert!(out.contains(needle), "文字被丢 {needle}: {out}");
         }
-        assert!(out.contains(r#"<th colspan="1" rowspan="1">"#), "合并跨度须保留: {out}");
+        assert!(
+            out.contains(r#"<th colspan="1" rowspan="1">"#),
+            "合并跨度须保留: {out}"
+        );
         // 我们自己的外壳 class 之外，属性面必须是空的——编辑器私有属性一个不剩
         let inner = out.replace(r#"<div class="html-block">"#, "");
         for gone in ["class=", "style=", "colwidth", "tiptap-table", "min-width"] {
-            assert!(!inner.contains(gone), "编辑器私有属性必须剥掉 {gone}: {inner}");
+            assert!(
+                !inner.contains(gone),
+                "编辑器私有属性必须剥掉 {gone}: {inner}"
+            );
         }
     }
 
     /// 脚本与样式**连内容**一起消失——留下 JS/CSS 源码只是一屏乱码。
     #[test]
     fn script_and_style_are_dropped_with_their_content() {
-        let out = html(r#"<div><script>alert('x')</script><style>p{color:red}</style><p>正文</p></div>"#);
+        let out =
+            html(r#"<div><script>alert('x')</script><style>p{color:red}</style><p>正文</p></div>"#);
         assert!(!out.contains("alert"), "{out}");
         assert!(!out.contains("color:red"), "{out}");
         assert!(out.contains("<p>正文</p>"), "{out}");
@@ -274,7 +333,9 @@ mod tests {
     /// 非白名单标签（`a`）只丢标签、文字留着。
     #[test]
     fn attributes_and_event_handlers_cannot_reach_the_dom() {
-        let out = html(r#"<p onclick="steal()" style="position:fixed">hi</p><a href="javascript:evil()">点我</a>"#);
+        let out = html(
+            r#"<p onclick="steal()" style="position:fixed">hi</p><a href="javascript:evil()">点我</a>"#,
+        );
         assert!(!out.contains("onclick"), "{out}");
         assert!(!out.contains("javascript:"), "{out}");
         assert!(!out.contains("href"), "{out}");
@@ -288,7 +349,10 @@ mod tests {
     fn text_is_escaped_so_no_raw_markup_leaks() {
         let out = html("<div>a &lt;script&gt; b</div>");
         assert!(out.contains("a &lt;script&gt; b"), "{out}");
-        assert!(!out.contains("<script"), "产出的 `<` 只可能来自白名单标签: {out}");
+        assert!(
+            !out.contains("<script"),
+            "产出的 `<` 只可能来自白名单标签: {out}"
+        );
 
         // 实体不能被二次转义（`&nbsp;` 要真的渲染成不换行空格）
         let nbsp = html("<p>甲&nbsp;乙</p>");
@@ -334,7 +398,10 @@ mod tests {
     /// 恒产出一个元素：整块都是脚本时，外壳仍在——`<!--sl:N-->` 才不会悬空。
     #[test]
     fn always_yields_an_element() {
-        assert_eq!(html("<script>x</script>"), r#"<div class="html-block"></div>"#);
+        assert_eq!(
+            html("<script>x</script>"),
+            r#"<div class="html-block"></div>"#
+        );
         assert_eq!(html(""), r#"<div class="html-block"></div>"#);
     }
 
@@ -359,7 +426,8 @@ mod tests {
             crate::translate::engine::TargetLang::Zh,
         );
         assert!(
-            r.html.contains(r#"<!--sl:3--><div class="html-block"><table>"#),
+            r.html
+                .contains(r#"<!--sl:3--><div class="html-block"><table>"#),
             "锚点必须贴住净化后的元素: {}",
             r.html
         );

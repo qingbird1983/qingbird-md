@@ -34,15 +34,26 @@ fn resolve_image_rejects_escape_outside_allowed_roots() {
 
     // 恶意文档的 `..` 逃逸：未登记工作区根时必须拒绝（今天会放行）
     assert_eq!(
-        resolve_image(app.handle().clone(), "../outside.png".into(), Some(base.clone())),
+        resolve_image(
+            app.handle().clone(),
+            "../outside.png".into(),
+            Some(base.clone())
+        ),
         None,
         "`..` 逃出文档目录未被拒绝"
     );
-    assert!(!scope.is_allowed(&format!("{root_s}/outside.png")), "逃逸路径被放进了 asset scope");
+    assert!(
+        !scope.is_allowed(&format!("{root_s}/outside.png")),
+        "逃逸路径被放进了 asset scope"
+    );
 
     // file:// 绝对路径指向允许根之外 → 同样拒绝
     assert_eq!(
-        resolve_image(app.handle().clone(), format!("file://{root_s}/outside.png"), None),
+        resolve_image(
+            app.handle().clone(),
+            format!("file://{root_s}/outside.png"),
+            None
+        ),
         None,
         "file:// 绝对路径逃逸未被拒绝"
     );
@@ -55,12 +66,19 @@ fn resolve_image_rejects_escape_outside_allowed_roots() {
     std::fs::write(root.join("assets").join("shared.png"), b"png").unwrap();
     let in_ws = format!("{root_s}/assets/shared.png");
     assert_eq!(
-        resolve_image(app.handle().clone(), "../assets/shared.png".into(), Some(base.clone()))
-            .as_deref(),
+        resolve_image(
+            app.handle().clone(),
+            "../assets/shared.png".into(),
+            Some(base.clone())
+        )
+        .as_deref(),
         Some(in_ws.as_str()),
         "登记根后的工作区级 `../` 引用被误拒"
     );
-    assert!(scope.is_allowed(&in_ws), "登记根内的解析路径未放进 asset scope");
+    assert!(
+        scope.is_allowed(&in_ws),
+        "登记根内的解析路径未放进 asset scope"
+    );
 
     // 越过工作区根的 `..`：仍拒绝
     assert_eq!(
@@ -94,14 +112,20 @@ fn resolve_image_grants_asset_scope_for_resolved_paths() {
     let scope = app.handle().asset_protocol_scope();
 
     // conf 起步 scope 为空：命令放行前，文档目录内文件也不可读
-    assert!(!scope.is_allowed(&expect), "asset scope 起步即放行，说明 scope 未收窄");
+    assert!(
+        !scope.is_allowed(&expect),
+        "asset scope 起步即放行，说明 scope 未收窄"
+    );
 
     // 相对路径图片：命令把解析出的绝对路径即时放进 scope
     assert_eq!(
         resolve_image(app.handle().clone(), "pic.png".into(), Some(base.clone())).as_deref(),
         Some(expect.as_str())
     );
-    assert!(scope.is_allowed(&expect), "resolve_image 未放行解析出的相对路径图片");
+    assert!(
+        scope.is_allowed(&expect),
+        "resolve_image 未放行解析出的相对路径图片"
+    );
 
     // file:// 绝对路径（文档在任意盘符目录的既有形态）：同样即时放行。
     // P1-2(SEC-2) 起，「逃出文档目录且无已登记工作区根」的绝对路径会被根
@@ -109,11 +133,18 @@ fn resolve_image_grants_asset_scope_for_resolved_paths() {
     // 「file:// + 逐文件放行」契约本身。
     let in_doc_abs = format!("{root_s}/docs/pic.png");
     assert_eq!(
-        resolve_image(app.handle().clone(), format!("file://{in_doc_abs}"), Some(base.clone()))
-            .as_deref(),
+        resolve_image(
+            app.handle().clone(),
+            format!("file://{in_doc_abs}"),
+            Some(base.clone())
+        )
+        .as_deref(),
         Some(in_doc_abs.as_str())
     );
-    assert!(scope.is_allowed(&in_doc_abs), "resolve_image 未放行解析出的 file:// 图片");
+    assert!(
+        scope.is_allowed(&in_doc_abs),
+        "resolve_image 未放行解析出的 file:// 图片"
+    );
 
     std::fs::remove_dir_all(&root).ok();
 }

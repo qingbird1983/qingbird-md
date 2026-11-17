@@ -49,8 +49,7 @@ pub(super) fn fold_marks(inlines: &mut Vec<Inline>) {
                                 // 右翼：after 为 None（紧贴节点边界，如 `==**b**==`）视同非空白
                                 && !matches!(after, Some(c) if c.is_whitespace())
                                 && before != Some('=');
-                            let can_close =
-                                open && !matches!(before, Some(c) if c.is_whitespace());
+                            let can_close = open && !matches!(before, Some(c) if c.is_whitespace());
                             if can_open || can_close {
                                 // 翼判定用掉 lit 的尾字符，然后落账字面
                                 if !lit.is_empty() {
@@ -222,7 +221,10 @@ pub(super) fn push_inline<'a>(
         }
         Event::Start(Tag::Image { dest_url, .. }) => {
             let alt = collect_raw_text(it);
-            out.push(Inline::Image { alt, src: dest_url.into_string() });
+            out.push(Inline::Image {
+                alt,
+                src: dest_url.into_string(),
+            });
             true
         }
         _ => true,
@@ -255,7 +257,7 @@ pub(super) fn collect_raw_text<'a>(it: &mut impl Iterator<Item = Event<'a>>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markdown::model::{parse_blocks, Block};
+    use crate::markdown::model::{Block, parse_blocks};
 
     /// BUG-7 回归：alt 含嵌套行内标签（`![**b**](x)` 的 Strong）时，
     /// alt 解析必须消费到 Image 自己的 `End`——提前 break 会把 `End(Image)`

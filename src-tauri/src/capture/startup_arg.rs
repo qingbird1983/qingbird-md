@@ -16,7 +16,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{is_silent_launch, SILENT_START_ARG};
+    use super::{SILENT_START_ARG, is_silent_launch};
 
     #[test]
     fn detects_autostart_argument() {

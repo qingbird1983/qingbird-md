@@ -13,7 +13,7 @@ import { useUiStore, errText } from "./useUiStore";
 import { useTranslationStore } from "./useTranslationStore";
 import { useSettingsStore } from "./useSettingsStore";
 import { useRecentStore } from "./useRecentStore";
-import { makePatchers, projection, commit, activeTab, newId, type OpenTab, type DocState } from "./docTabs";
+import { makePatchers, projection, commit, activeTab, newId, tabsAfterOpen, type OpenTab, type DocState } from "./docTabs";
 import {
   restoreSession as restoreSessionImpl,
   openDocFromArgs as openDocFromArgsImpl,
@@ -99,7 +99,7 @@ export const useDocStore = create<DocState>()((set, get) => {
           parseResult: d.parse,
           htmlCache: { contentKey: d.content, target, result: d.parse },
         };
-        set((s) => commit([...s.tabs, tab], tab.id));
+        set((s) => commit(tabsAfterOpen(s.tabs, tab, useSettingsStore.getState().settings?.tab_mode), tab.id));
         // 最近打开登记：openTab 是所有「按路径打开」的唯一漏斗（树点击 / Ctrl+O / 命令面板 / 文件关联 / 休眠交接 / 欢迎页 / 菜单），记在这儿才不漏。
         useRecentStore.getState().push(path, d.name);
       } catch (e) {
@@ -125,7 +125,7 @@ export const useDocStore = create<DocState>()((set, get) => {
         parseResult: null,
         htmlCache: null,
       };
-      set((s) => commit([...s.tabs, tab], tab.id));
+      set((s) => commit(tabsAfterOpen(s.tabs, tab, useSettingsStore.getState().settings?.tab_mode), tab.id));
     },
 
     openExampleTab: (name, content) => {
@@ -156,7 +156,7 @@ export const useDocStore = create<DocState>()((set, get) => {
         parseResult: null,
         htmlCache: null,
       };
-      set((s) => commit([...s.tabs, tab], tab.id));
+      set((s) => commit(tabsAfterOpen(s.tabs, tab, useSettingsStore.getState().settings?.tab_mode), tab.id));
     },
 
     closeTab: async (id) => {

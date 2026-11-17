@@ -38,7 +38,10 @@ pub fn translate_image(png: &[u8], from: &str, to: &str) -> Result<OcrResult, St
 
     let resp = ureq::post(ENDPOINT)
         .set("User-Agent", USER_AGENT)
-        .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+        .set(
+            "Content-Type",
+            &format!("multipart/form-data; boundary={boundary}"),
+        )
         .timeout(std::time::Duration::from_secs(30))
         .send(body.as_slice())
         .map_err(|e| format!("有道 OCR 请求失败: {e}"))?;
@@ -65,7 +68,9 @@ fn parse_response(text: &str) -> Result<OcrResult, String> {
     if raw.image.is_empty() {
         return Err("未识别到文字".into());
     }
-    Ok(OcrResult { image_base64: raw.image })
+    Ok(OcrResult {
+        image_base64: raw.image,
+    })
 }
 
 /// 平移自 Glance build_upload_sign：
@@ -106,8 +111,10 @@ fn multipart_body(boundary: &str, png: &[u8], fields: &[(&str, String)]) -> Vec<
     let mut body = Vec::new();
     for (name, value) in fields {
         body.extend_from_slice(
-            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
-                .as_bytes(),
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .as_bytes(),
         );
     }
     body.extend_from_slice(
@@ -168,10 +175,14 @@ mod tests {
             &[("clientele", CLIENTELE.to_string()), ("salt", "42".into())],
         );
         let s = String::from_utf8_lossy(&body);
-        assert!(s.contains("--BOUNDARY\r\nContent-Disposition: form-data; name=\"clientele\"\r\n\r\ndeskdict\r\n"));
+        assert!(s.contains(
+            "--BOUNDARY\r\nContent-Disposition: form-data; name=\"clientele\"\r\n\r\ndeskdict\r\n"
+        ));
         assert!(s.contains("name=\"salt\"\r\n\r\n42\r\n"));
         // 文件段：头 + 原始字节（二进制不破坏）+ 收尾
-        assert!(s.contains("name=\"multipartFile\"; filename=\"capture.png\"\r\nContent-Type: image/png\r\n\r\n"));
+        assert!(s.contains(
+            "name=\"multipartFile\"; filename=\"capture.png\"\r\nContent-Type: image/png\r\n\r\n"
+        ));
         // ponytail-fix: 简报笔误——b"\x89PNG-bin" 是 8 字节，windows(9) 永不相等
         assert!(body.windows(8).any(|w| w == b"\x89PNG-bin".as_slice()));
         assert!(body.ends_with(b"\r\n--BOUNDARY--\r\n"));

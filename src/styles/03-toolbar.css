@@ -12,9 +12,9 @@
 .editor-toolbar {
   grid-row: 2;
   /* 左缘跟「工作区带」左端（侧栏拖宽条之后，含左停靠大纲栏的列），
-     右端默认 -1 = 窗口右缘。AI 核查开成「外一级高栏」（row 2/4）时会占住
-     row 2 的一角，工具栏必须让位（App.tsx 按核查停靠侧写 --tb-*）：
-     右同侧 --tb-end=7 止于核查栏左缘；左同侧 --tb-start=4 从核查栏右缘起。 */
+     右端默认 -1 = 窗口右缘。--tb-start/--tb-end 保留为可选覆盖口
+     （原「AI 核查高栏占住 row 2 一角时让位」的唯一写入方已随 AI 功能移除，
+     现无内联写入，走 var() 默认值）。 */
   grid-column: var(--tb-start, var(--col-ws, 3)) / var(--tb-end, -1);
   display: flex;
   align-items: center;

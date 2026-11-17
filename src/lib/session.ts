@@ -43,8 +43,6 @@ export function collectSnapshot(): SessionSnapshot {
       sidebar_width: ui.sidebarWidth,
       outline_width: ui.outlineWidth,
       split_ratio: ui.splitRatio,
-      show_review: ui.showReview,
-      review_width: ui.reviewWidth,
     },
   };
 }

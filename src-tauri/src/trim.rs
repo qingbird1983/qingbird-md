@@ -18,7 +18,7 @@
 
 #[cfg(windows)]
 pub fn trim_working_set() {
-    use windows_sys::Win32::System::Threading::{SetProcessWorkingSetSize, GetCurrentProcess};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
     // SAFETY：仅调一次 OS API，参数都是合法值。
     unsafe {
         // SIZE_T 的 -1（即 usize::MAX）让 API 把当前工作集 trim 到 0；

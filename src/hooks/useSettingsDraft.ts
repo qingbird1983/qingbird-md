@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRe
 import type { Settings } from "../types/ipc";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useUiStore } from "../stores/useUiStore";
-import { withCredsInProfile } from "./useLlmProfiles";
 
 export interface SettingsDraft {
   close: () => void;
@@ -75,10 +74,6 @@ export function useSettingsDraft(): SettingsDraft {
       // 导出重排版都直写 store，不覆盖就会被关窗时的旧草稿整包打回原值。
       // close_action（Task 11）同理——关窗询问弹窗勾「记住」也是直写 store。
       const cur = useSettingsStore.getState().settings;
-      // 当前这栏凭据顺手写回它对应的档案（用户可能改了字段却直接关窗）
-      const llmProfiles = d.llm_active
-        ? withCredsInProfile(d.llm_profiles, d.llm_active, fc)
-        : d.llm_profiles;
       const next: Settings = {
         ...d,
         theme: cur?.theme ?? d.theme,
@@ -88,9 +83,9 @@ export function useSettingsDraft(): SettingsDraft {
         capture_enabled: cur?.capture_enabled ?? d.capture_enabled,
         relayout_on_export: cur?.relayout_on_export ?? d.relayout_on_export,
         close_action: cur?.close_action ?? d.close_action,
+        tab_mode: cur?.tab_mode ?? d.tab_mode,
         provider: fp,
         providers: { ...d.providers, [fp]: fc },
-        llm_profiles: llmProfiles,
       };
       // store.save：乐观写 + 失败回滚 + toast，不必等它（关窗不该让用户等 I/O）
       void useSettingsStore.getState().save(next);

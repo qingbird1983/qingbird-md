@@ -25,7 +25,11 @@ pub struct Cache {
 
 impl Cache {
     pub fn new() -> Self {
-        Cache { map: HashMap::new(), order: VecDeque::new(), dirty: false }
+        Cache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+            dirty: false,
+        }
     }
 
     /// Build a versioned key.
@@ -330,8 +334,8 @@ mod tests {
     fn shrink_to_persists_through_save_and_reload() {
         // 重要契约：shrink 后 save，下次冷启动 load 进来还是小容量，
         // 不能「内存瘦了磁盘仍臃肿」让瘦身后的版本被旧版覆盖。
-        let dir = std::env::temp_dir()
-            .join(format!("qingbird-cache-shrink-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("qingbird-cache-shrink-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cache.json");
         let mut c = Cache::new();
@@ -347,13 +351,17 @@ mod tests {
         // 重新 load 进来的 order 也对（最老的没了）
         for i in 0..40 {
             assert!(
-                reloaded.get(&Cache::key("auto", "", &format!("t{i}"))).is_none(),
+                reloaded
+                    .get(&Cache::key("auto", "", &format!("t{i}")))
+                    .is_none(),
                 "oldest entries must stay dropped after reload"
             );
         }
         for i in 40..50 {
             assert!(
-                reloaded.get(&Cache::key("auto", "", &format!("t{i}"))).is_some(),
+                reloaded
+                    .get(&Cache::key("auto", "", &format!("t{i}")))
+                    .is_some(),
                 "newest entries must survive reload"
             );
         }

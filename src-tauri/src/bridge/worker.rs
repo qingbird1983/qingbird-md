@@ -17,8 +17,7 @@ use super::events::{TranslationDoneEvt, TranslationPartialEvt, TranslationProgre
 use super::payload::{done_payload_parts, html_payload_parts};
 
 /// 进度事件最小间隔。
-pub(super) const PROGRESS_MIN_INTERVAL: std::time::Duration =
-    std::time::Duration::from_millis(80);
+pub(super) const PROGRESS_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
 
 /// 翻译 worker 收尾时检查：若距上次翻译活动已超过此阈值，把内存里的 cache
 /// 收缩到 [`SHRINK_TO`] 条。设计动机见 2026-09-05 内存诊断：cache 20000 条
@@ -33,8 +32,7 @@ pub(crate) const SHRINK_TO: usize = 1000;
 /// 最近一次翻译相关入口（translate_text / lookup_word / translate_document）
 /// 被调用的时间戳。进程级单例：不需要持久化，进程重启从零计。
 /// Instant 非 const 不可直填 static，用 LazyLock 延后到首次访问再 now()。
-static LAST_TRANSLATE_AT: LazyLock<Mutex<Instant>> =
-    LazyLock::new(|| Mutex::new(Instant::now()));
+static LAST_TRANSLATE_AT: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
 
 /// 翻译相关 IPC 入口调一次：刷新「最近一次翻译活动」时间戳。
 pub(super) fn note_translate_activity() {
@@ -46,12 +44,8 @@ pub(super) fn note_translate_activity() {
 /// 调用方负责 save 重写磁盘）。
 fn shrink_if_idle(cache: &mut SqliteCache) -> bool {
     let now = Instant::now();
-    let last = *LAST_TRANSLATE_AT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if now.saturating_duration_since(last) >= IDLE_SHRINK_AFTER
-        && cache.len() > SHRINK_TO
-    {
+    let last = *LAST_TRANSLATE_AT.lock().unwrap_or_else(|e| e.into_inner());
+    if now.saturating_duration_since(last) >= IDLE_SHRINK_AFTER && cache.len() > SHRINK_TO {
         cache.shrink_to(SHRINK_TO) > 0
     } else {
         false
@@ -93,19 +87,8 @@ pub(super) fn spawn_translation(
     std::thread::spawn(move || {
         let emitter = AppEmitter(&app);
         worker_main(
-            &emitter,
-            r#gen,
-            texts,
-            indices,
-            provider,
-            creds,
-            meta,
-            &st,
-            work_cache,
-            content,
-            bilingual,
-            windowed,
-            target,
+            &emitter, r#gen, texts, indices, provider, creds, meta, &st, work_cache, content,
+            bilingual, windowed, target,
         );
     });
 }
@@ -162,19 +145,11 @@ fn worker_main(
         cancel: &st.cancel,
     };
     let creds = translate::providers::Creds(creds);
-    let variant = translate::engine::cache_variant(
-        &provider,
-        creds.get("model").unwrap_or_default(),
-        target,
-    );
+    let variant =
+        translate::engine::cache_variant(&provider, creds.get("model").unwrap_or_default(), target);
 
-    let units: Vec<(usize, String)> =
-        indices.iter().copied().zip(texts.iter().cloned()).collect();
-    let config = translate::engine::EngineConfig::for_provider(
-        &provider,
-        meta.max_len,
-        meta.max_concurrency,
-    );
+    let units: Vec<(usize, String)> = indices.iter().copied().zip(texts.iter().cloned()).collect();
+    let config = translate::engine::EngineConfig::for_provider(meta.max_len, meta.max_concurrency);
     let req = translate::engine::EngineRequest {
         provider: &provider,
         creds: &creds,
@@ -187,11 +162,19 @@ fn worker_main(
 
     let last_progress: Mutex<Option<std::time::Instant>> = Mutex::new(None);
     let emit = |ev: translate::engine::EngineEvent| match ev {
-        translate::engine::EngineEvent::Unit { index, text, from_cache } => {
-            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache, streaming: false, failed: false });
-        }
-        translate::engine::EngineEvent::Streaming { index, text } => {
-            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: true, failed: false });
+        translate::engine::EngineEvent::Unit {
+            index,
+            text,
+            from_cache,
+        } => {
+            emitter.partial(TranslationPartialEvt {
+                r#gen,
+                index,
+                text,
+                from_cache,
+                streaming: false,
+                failed: false,
+            });
         }
         translate::engine::EngineEvent::Progress { done, total } => {
             let mut last = last_progress.lock().unwrap_or_else(|e| e.into_inner());
@@ -213,7 +196,14 @@ fn worker_main(
                 .find(|(i, _)| *i == index)
                 .map(|(_, t)| t.clone())
                 .unwrap_or_default();
-            emitter.partial(TranslationPartialEvt { r#gen, index, text, from_cache: false, streaming: false, failed: true });
+            emitter.partial(TranslationPartialEvt {
+                r#gen,
+                index,
+                text,
+                from_cache: false,
+                streaming: false,
+                failed: true,
+            });
         }
     };
 
@@ -337,7 +327,10 @@ mod tests {
         }));
         std::panic::set_hook(prev);
         assert!(result.is_err(), "应捕获到 worker panic");
-        assert!(!running.load(Ordering::SeqCst), "panic 展开必须复位 running");
+        assert!(
+            !running.load(Ordering::SeqCst),
+            "panic 展开必须复位 running"
+        );
     }
 
     /// REL-1 挂接级回归（P0-9 评审移交）：真实 worker 体（worker_main）必须

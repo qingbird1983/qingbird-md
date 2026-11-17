@@ -122,7 +122,11 @@ impl Md<'_> {
                 let inner = self.capture(|s| s.blocks(blocks));
                 prefix_lines(inner.trim_end_matches('\n'), "> ")
             }
-            Block::List { ordered, start, items } => {
+            Block::List {
+                ordered,
+                start,
+                items,
+            } => {
                 let mut lines: Vec<String> = Vec::new();
                 for (i, it) in items.iter().enumerate() {
                     let task = match it.task {
@@ -164,7 +168,11 @@ impl Md<'_> {
             Block::Image { alt, src } => {
                 format!("![{}]({})", escape_md(alt, false), escape_md(src, false))
             }
-            Block::Table { headers, rows, aligns } => self.table(headers, rows, aligns),
+            Block::Table {
+                headers,
+                rows,
+                aligns,
+            } => self.table(headers, rows, aligns),
             Block::Math { tex, .. } => {
                 // tex 已含首尾换行（pulldown 的 DisplayMath 载荷如此），直接拼
                 format!("$${tex}$$")
@@ -197,7 +205,12 @@ impl Md<'_> {
         }
     }
 
-    fn table(&mut self, headers: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>], aligns: &[u8]) -> String {
+    fn table(
+        &mut self,
+        headers: &[Vec<Inline>],
+        rows: &[Vec<Vec<Inline>>],
+        aligns: &[u8],
+    ) -> String {
         let mut out = String::new();
         let cell = |m: &mut Self, c: &[Inline]| m.inlines(c, true);
         out.push('|');
@@ -374,7 +387,11 @@ Footnote ref[^n] here.
     #[test]
     fn export_keeps_run_space_aligned() {
         let (map, runs) = tagged_map(DOC);
-        assert!(runs.len() > 20, "综合文档应收集到足量 run，实得 {}", runs.len());
+        assert!(
+            runs.len() > 20,
+            "综合文档应收集到足量 run，实得 {}",
+            runs.len()
+        );
         let out = export_translation(DOC, &map);
         let after = collect_text_runs(&parse_blocks(&out), ZH)
             .into_iter()
@@ -418,8 +435,14 @@ Footnote ref[^n] here.
         assert!(out.contains("**Torun"), "粗体标记保留: {out}");
         assert!(out.contains("~~Torun"), "删除线标记保留: {out}");
         assert!(out.contains("==Torun"), "高亮标记保留: {out}");
-        assert!(out.contains("```rust\nlet x = 1;\n```"), "代码围栏原样: {out}");
-        assert!(out.contains("| --- | ---: |") || out.contains("| :--- | ---: |"), "表格: {out}");
+        assert!(
+            out.contains("```rust\nlet x = 1;\n```"),
+            "代码围栏原样: {out}"
+        );
+        assert!(
+            out.contains("| --- | ---: |") || out.contains("| :--- | ---: |"),
+            "表格: {out}"
+        );
         assert!(out.contains("> "), "引用前缀: {out}");
         assert!(out.contains("- [x] "), "任务项标记: {out}");
         assert!(out.contains("$a^2$"), "行内公式不被翻译、原样输出: {out}");
@@ -486,23 +509,48 @@ Footnote ref[^n] here.
         let md = "---\ntitle: T\nauthor: A\n---\n\nHello world";
         let (map, _) = tagged_map(md);
         let out = export_translation(md, &map);
-        assert_eq!(out.matches("title: T").count(), 1, "元数据只许出现一次:\n{out}");
-        assert_eq!(out.matches("author: A").count(), 1, "元数据只许出现一次:\n{out}");
-        assert_eq!(out.matches("\n---\n").count(), 1, "只许有收尾那一行 `---`:\n{out}");
+        assert_eq!(
+            out.matches("title: T").count(),
+            1,
+            "元数据只许出现一次:\n{out}"
+        );
+        assert_eq!(
+            out.matches("author: A").count(),
+            1,
+            "元数据只许出现一次:\n{out}"
+        );
+        assert_eq!(
+            out.matches("\n---\n").count(),
+            1,
+            "只许有收尾那一行 `---`:\n{out}"
+        );
         // 跳过元数据块时也不能顺带占掉「块间空行」——否则文首多一行空白
-        assert!(out.starts_with("---\ntitle: T\nauthor: A\n---\n\n"), "文首格式:\n{out}");
+        assert!(
+            out.starts_with("---\ntitle: T\nauthor: A\n---\n\n"),
+            "文首格式:\n{out}"
+        );
         // 无 front matter 的文档走同一入口，行为与改前一致
         let out2 = export_translation("Hello world", &tagged_map("Hello world").0);
         assert_eq!(out2, "Torun0\n", "无 front matter 时不得多出空行: {out2:?}");
 
         // 双语对照路径：同一条不变式（双语是最容易被肉眼忽略重复的形态）
         let zh = HashMap::from([(0usize, "你好世界。".to_string())]);
-        let bi =
-            crate::translate::export::export_bilingual("---\ntitle: T\n---\n\nHello world.", &zh, ZH);
-        assert_eq!(bi.matches("title: T").count(), 1, "元数据只许出现一次:\n{bi}");
+        let bi = crate::translate::export::export_bilingual(
+            "---\ntitle: T\n---\n\nHello world.",
+            &zh,
+            ZH,
+        );
+        assert_eq!(
+            bi.matches("title: T").count(),
+            1,
+            "元数据只许出现一次:\n{bi}"
+        );
         assert_eq!(bi.matches("---\n").count(), 2, "恰好首尾两行 `---`:\n{bi}");
         assert!(bi.starts_with("---\ntitle: T\n---\n\n"), "文首格式:\n{bi}");
-        assert!(bi.contains("Hello world.\n\n你好世界。"), "正文对照丢失:\n{bi}");
+        assert!(
+            bi.contains("Hello world.\n\n你好世界。"),
+            "正文对照丢失:\n{bi}"
+        );
     }
 
     /// 块级 HTML 是**内容**，不是格式：导出必须原样带回、且恰好一份。
@@ -524,6 +572,10 @@ Footnote ref[^n] here.
         // 双语对照路径：同一条不变式
         let bi = crate::translate::export::export_bilingual(&md, &map, ZH);
         assert!(bi.contains("甲"), "{bi}");
-        assert_eq!(bi.matches("tiptap-table").count(), 1, "双语里也恰一份:\n{bi}");
+        assert_eq!(
+            bi.matches("tiptap-table").count(),
+            1,
+            "双语里也恰一份:\n{bi}"
+        );
     }
 }

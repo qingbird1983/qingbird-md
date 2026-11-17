@@ -16,5 +16,5 @@ mod types;
 
 pub use anchors::top_level_block_lines;
 pub use parse::parse_blocks;
-pub use types::{Block, Inline};
 pub(crate) use parse::{front_matter_raw, options};
+pub use types::{Block, Inline};

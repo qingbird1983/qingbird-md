@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use super::signed::{now_millis, query_encode};
-use super::{codes, parse_json, Creds};
+use super::{Creds, codes, parse_json};
 use crate::translate::http::HttpClient;
 use crate::translate::policy::TargetLang;
 use crate::translate::sign::md5;
@@ -25,18 +25,30 @@ pub(super) fn mymemory(
     let v = parse_json(&r.body)?;
     if let Some(status) = v.get("responseStatus").and_then(|x| x.as_i64()) {
         if status != 200 {
-            let details = v.get("responseDetails").and_then(|x| x.as_str()).unwrap_or("");
+            let details = v
+                .get("responseDetails")
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
             return Err(format!("MyMemory：{details}"));
         }
     }
-    match v.get("responseData").and_then(|d| d.get("translatedText")).and_then(|x| x.as_str()) {
+    match v
+        .get("responseData")
+        .and_then(|d| d.get("translatedText"))
+        .and_then(|x| x.as_str())
+    {
         Some(t) => Ok(t.to_string()),
         None => Err("MyMemory 无结果".to_string()),
     }
 }
 
 // ---- Tencent Transmart (free browser endpoint) ----
-pub(super) fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
+pub(super) fn transmart(
+    text: &str,
+    _creds: &Creds,
+    http: &dyn HttpClient,
+    target: TargetLang,
+) -> Result<String, String> {
     // 源侧吃 `"auto"`（自动识别），只有目标语言需要方向。
     let (_, dst) = codes(target, ("en", "zh"));
     let body = serde_json::json!({
@@ -51,7 +63,10 @@ pub(super) fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient, targe
     })
     .to_string();
     let headers: Vec<(&str, &str)> = vec![
-        ("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"),
+        (
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        ),
         ("Referer", "https://yi.qq.com/zh-CN/index"),
     ];
     let r = http.post_json("https://transmart.qq.com/api/imt", &body, &headers)?;
@@ -61,7 +76,12 @@ pub(super) fn transmart(text: &str, _creds: &Creds, http: &dyn HttpClient, targe
     let v = parse_json(&r.body)?;
     let s = match v.get("auto_translation") {
         Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(a)) => a.iter().filter_map(|x| x.as_str()).map(|s| s.to_string()).collect::<Vec<_>>().join("\n"),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str())
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     };
     if s.trim().is_empty() {
@@ -78,9 +98,16 @@ const ICIBA_CLIENT: &str = "6";
 const ICIBA_KEY: &str = "1000006";
 const ICIBA_SALT: &str = "7ece94d9f9c202b0d2ec557dg4r9bc";
 
-pub(super) fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
+pub(super) fn iciba(
+    text: &str,
+    _creds: &Creds,
+    http: &dyn HttpClient,
+    target: TargetLang,
+) -> Result<String, String> {
     let timestamp = now_millis();
-    let signature = md5(&format!("{ICIBA_PATH}{ICIBA_CLIENT}{ICIBA_KEY}{timestamp}{ICIBA_SALT}"));
+    let signature = md5(&format!(
+        "{ICIBA_PATH}{ICIBA_CLIENT}{ICIBA_KEY}{timestamp}{ICIBA_SALT}"
+    ));
     let url = format!(
         "https://dictionary.iciba.com/dictionary/fy/batch?client={ICIBA_CLIENT}&key={ICIBA_KEY}&timestamp={timestamp}&signature={signature}"
     );
@@ -89,14 +116,21 @@ pub(super) fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient, target: T
     let headers: Vec<(&str, &str)> = vec![
         ("Origin", "https://www.iciba.com"),
         ("Referer", "https://www.iciba.com/"),
-        ("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"),
+        (
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        ),
     ];
     let r = http.post_json(&url, &body, &headers)?;
     if r.status >= 400 {
         return Err(format!("iCiba HTTP {}", r.status));
     }
     let v = parse_json(&r.body)?;
-    let code = v.get("code").and_then(|x| x.as_i64()).or_else(|| v.get("code").and_then(|x| x.as_str()).and_then(|s| s.parse().ok()));
+    let code = v.get("code").and_then(|x| x.as_i64()).or_else(|| {
+        v.get("code")
+            .and_then(|x| x.as_str())
+            .and_then(|s| s.parse().ok())
+    });
     if code != Some(1) {
         let preview: String = r.body.chars().take(200).collect();
         return Err(format!("iCiba error：{preview}"));
@@ -120,7 +154,12 @@ pub(super) fn iciba(text: &str, _creds: &Creds, http: &dyn HttpClient, target: T
 }
 
 // ---- auto chain ----
-pub(super) fn auto(text: &str, creds: &Creds, http: &dyn HttpClient, target: TargetLang) -> Result<String, String> {
+pub(super) fn auto(
+    text: &str,
+    creds: &Creds,
+    http: &dyn HttpClient,
+    target: TargetLang,
+) -> Result<String, String> {
     let chain: [super::ProviderFn; 3] = [transmart, iciba, mymemory];
     let mut last_err = String::new();
     for f in chain {
@@ -145,7 +184,11 @@ mod tests {
         let http = MockClient::new();
         let r = mymemory("hello", &Creds::default(), &http, ZH).unwrap();
         assert_eq!(r, "你好");
-        let rec = http.take_records().into_iter().find(|x| x.url.contains("mymemory")).unwrap();
+        let rec = http
+            .take_records()
+            .into_iter()
+            .find(|x| x.url.contains("mymemory"))
+            .unwrap();
         assert!(rec.url.contains("langpair=en|zh-CN") || rec.url.contains("langpair=en%7Czh-CN"));
     }
 

@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::AppTxn;
 use crate::translate::cache::{Cache, CacheBackend};
 use crate::{dto, markdown, translate};
 
-use super::events::{LookupDeltaEvt, TranslateStart};
+use super::events::TranslateStart;
 use super::payload::{cached_done_evt, sweep_cached_pairs};
 use super::worker::{WorkerState, note_translate_activity, spawn_translation};
 
@@ -48,73 +48,6 @@ pub fn translate_text(
     .and_then(|r| r)
 }
 
-#[tauri::command(async)]
-pub fn lookup_word(
-    text: String,
-    creds: HashMap<String, String>,
-    app: AppHandle,
-    st: tauri::State<AppTxn>,
-) -> Result<dto::WordLookupDTO, String> {
-    note_translate_activity();
-    let text = text.trim().to_string();
-    let creds = translate::providers::Creds(creds);
-    let variant = translate::lookup::cache_variant_for(&creds);
-    {
-        let c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(dto) = translate::lookup::cache_get_lookup(&*c, &text, &variant) {
-            return Ok(dto);
-        }
-    }
-    let dto = {
-        let net_text = text.clone();
-        let app = app.clone();
-        let cancel = Arc::clone(&st.cancel);
-        // REL-7：查词与整篇翻译共用同一取消旗标（请求前 + 流式行边界都快速
-        // 失败）。翻译空闲时顺手清掉上一次 stop_translation 留下的陈旧旗标，
-        // 否则「停止翻译后划词永远已取消」；翻译进行中则不动它——那一刻的
-        // stop 语义属于翻译（停止翻译顺带掐断在途查词，正是期望行为）。
-        if !st.running.load(Ordering::SeqCst) {
-            st.cancel.store(false, Ordering::SeqCst);
-        }
-        std::thread::spawn(move || {
-            let http = translate::cancel::CancelableClient {
-                inner: translate::http::UreqClient::shared(),
-                cancel: &cancel,
-            };
-            let mut emit = |acc: &str| {
-                let _ = app.emit(
-                    "lookup-delta",
-                    LookupDeltaEvt {
-                        text: net_text.clone(),
-                        content: acc.to_string(),
-                    },
-                );
-            };
-            translate::lookup::lookup(&net_text, &creds, &http, &mut emit)
-        })
-        .join()
-        .map_err(|_| "查词线程崩溃".to_string())
-        .and_then(|r| r)?
-    };
-    {
-        let mut c = st.cache.lock().unwrap_or_else(|e| e.into_inner());
-        translate::lookup::cache_put_lookup(&mut *c, &text, &variant, &dto);
-        let _ = c.flush();
-    }
-    Ok(dto)
-}
-
-#[tauri::command(async)]
-pub fn llm_list_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
-    std::thread::spawn(move || {
-        let http = translate::http::UreqClient::shared();
-        translate::lookup::fetch_models(&base_url, &api_key, http)
-    })
-    .join()
-    .map_err(|_| "模型列表线程崩溃".to_string())
-    .and_then(|r| r)
-}
-
 #[tauri::command]
 pub fn stop_translation(state: tauri::State<AppTxn>) {
     state.cancel.store(true, Ordering::SeqCst);
@@ -146,7 +79,9 @@ pub fn translate_document(
     // html 正是这些编号的落点。
     let target = translate::engine::TargetLang::from_tag(&target_lang);
     let (units, indices_blocks) = match mode.as_str() {
-        "translation" => markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range, target),
+        "translation" => {
+            markdown::units::collect_text_runs_windowed_blocks(&blocks, win_range, target)
+        }
         "bilingual" => {
             let units = markdown::units::collect_translatable_windowed(&blocks, win_range, target);
             let blocks_of = units.iter().map(|&(i, _)| i).collect::<Vec<_>>();
@@ -194,8 +129,9 @@ pub fn translate_document(
         // 纯 map 读，短临界区。
         if window.is_some() {
             let shared = state.cache.lock().unwrap_or_else(|e| e.into_inner());
-            done.translations =
-                Some(sweep_cached_pairs(&*shared, &provider, &variant, &blocks, bilingual, target));
+            done.translations = Some(sweep_cached_pairs(
+                &*shared, &provider, &variant, &blocks, bilingual, target,
+            ));
         }
         return Ok(TranslateStart::Cached { done });
     }
@@ -227,7 +163,12 @@ pub fn translate_document(
         window.is_some(),
         target,
     );
-    Ok(TranslateStart::Started { r#gen, first_index, indices, indices_blocks })
+    Ok(TranslateStart::Started {
+        r#gen,
+        first_index,
+        indices,
+        indices_blocks,
+    })
 }
 
 /// 会话收口重建：用前端累积的完整 translations 表渲染整树 canonical html。
@@ -306,68 +247,6 @@ pub fn export_translation(
     }
 }
 
-#[tauri::command]
-pub fn check_translation(
-    content: String,
-    translations: Vec<(usize, String)>,
-    mode: String,
-    target_lang: String,
-) -> Vec<translate::check::Issue> {
-    let map: HashMap<usize, String> = translations.into_iter().collect();
-    // mode/target_lang 决定在哪套索引空间（translation = data-ri run 空间，
-    // bilingual = data-bi 块空间）收集单元再对号——必须与产出 translations
-    // 的那轮翻译同模式、同方向（P0-2 / BUG-2）。
-    translate::check::check_translation(&content, &map, &mode, &target_lang)
-}
-
-/// S5 #17–20：AI 语义核查。**锁定 llm**：凭据固定取前端 llmReady 门放行的
-/// `providers["llm"]` 那份，命令不设 provider 入参——不给他源留任何口子
-/// （correctness §七.1 R2：绝不静默降级）。结果**不进 Cache**（红线 7）。
-/// 取消与查词同规矩（REL-7）：共享翻译取消旗标，翻译空闲时清陈旧旗标；
-/// 停止核查 = 前端调 stop_translation。分批进度经 `review-progress` 事件。
-#[tauri::command(async)]
-pub fn review_semantic(
-    content: String,
-    translations: Vec<(usize, String)>,
-    mode: String,
-    target_lang: String,
-    instruction: Option<String>,
-    creds: HashMap<String, String>,
-    app: AppHandle,
-    st: tauri::State<AppTxn>,
-) -> Result<translate::review::ReviewOutcome, String> {
-    note_translate_activity();
-    let creds = translate::providers::Creds(creds);
-    let map: HashMap<usize, String> = translations.into_iter().collect();
-    let cancel = Arc::clone(&st.cancel);
-    if !st.running.load(Ordering::SeqCst) {
-        st.cancel.store(false, Ordering::SeqCst);
-    }
-    std::thread::spawn(move || {
-        let http = translate::cancel::CancelableClient {
-            inner: translate::http::UreqClient::shared(),
-            cancel: &cancel,
-        };
-        let mut on_progress = |done: usize, total: usize| {
-            let _ = app.emit("review-progress", super::events::ReviewProgressEvt { done, total });
-        };
-        translate::review::review_semantic(
-            &content,
-            &map,
-            &mode,
-            &target_lang,
-            instruction.as_deref(),
-            &creds,
-            &http,
-            cancel.as_ref(),
-            &mut on_progress,
-        )
-    })
-    .join()
-    .map_err(|_| "核查线程崩溃".to_string())
-    .and_then(|r| r)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,7 +262,8 @@ mod tests {
         .unwrap();
         assert!(r.html.contains(r#"<div class="tr-box">中文标题</div>"#));
         assert!(r.html.contains(r#"<div class="tr-box">你好世界</div>"#));
-        let r2 = render_translated("Hi".into(), "original".into(), vec![], "zh".into()).unwrap_err();
+        let r2 =
+            render_translated("Hi".into(), "original".into(), vec![], "zh".into()).unwrap_err();
         assert!(r2.contains("不支持的模式"));
     }
 
@@ -393,12 +273,28 @@ mod tests {
     #[test]
     fn render_translated_numbering_follows_the_direction() {
         let content = "# 标题\n\n正文段落";
-        let zh = render_translated(content.into(), "translation".into(), vec![], "zh".into()).unwrap();
-        let en = render_translated(content.into(), "translation".into(), vec![], "en".into()).unwrap();
-        assert!(!zh.html.contains("data-bi="), "zh 下纯中文文档无可译块：{}", zh.html);
-        assert!(en.html.contains(r#"data-bi="0""#) && en.html.contains(r#"data-bi="1""#), "{}", en.html);
+        let zh =
+            render_translated(content.into(), "translation".into(), vec![], "zh".into()).unwrap();
+        let en =
+            render_translated(content.into(), "translation".into(), vec![], "en".into()).unwrap();
+        assert!(
+            !zh.html.contains("data-bi="),
+            "zh 下纯中文文档无可译块：{}",
+            zh.html
+        );
+        assert!(
+            en.html.contains(r#"data-bi="0""#) && en.html.contains(r#"data-bi="1""#),
+            "{}",
+            en.html
+        );
         // 未知 tag 回落 zh（老配置/手改入参不得让渲染崩掉）
-        let junk = render_translated(content.into(), "translation".into(), vec![], "klingon".into()).unwrap();
+        let junk = render_translated(
+            content.into(),
+            "translation".into(),
+            vec![],
+            "klingon".into(),
+        )
+        .unwrap();
         assert_eq!(junk.html, zh.html);
     }
 
@@ -439,20 +335,18 @@ mod tests {
         for mode in ["translation", "bilingual"] {
             let content = "Alpha.\n\nBeta.";
             let vec = vec![(0usize, "甲,乙".to_string()), (1usize, "丙...".to_string())];
-            let on = export_translation(
-                content.into(),
-                vec.clone(),
-                mode.into(),
-                "zh".into(),
-                true,
-            );
+            let on =
+                export_translation(content.into(), vec.clone(), mode.into(), "zh".into(), true);
             let target = TargetLang::from_tag("zh");
             let pre: Vec<(usize, String)> = vec
                 .into_iter()
                 .map(|(k, v)| (k, relayout(&v, target)))
                 .collect();
             let off = export_translation(content.into(), pre, mode.into(), "zh".into(), false);
-            assert_eq!(on, off, "relayout 必须是纯 value 级替换（key/块数不动），mode={mode}");
+            assert_eq!(
+                on, off,
+                "relayout 必须是纯 value 级替换（key/块数不动），mode={mode}"
+            );
         }
     }
 
@@ -461,13 +355,7 @@ mod tests {
     fn relayout_applies_to_bilingual_path_too() {
         let content = "Hello.";
         let vec = vec![(0usize, "中文,测试".to_string())];
-        let on = export_translation(
-            content.into(),
-            vec,
-            "bilingual".into(),
-            "zh".into(),
-            true,
-        );
+        let on = export_translation(content.into(), vec, "bilingual".into(), "zh".into(), true);
         assert!(on.contains("中文，测试"), "双语路径也应施加：{on}");
     }
 }

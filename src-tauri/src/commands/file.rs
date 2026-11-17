@@ -164,7 +164,10 @@ pub(crate) fn apply_op_map(op: dto::EditOp) -> dto::EditResult {
     let s = snap_down(c, op.sel[0]);
     let e = snap_down(c, op.sel[1]).max(s);
     let (content, sel) = editor::apply_op(c, (s, e), &op.op);
-    dto::EditResult { content, sel: [sel.0, sel.1] }
+    dto::EditResult {
+        content,
+        sel: [sel.0, sel.1],
+    }
 }
 
 /// Clamp to string length and floor to the nearest preceding char boundary.
@@ -186,10 +189,15 @@ mod tests {
         assert_eq!(resolve("https://a/b.png", Some("D:/w")), None);
         assert_eq!(resolve("data:image/png;base64,x", None), None);
         assert_eq!(
-            resolve("img/logo.png", Some("D:/w")).unwrap().to_string_lossy(),
+            resolve("img/logo.png", Some("D:/w"))
+                .unwrap()
+                .to_string_lossy(),
             "D:/w/img/logo.png"
         );
-        assert_eq!(resolve("file://C:/x.png", None).unwrap().to_string_lossy(), "C:/x.png");
+        assert_eq!(
+            resolve("file://C:/x.png", None).unwrap().to_string_lossy(),
+            "C:/x.png"
+        );
         // 平移自旧逻辑的边界：空 src 与纯空白拒绝
         assert_eq!(resolve("", Some("D:/w")), None);
         assert_eq!(resolve("   ", Some("D:/w")), None);
@@ -204,14 +212,20 @@ mod tests {
         );
         // 四斜杠同样剥净到净路径
         assert_eq!(
-            resolve("file:////C:/x.png", None).unwrap().to_string_lossy(),
+            resolve("file:////C:/x.png", None)
+                .unwrap()
+                .to_string_lossy(),
             "C:/x.png"
         );
     }
 
     #[test]
     fn apply_op_maps_types() {
-        let op = dto::EditOp { content: "hi".into(), sel: [0, 2], op: "bold".into() };
+        let op = dto::EditOp {
+            content: "hi".into(),
+            sel: [0, 2],
+            op: "bold".into(),
+        };
         let r = apply_op_map(op);
         assert_eq!(r.content, "**hi**");
         // 内核契约（editor::wrap）：包裹后选区落在标记内的原文字上
@@ -221,13 +235,21 @@ mod tests {
     #[test]
     fn apply_op_cjk_selection_is_snapped_to_char_boundaries() {
         // 每个汉字 3 字节：1/7/99 都不在字符边界上，必须收敛而非 panic
-        let op = dto::EditOp { content: "你好".into(), sel: [1, 4], op: "bold".into() };
+        let op = dto::EditOp {
+            content: "你好".into(),
+            sel: [1, 4],
+            op: "bold".into(),
+        };
         let r = apply_op_map(op);
         assert_eq!(r.content, "**你**好");
         assert_eq!(r.sel, [2, 5]);
 
         // 越界选择 → 钳到末尾空选区，插入占位符并选中它
-        let beyond = dto::EditOp { content: "你好".into(), sel: [7, 99], op: "italic".into() };
+        let beyond = dto::EditOp {
+            content: "你好".into(),
+            sel: [7, 99],
+            op: "italic".into(),
+        };
         let r2 = apply_op_map(beyond);
         assert_eq!(r2.content, "你好*斜体*");
         assert_eq!(r2.sel, [7, 13]);
@@ -250,14 +272,20 @@ mod tests {
         // 未登记任何根时同样的 `..`：逃出文档目录，拒绝
         assert_eq!(resolve_within("../assets/pic.png", Some(&base), &[]), None);
         // 越过工作区根：拒绝
-        assert_eq!(resolve_within("../../escape.png", Some(&base), &roots), None);
+        assert_eq!(
+            resolve_within("../../escape.png", Some(&base), &roots),
+            None
+        );
         // file:// 根内绝对路径：放行；根外：拒绝
         assert!(resolve_within(&format!("file://{root_s}/docs/pic.png"), None, &roots).is_some());
         let other =
             std::env::temp_dir().join(format!("qingbird-p12-res-out-{}", std::process::id()));
         std::fs::create_dir_all(&other).unwrap();
         let other_s = other.to_string_lossy().replace('\\', "/");
-        assert_eq!(resolve_within(&format!("file://{other_s}/x.png"), None, &roots), None);
+        assert_eq!(
+            resolve_within(&format!("file://{other_s}/x.png"), None, &roots),
+            None
+        );
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&other);

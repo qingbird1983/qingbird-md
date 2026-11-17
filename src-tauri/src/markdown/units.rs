@@ -1,5 +1,5 @@
 use super::model::{Block, Inline};
-use crate::translate::engine::{needs_translation, TargetLang};
+use crate::translate::engine::{TargetLang, needs_translation};
 use crate::translate::skip::RefSkipState;
 
 /// Concatenated plain text of an inline run.
@@ -105,7 +105,6 @@ pub fn collect_text_runs_windowed_blocks(
     (out, blocks_out)
 }
 
-
 /// walk_* 系（本函数与 `walk_collect`）按模型嵌套递归；递归深度 = 模型块
 /// 嵌套深度，已被解析层 model.rs 的 `MAX_NESTING_DEPTH`（SEC-5，2026-09-20）
 /// 封顶——恶意深嵌套文件不会在此爆栈，模型是深度有界的唯一入口。
@@ -127,7 +126,15 @@ fn walk_run_collect_blocks(
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
+                    collect_runs_inline_blocks(
+                        text,
+                        counter,
+                        out,
+                        blocks_out,
+                        b_idx,
+                        in_window(b_idx, window),
+                        target,
+                    );
                 } else {
                     collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false, target);
                 }
@@ -138,15 +145,27 @@ fn walk_run_collect_blocks(
                 if trans {
                     let b_idx = *bi;
                     *bi += 1;
-                    collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
+                    collect_runs_inline_blocks(
+                        text,
+                        counter,
+                        out,
+                        blocks_out,
+                        b_idx,
+                        in_window(b_idx, window),
+                        target,
+                    );
                 } else {
                     collect_runs_inline_blocks(text, counter, out, blocks_out, *bi, false, target);
                 }
             }
-            Block::Quote { blocks } => walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out, target),
+            Block::Quote { blocks } => {
+                walk_run_collect_blocks(blocks, counter, bi, st, window, out, blocks_out, target)
+            }
             Block::List { items, .. } => {
                 for it in items {
-                    walk_run_collect_blocks(&it.blocks, counter, bi, st, window, out, blocks_out, target);
+                    walk_run_collect_blocks(
+                        &it.blocks, counter, bi, st, window, out, blocks_out, target,
+                    );
                 }
             }
             Block::Table { headers, rows, .. } => {
@@ -156,7 +175,15 @@ fn walk_run_collect_blocks(
                     if trans {
                         let b_idx = *bi;
                         *bi += 1;
-                        collect_runs_inline_blocks(h, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
+                        collect_runs_inline_blocks(
+                            h,
+                            counter,
+                            out,
+                            blocks_out,
+                            b_idx,
+                            in_window(b_idx, window),
+                            target,
+                        );
                     } else {
                         collect_runs_inline_blocks(h, counter, out, blocks_out, *bi, false, target);
                     }
@@ -168,9 +195,19 @@ fn walk_run_collect_blocks(
                         if trans {
                             let b_idx = *bi;
                             *bi += 1;
-                            collect_runs_inline_blocks(cell, counter, out, blocks_out, b_idx, in_window(b_idx, window), target);
+                            collect_runs_inline_blocks(
+                                cell,
+                                counter,
+                                out,
+                                blocks_out,
+                                b_idx,
+                                in_window(b_idx, window),
+                                target,
+                            );
                         } else {
-                            collect_runs_inline_blocks(cell, counter, out, blocks_out, *bi, false, target);
+                            collect_runs_inline_blocks(
+                                cell, counter, out, blocks_out, *bi, false, target,
+                            );
                         }
                     }
                 }
@@ -220,14 +257,15 @@ fn collect_runs_inline_blocks(
             Inline::Strong(x) | Inline::Emph(x) | Inline::Del(x) | Inline::Mark(x) => {
                 collect_runs_inline_blocks(x, counter, out, blocks_out, b_idx, collect, target)
             }
-            Inline::Link { text, .. } => collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, collect, target),
+            Inline::Link { text, .. } => {
+                collect_runs_inline_blocks(text, counter, out, blocks_out, b_idx, collect, target)
+            }
             Inline::Math(_) => {}
             Inline::FootnoteRef(_) => {} // 编号引用不占 run 号
             _ => {}
         }
     }
 }
-
 
 /// Collect translatable text units in document order (full document).
 pub fn collect_translatable(blocks: &[Block], target: TargetLang) -> Vec<(usize, String)> {
@@ -308,7 +346,9 @@ fn walk_collect(
             Block::Metadata { .. } => {}
             // 同上：块级 HTML 不占 bi 号（渲染侧不产 data-bi、无译文可贴）。
             Block::Html { .. } => {}
-            Block::FootnoteDef { blocks, .. } => walk_collect(blocks, counter, st, window, out, target),
+            Block::FootnoteDef { blocks, .. } => {
+                walk_collect(blocks, counter, st, window, out, target)
+            }
             _ => {}
         }
     }
@@ -317,7 +357,7 @@ fn walk_collect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markdown::{parse_blocks};
+    use crate::markdown::parse_blocks;
 
     /// 本模块测试默认译成中文（= Step 0 的生产行为）。
     const ZH: TargetLang = TargetLang::Zh;
@@ -339,8 +379,8 @@ mod tests {
     fn collect_translatable_uses_block_plain_text() {
         let blocks = parse_blocks("# Eng title\n\n## 中文标题");
         let u = collect_translatable(&blocks, ZH);
-        assert_eq!(u.len(), 1);          // 中文标题被 needs_translation 跳过
-        assert_eq!(u[0].1, "Eng title");  // inline 前缀不带 "# "
+        assert_eq!(u.len(), 1); // 中文标题被 needs_translation 跳过
+        assert_eq!(u[0].1, "Eng title"); // inline 前缀不带 "# "
     }
 
     #[test]
@@ -350,7 +390,10 @@ mod tests {
         assert_eq!(all.len(), 5);
         let w = collect_translatable_windowed(&blocks, Some((1, 3)), ZH);
         assert_eq!(w, vec![(1usize, "Two".into()), (2usize, "Three".into())]);
-        assert_eq!(collect_translatable_windowed(&blocks, Some((4, 99)), ZH).len(), 1);
+        assert_eq!(
+            collect_translatable_windowed(&blocks, Some((4, 99)), ZH).len(),
+            1
+        );
     }
 
     #[test]
@@ -427,7 +470,11 @@ mod tests {
         let r = collect_text_runs(&blocks, ZH);
         assert_eq!(
             r,
-            vec![(0usize, "See".into()), (1usize, " this".into()), (2usize, "x".into())]
+            vec![
+                (0usize, "See".into()),
+                (1usize, " this".into()),
+                (2usize, "x".into())
+            ]
         );
     }
 
